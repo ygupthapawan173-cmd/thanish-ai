@@ -256,6 +256,28 @@ class PhoneControlManager(
         }
     }
 
+    fun shareWhatsAppMessage(message: String): CommandExecutionResult {
+        val safeMessage = message.trim().take(1000)
+        if (safeMessage.isBlank()) return CommandExecutionResult(false, "పంపాల్సిన మెసేజ్ ఖాళీగా ఉంది బాస్.")
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, safeMessage)
+            setPackage("com.whatsapp")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            if (intent.resolveActivity(appContext.packageManager) == null) {
+                CommandExecutionResult(false, "బాస్, WhatsApp install అయి ఉందో చూడండి.")
+            } else {
+                appContext.startActivity(intent)
+                CommandExecutionResult(true, "మెసేజ్ WhatsApp‌లో సిద్ధంగా ఉంది. Contact ఎంచుకుని Send నొక్కండి బాస్.")
+            }
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to open WhatsApp message draft", error)
+            CommandExecutionResult(false, "WhatsApp మెసేజ్ తెరవలేకపోయాను బాస్.")
+        }
+    }
+
     fun searchYouTube(query: String): CommandExecutionResult {
         val safeQuery = query.trim().take(120)
         if (safeQuery.isBlank()) return CommandExecutionResult(false, "ఏ పాట వెతకాలో చెప్పండి బాస్.")
