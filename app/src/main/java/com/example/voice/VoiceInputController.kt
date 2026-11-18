@@ -135,8 +135,13 @@ class VoiceInputController(
                     )
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.tag)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, locale.tag)
+                    // Do not force an offline model: many Android devices need Google's
+                    // online speech service for Telugu (te-IN) recognition.
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_800L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1_200L)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 }
 
@@ -197,14 +202,15 @@ class VoiceInputController(
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
                 "మైక్రోఫోన్ పర్మిషన్ అవసరం బాస్!"
             SpeechRecognizer.ERROR_NETWORK,
-            SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
-                "వాయిస్ గుర్తించడానికి ఇంటర్నెట్ కనెక్షన్ కావాలి బాస్. నెట్ చెక్ చేసి మళ్ళీ ట్రై చేయండి."
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+            SpeechRecognizer.ERROR_SERVER ->
+                "తెలుగు వాయిస్ సర్వీస్ కనెక్ట్ కాలేదు. ఇంటర్నెట్ చెక్ చేసి, Google app / Speech Services by Google update చేసి మళ్ళీ ప్రయత్నించండి."
             SpeechRecognizer.ERROR_NO_MATCH ->
                 "అయ్యో బాస్, మీ మాట సరిగ్గా అర్థం కాలేదు! ఇంకొంచెం స్పష్టంగా చెప్పండి."
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                "బాస్, మీరు ఇంకా మాట్లాడలేదు అనుకుంటా! మైక్ మళ్ళీ నొక్కి చెప్పండి."
+                "మీ మాట వినిపించలేదు. మైక్ నొక్కిన వెంటనే 1–2 సెకన్లు ఆగి స్పష్టంగా మాట్లాడండి."
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
-                "మైక్ కాస్త బిజీగా ఉంది బాస్, ఒక సెకను ఆగి మళ్ళీ నొక్కండి."
+                "మైక్ కాస్త బిజీగా ఉంది. ఒక సెకను ఆగి మళ్ళీ ప్రయత్నించండి."
             SpeechRecognizer.ERROR_CLIENT -> null
             else ->
                 "వాయిస్ వినడంలో సమస్య వచ్చింది (కోడ్: $error). కింద టైప్ చేయండి బాస్!"
