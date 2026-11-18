@@ -104,7 +104,7 @@
     <string name="settings_screen_title">SYSTEM CALIBRATION</string>
     <string name="settings_screen_subtitle">తెలుగు వాయిస్, TTS &amp; జార్విస్ సెట్టింగ్స్</string>
     <string name="settings_auto_speak_title">Auto-Speak Telugu Replies</string>
-    <string name="settings_auto_speak_sub">పాండు బాబు సమాధానాలను ఆటోమేటిక్‌గా చదువుతుంది</string>
+    <string name="settings_auto_speak_sub">ZENO సమాధానాలను ఆటోమేటిక్‌గా చదువుతుంది</string>
     <string name="settings_input_lang_title">Voice Recognition Language</string>
 
     <!-- Phone Control Center -->
