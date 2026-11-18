@@ -791,7 +791,7 @@ fun SettingsCommandTab(
             }
         }
 
-        // OpenJarvis Cloud API connection
+        // OpenAI-compatible multi-provider cloud API connection
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -803,9 +803,9 @@ fun SettingsCommandTab(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("AI Provider — OpenJarvis Cloud", style = MaterialTheme.typography.titleMedium, color = NeonSapphire)
+                    Text("AI Provider — Cloud Providers", style = MaterialTheme.typography.titleMedium, color = NeonSapphire)
                     Text(
-                        text = if (uiState.openJarvisConfigured) "OpenJarvis connection settings ఈ device‌లో secure‌గా save అయ్యాయి." else "Render deployment తర్వాత ఇక్కడ server URL, API key ఇవ్వండి.",
+                        text = if (uiState.openJarvisConfigured) "Cloud provider connection ఈ device‌లో secure‌గా save అయ్యింది." else "OpenAI-compatible provider endpoint, API key, model ID ఇవ్వండి.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (uiState.openJarvisConfigured) HudOnlineGreen else SlateCyan
                     )
@@ -813,16 +813,16 @@ fun SettingsCommandTab(
                         value = openJarvisUrlInput,
                         onValueChange = { openJarvisUrlInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Render HTTPS URL") },
-                        placeholder = { Text("https://your-service.onrender.com") },
+                        label = { Text("Provider API base URL (HTTPS)") },
+                        placeholder = { Text("https://api.deepseek.com లేదా provider URL") },
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = openJarvisKeyInput,
                         onValueChange = { openJarvisKeyInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("OpenJarvis API key") },
-                        placeholder = { Text("Render dashboard generated key") },
+                        label = { Text("Provider API key") },
+                        placeholder = { Text("Provider dashboard నుంచి తీసుకున్న key") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation()
                     )
@@ -843,7 +843,7 @@ fun SettingsCommandTab(
                             openJarvisKeyInput.length >= 20 && openJarvisModelInput.isNotBlank(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Connect OpenJarvis Securely")
+                        Text("Connect Cloud Provider Securely")
                     }
                     if (uiState.openJarvisConfigured) {
                         OutlinedButton(
@@ -851,11 +851,11 @@ fun SettingsCommandTab(
                             modifier = Modifier.fillMaxWidth(),
                             border = BorderStroke(1.dp, HudAlertRed)
                         ) {
-                            Text("Disconnect OpenJarvis", color = HudAlertRed)
+                            Text("Disconnect Cloud Provider", color = HudAlertRed)
                         }
                     }
                     Text(
-                        "API key Android Keystore encryption‌తో ఈ phone‌లోనే నిల్వ ఉంటుంది. API key ను GitHub లేదా Chat‌లో పెట్టవద్దు. openrouter/free model free-tier పరిమితులకు లోబడి ఉంటుంది.",
+                        "ఈ కనెక్షన్ OpenAI-compatible /v1/chat/completions APIలను ఉపయోగిస్తుంది (ఉదా: DeepSeek, NVIDIA NIM, OpenAI-compatible gateways, custom HTTPS servers). Gemini native API మరియు Ollama local API ఇంకా ఈ కనెక్షన్‌లో లేవు. API key Android Keystore‌లో encrypt అవుతుంది; GitHub లేదా Chat‌లో పెట్టవద్దు.",
                         style = MaterialTheme.typography.bodySmall,
                         color = SlateCyan
                     )
