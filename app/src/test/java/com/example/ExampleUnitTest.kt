@@ -41,7 +41,7 @@ class ExampleUnitTest {
         assertEquals(TtsPersonalityPreset.CALM_JARVIS, calm)
         assertTrue(calm.pitch < 1.0f)
 
-        assertEquals(TtsPersonalityPreset.WITTY_JARVIS, TtsPersonalityPreset.fromId("unknown"))
+        assertEquals(TtsPersonalityPreset.TELUGU_MALE_JARVIS, TtsPersonalityPreset.fromId("unknown"))
     }
 
     @Test
