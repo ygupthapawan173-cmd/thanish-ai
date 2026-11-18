@@ -9,6 +9,7 @@ import com.example.R
 import com.example.ai.AiStreamEvent
 import com.example.ai.PanduAiRepository
 import com.example.ai.OpenRouterKeyStore
+import com.example.ai.OpenJarvisSettingsStore
 import com.example.control.AppControlTarget
 import com.example.control.CommandExecutionResult
 import com.example.control.DeviceControlState
@@ -76,7 +77,8 @@ data class PanduUiState(
     val isRecognitionAvailable: Boolean = true,
     val deviceControlState: DeviceControlState = DeviceControlState(),
     val pendingSensitiveAction: PendingSensitiveAction? = null,
-    val openRouterKeyConfigured: Boolean = false
+    val openRouterKeyConfigured: Boolean = false,
+    val openJarvisConfigured: Boolean = false
 ) {
     val autoSpeakEnabled: Boolean
         get() = ttsConfig.autoSpeakEnabled
@@ -97,6 +99,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val chatRepository = ChatRepository(database.chatMessageDao())
     private val ttsPrefsRepository = TtsPreferencesRepository(application)
     private val openRouterKeyStore = OpenRouterKeyStore(application)
+    private val openJarvisSettingsStore = OpenJarvisSettingsStore(application)
+    private val _openJarvisConfigured = MutableStateFlow(openJarvisSettingsStore.read() != null)
     private val aiRepository = PanduAiRepository(application)
     private val _openRouterKeyConfigured = MutableStateFlow(!openRouterKeyStore.read().isNullOrBlank())
     val openRouterKeyConfigured: StateFlow<Boolean> = _openRouterKeyConfigured
@@ -158,7 +162,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         val inputText: String,
         val deviceControlState: DeviceControlState,
         val pendingSensitiveAction: PendingSensitiveAction?,
-        val openRouterKeyConfigured: Boolean
+        val openRouterKeyConfigured: Boolean,
+        val openJarvisConfigured: Boolean
     )
 
     private data class TtsSlice(
@@ -186,9 +191,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val controlFlow = combine(
         phoneControlManager.state,
         _pendingSensitiveAction,
-        _openRouterKeyConfigured
-    ) { deviceState, pending, keyConfigured ->
-        Triple(deviceState, pending, keyConfigured)
+        _openRouterKeyConfigured,
+        _openJarvisConfigured
+    ) { deviceState, pending, keyConfigured, jarvisConfigured ->
+        listOf(deviceState, pending, keyConfigured, jarvisConfigured)
     }
 
     private val interactionFlow = combine(
@@ -205,7 +211,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             inputText = input,
             deviceControlState = controlPair.first,
             pendingSensitiveAction = controlPair.second,
-            openRouterKeyConfigured = controlPair.third
+            openRouterKeyConfigured = controlPair[2] as Boolean,
+            openJarvisConfigured = controlPair[3] as Boolean
         )
     }
 
@@ -251,7 +258,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             isRecognitionAvailable = voiceInputController.isRecognitionAvailable,
             deviceControlState = interaction.deviceControlState,
             pendingSensitiveAction = interaction.pendingSensitiveAction,
-            openRouterKeyConfigured = interaction.openRouterKeyConfigured
+            openRouterKeyConfigured = interaction.openRouterKeyConfigured,
+            openJarvisConfigured = interaction.openJarvisConfigured
         )
     }.stateIn(
         scope = viewModelScope,
@@ -272,6 +280,22 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     fun clearOpenRouterKey() {
         openRouterKeyStore.clear()
         _openRouterKeyConfigured.value = false
+        _bannerError.value = null
+    }
+
+    fun saveOpenJarvisSettings(baseUrl: String, apiKey: String, model: String) {
+        try {
+            openJarvisSettingsStore.save(baseUrl, apiKey, model)
+            _openJarvisConfigured.value = true
+            _bannerError.value = null
+        } catch (e: Exception) {
+            _bannerError.value = e.localizedMessage ?: "OpenJarvis settings save కాలేదు."
+        }
+    }
+
+    fun clearOpenJarvisSettings() {
+        openJarvisSettingsStore.clear()
+        _openJarvisConfigured.value = false
         _bannerError.value = null
     }
 
