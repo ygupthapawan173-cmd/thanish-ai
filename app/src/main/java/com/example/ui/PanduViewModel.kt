@@ -95,6 +95,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val chatRepository = ChatRepository(database.chatMessageDao())
     private val ttsPrefsRepository = TtsPreferencesRepository(application)
     private val aiRepository = PanduAiRepository()
+    private val zenoMemory = com.example.ai.ZenoMemoryStore(application)
     private val ttsController = TeluguTtsController(application)
     private val phoneControlManager = PhoneControlManager(application)
 
@@ -531,6 +532,16 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         _bannerError.value = null
         _lastFailedPrompt.value = null
 
+        val memoryReply = zenoMemory.handleCommand(trimmed)
+        if (memoryReply != null) {
+            viewModelScope.launch {
+                if (saveUserTurn) chatRepository.saveUserMessage(trimmed, isVoiceInput)
+                val savedId = chatRepository.saveAssistantMessage(memoryReply)
+                if (currentTtsConfig.autoSpeakEnabled) ttsController.speak(memoryReply, savedId)
+            }
+            return
+        }
+
         val parsedCommand = PhoneCommandParser.parse(trimmed)
         if (parsedCommand != null) {
             handlePhoneControlCommand(
@@ -560,7 +571,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             }
             _aiGenState.value = AiGenState.Thinking
             try {
-                aiRepository.streamReply(historySnapshot, trimmed).collect { event ->
+                aiRepository.streamReply(historySnapshot, trimmed, zenoMemory.promptContext()).collect { event ->
                     when (event) {
                         is AiStreamEvent.Chunk -> {
                             _aiGenState.value = AiGenState.Streaming(event.accumulatedText)
