@@ -256,6 +256,21 @@ class PhoneControlManager(
         }
     }
 
+    fun searchYouTube(query: String): CommandExecutionResult {
+        val safeQuery = query.trim().take(120)
+        if (safeQuery.isBlank()) return CommandExecutionResult(false, "ఏ పాట వెతకాలో చెప్పండి బాస్.")
+        val uri = Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(safeQuery))
+        val youtubeIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+            setPackage("com.google.android.youtube")
+        }
+        val browserIntent = Intent(Intent.ACTION_VIEW, uri)
+        return when {
+            youtubeIntent.resolveActivity(appContext.packageManager) != null -> launchActivityIntent(youtubeIntent, "YouTube search: $safeQuery")
+            browserIntent.resolveActivity(appContext.packageManager) != null -> launchActivityIntent(browserIntent, "YouTube search: $safeQuery")
+            else -> CommandExecutionResult(false, "బాస్, YouTube లేదా browser అందుబాటులో లేదు.")
+        }
+    }
+
     fun setTorchEnabled(enabled: Boolean): CommandExecutionResult {
         val camId = torchCameraId
         if (camId == null) {
