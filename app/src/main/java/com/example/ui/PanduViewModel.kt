@@ -184,7 +184,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
     private val controlFlow = combine(
         phoneControlManager.state,
-        _pendingSensitiveAction
+        _pendingSensitiveAction,
         _openRouterKeyConfigured
     ) { deviceState, pending, keyConfigured ->
         Triple(deviceState, pending, keyConfigured)
