@@ -98,7 +98,7 @@ class PanduAiRepository(context: Context? = null) {
         if (openJarvis.isConfigured) {
             try {
                 withTimeout(60_000L) {
-                    openJarvis.streamReply(history, promptWithMemory, safeMemory).collect { event ->
+                    openJarvis.streamReply(history, enrichedPrompt, safeMemory).collect { event ->
                         send(event)
                     }
                 }
