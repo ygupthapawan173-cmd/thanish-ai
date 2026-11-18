@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.R
 import com.example.ai.AiStreamEvent
 import com.example.ai.PanduAiRepository
+import com.example.ai.OpenRouterKeyStore
 import com.example.control.AppControlTarget
 import com.example.control.CommandExecutionResult
 import com.example.control.DeviceControlState
@@ -74,7 +75,8 @@ data class PanduUiState(
     val inputText: String = "",
     val isRecognitionAvailable: Boolean = true,
     val deviceControlState: DeviceControlState = DeviceControlState(),
-    val pendingSensitiveAction: PendingSensitiveAction? = null
+    val pendingSensitiveAction: PendingSensitiveAction? = null,
+    val openRouterKeyConfigured: Boolean = false
 ) {
     val autoSpeakEnabled: Boolean
         get() = ttsConfig.autoSpeakEnabled
@@ -94,7 +96,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     private val chatRepository = ChatRepository(database.chatMessageDao())
     private val ttsPrefsRepository = TtsPreferencesRepository(application)
-    private val aiRepository = PanduAiRepository()
+    private val openRouterKeyStore = OpenRouterKeyStore(application)
+    private val aiRepository = PanduAiRepository(application)
+    private val _openRouterKeyConfigured = MutableStateFlow(!openRouterKeyStore.read().isNullOrBlank())
+    val openRouterKeyConfigured: StateFlow<Boolean> = _openRouterKeyConfigured
     private val zenoMemory = com.example.ai.ZenoMemoryStore(application)
     private val ttsController = TeluguTtsController(application)
     private val phoneControlManager = PhoneControlManager(application)
@@ -241,13 +246,30 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             inputText = interaction.inputText,
             isRecognitionAvailable = voiceInputController.isRecognitionAvailable,
             deviceControlState = interaction.deviceControlState,
-            pendingSensitiveAction = interaction.pendingSensitiveAction
+            pendingSensitiveAction = interaction.pendingSensitiveAction,
+            openRouterKeyConfigured = _openRouterKeyConfigured.value
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000L),
         initialValue = PanduUiState()
     )
+
+    fun saveOpenRouterKey(apiKey: String) {
+        try {
+            openRouterKeyStore.save(apiKey)
+            _openRouterKeyConfigured.value = true
+            _bannerError.value = null
+        } catch (e: Exception) {
+            _bannerError.value = e.localizedMessage ?: "OpenRouter key save కాలేదు. మళ్లీ ప్రయత్నించండి."
+        }
+    }
+
+    fun clearOpenRouterKey() {
+        openRouterKeyStore.clear()
+        _openRouterKeyConfigured.value = false
+        _bannerError.value = null
+    }
 
     fun updateMicPermissionStatus(granted: Boolean, permanentlyDenied: Boolean = false) {
         _hasMicPermission.value = granted
