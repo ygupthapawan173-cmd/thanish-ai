@@ -32,8 +32,9 @@ jobs:
 
       - name: Generate debug signing keystore
         run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
           keytool -genkeypair -v \
-            -keystore debug.keystore \
+            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
             -storepass android \
             -alias androiddebugkey \
             -keypass android \
@@ -41,6 +42,8 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
+          test -s "$GITHUB_WORKSPACE/debug.keystore"
+          ls -l "$GITHUB_WORKSPACE/debug.keystore"
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
