@@ -2,6 +2,7 @@ package com.example.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -140,6 +141,24 @@ class VoiceInputController(
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    // Android 13+ can use phrase hints to improve recognition of app-specific
+                    // names and common Telugu/English phone commands.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        putStringArrayListExtra(
+                            RecognizerIntent.EXTRA_BIASING_STRINGS,
+                            arrayListOf(
+                                "ZENO", "Hey Assistant", "హాయ్", "నమస్కారం",
+                                "వాట్సాప్ ఓపెన్ చేయి", "యూట్యూబ్ ఓపెన్ చేయి",
+                                "కెమెరా ఓపెన్ చేయి", "సెట్టింగ్స్ ఓపెన్ చేయి",
+                                "వైఫై ఆన్ చేయి", "బ్లూటూత్ ఆన్ చేయి",
+                                "వాల్యూమ్ పెంచు", "బ్రైట్నెస్ తగ్గించు",
+                                "బ్యాటరీ ఎంత ఉంది", "ఫోన్ కాల్ చేయి",
+                                "open WhatsApp", "open YouTube", "open camera",
+                                "open settings", "turn on Wi-Fi", "turn on Bluetooth",
+                                "increase volume", "battery status"
+                            )
+                        )
+                    }
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_800L)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1_200L)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
@@ -200,7 +219,11 @@ class VoiceInputController(
             SpeechRecognizer.ERROR_AUDIO ->
                 "బాస్, ఆడియో రికార్డింగ్‌లో చిన్న సమస్య వచ్చింది. మళ్ళీ ట్రై చేయండి."
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                "మైక్రోఫోన్ పర్మిషన్ అవసరం బాస్!"
+                "మైక్రోఫోన్ పర్మిషన్ అవసరం. Settings → Apps → ZENO AI → Permissions లో Microphone Allow చేయండి."
+            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
+                "ఈ Speech service లో తెలుగు భాష అందుబాటులో లేదు. Google app / Speech Services update చేసి Telugu language support చెక్ చేయండి."
+            SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                "తెలుగు speech pack అందుబాటులో లేదు. Internet on చేసి మళ్ళీ ప్రయత్నించండి."
             SpeechRecognizer.ERROR_NETWORK,
             SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
             SpeechRecognizer.ERROR_SERVER ->
