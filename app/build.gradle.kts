@@ -19,6 +19,8 @@ android {
     versionCode = 1
     versionName = "1.0"
     val openJarvisBaseUrl = providers.gradleProperty("OPENJARVIS_BASE_URL").orElse("").get()
+    val openJarvisModel = providers.gradleProperty("OPENJARVIS_MODEL").orElse("qwen3:8b").get()
+    buildConfigField("String", "OPENJARVIS_MODEL", "\"$openJarvisModel\"")
     buildConfigField("String", "OPENJARVIS_BASE_URL", "\"$openJarvisBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
