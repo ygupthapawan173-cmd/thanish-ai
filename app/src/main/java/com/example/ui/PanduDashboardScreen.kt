@@ -114,6 +114,7 @@ import com.example.ui.theme.PanduBabuTheme
 import com.example.ui.theme.SlateCyan
 import com.example.voice.SpeechLocaleOption
 import com.example.voice.VoiceInputState
+import com.example.voice.WakeWordService
 import kotlinx.coroutines.launch
 
 @Composable
@@ -131,6 +132,7 @@ fun PanduDashboardScreen(
     var showTtsSheet by remember { mutableStateOf(false) }
     var showHelpSheet by remember { mutableStateOf(false) }
     var showAccessibilityConsentDialog by remember { mutableStateOf(false) }
+    var wakeWordEnabled by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(enabled = selectedTab != CyberpunkTab.HOME) {
         selectedTab = CyberpunkTab.HOME
@@ -212,6 +214,39 @@ fun PanduDashboardScreen(
                     .widthIn(max = 640.dp)
                     .align(Alignment.Center)
             ) {
+                Button(
+                    onClick = {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (!granted) {
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            val serviceIntent = Intent(context, WakeWordService::class.java).apply {
+                                action = if (wakeWordEnabled) WakeWordService.ACTION_STOP
+                                else WakeWordService.ACTION_START
+                            }
+                            if (wakeWordEnabled) {
+                                context.stopService(serviceIntent)
+                                wakeWordEnabled = false
+                            } else {
+                                ContextCompat.startForegroundService(context, serviceIntent)
+                                wakeWordEnabled = true
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (wakeWordEnabled) HudOnlineGreen else JarvisSurfaceElevated,
+                        contentColor = IceWhite
+                    )
+                ) {
+                    Text(if (wakeWordEnabled) "Stop Hey Assistant" else "Enable Hey Assistant")
+                }
+
                 JarvisTopBar(
                     status = uiState.jarvisStatus,
                     speechLocaleLabel = uiState.speechLocale.shortLabel,
