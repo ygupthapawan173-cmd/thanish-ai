@@ -5,7 +5,6 @@ import com.example.data.ChatMessageEntity
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Content
-import com.google.firebase.ai.type.Tool
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
@@ -61,8 +60,7 @@ class PanduAiRepository {
             },
             systemInstruction = content {
                 text(PANDU_SYSTEM_INSTRUCTION)
-            },
-            tools = listOf(Tool.googleSearch())
+            }
         )
     }
 
@@ -94,7 +92,7 @@ class PanduAiRepository {
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Gemini stream timed out after ${AI_TIMEOUT_MS}ms", e)
             throw PanduAiException(
-                "బాస్, సర్వర్ స్పందించడానికి 60 సెకన్ల కంటే ఎక్కువ టైమ్ పట్టింది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
+                "బాస్, సర్వర్ స్పందించడానికి 45 సెకన్ల కంటే ఎక్కువ టైమ్ పట్టింది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
                 e
             )
         } catch (e: CancellationException) {
