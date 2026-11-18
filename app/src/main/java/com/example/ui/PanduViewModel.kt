@@ -226,8 +226,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         voiceInputController.state,
         ttsFlow,
         permissionFlow,
-        interactionFlow
-    ) { messages, voiceState, ttsSlice, permissions, interaction ->
+        interactionFlow,
+        _openRouterKeyConfigured
+    ) { messages, voiceState, ttsSlice, permissions, interaction, keyConfigured ->
         PanduUiState(
             messages = messages,
             aiGenState = interaction.aiGenState,
@@ -247,7 +248,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             isRecognitionAvailable = voiceInputController.isRecognitionAvailable,
             deviceControlState = interaction.deviceControlState,
             pendingSensitiveAction = interaction.pendingSensitiveAction,
-            openRouterKeyConfigured = _openRouterKeyConfigured.value
+            openRouterKeyConfigured = keyConfigured
         )
     }.stateIn(
         scope = viewModelScope,
