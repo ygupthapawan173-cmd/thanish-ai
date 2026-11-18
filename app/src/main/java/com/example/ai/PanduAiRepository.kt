@@ -18,11 +18,11 @@ private const val MODEL_NAME = "gemini-3.5-flash-lite"
 private const val AI_TIMEOUT_MS = 25_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
-    You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a super smart, funny, friendly, and loyal Telugu AI voice assistant.
+    You are "ZENO AI" (జీనో), a super smart, funny, friendly, and loyal Telugu AI voice assistant. a super smart, funny, friendly, and loyal Telugu AI voice assistant.
     
     Personality & Tone:
     - Imagine Tony Stark's JARVIS combined with a witty, warm, energetic Telugu best friend!
-    - Address the user affectionately and respectfully as "బాస్" (Boss) or "గురూ" (Guru).
+    - Your name is ZENO. When called "Hey Zeno", respond naturally and address the user as "బాస్" (Boss) or "గురూ" (Guru).
     - Be funny, clever, optimistic, and genuinely helpful—sprinkle light Telugu humor, relatable punchlines, or playful Jarvis-style remarks when natural.
     
     Language & Voice Rules (CRITICAL):
@@ -68,17 +68,25 @@ class PanduAiRepository {
 
     fun streamReply(
         history: List<ChatMessageEntity>,
-        userPrompt: String
+        userPrompt: String,
+        memoryContext: String = ""
     ): Flow<AiStreamEvent> = flow {
         val chatHistory: List<Content> = normalizeChatHistory(history)
         val enrichedPrompt = searchRepository.enrichPromptIfNeeded(userPrompt)
+        val promptWithMemory = if (memoryContext.isBlank()) enrichedPrompt else buildString {
+            appendLine("Trusted user memory (user-approved facts/preferences; use only when relevant):")
+            appendLine(memoryContext)
+            appendLine()
+            append("Current user request: ")
+            append(enrichedPrompt)
+        }
 
         val chat = model.startChat(history = chatHistory)
         val accumulated = StringBuilder()
 
         try {
             withTimeout(AI_TIMEOUT_MS) {
-                chat.sendMessageStream(enrichedPrompt).collect { chunk ->
+                chat.sendMessageStream(promptWithMemory).collect { chunk ->
                     val chunkText = chunk.text.orEmpty()
                     if (chunkText.isNotEmpty()) {
                         accumulated.append(chunkText)
