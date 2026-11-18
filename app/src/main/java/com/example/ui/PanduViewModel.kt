@@ -166,6 +166,13 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         val openJarvisConfigured: Boolean
     )
 
+    private data class ControlSlice(
+        val deviceState: DeviceControlState,
+        val pending: PendingSensitiveAction?,
+        val openRouterConfigured: Boolean,
+        val openJarvisConfigured: Boolean
+    )
+
     private data class TtsSlice(
         val isSpeaking: Boolean,
         val speakingMessageId: Long?,
@@ -194,7 +201,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         _openRouterKeyConfigured,
         _openJarvisConfigured
     ) { deviceState, pending, keyConfigured, jarvisConfigured ->
-        listOf(deviceState, pending, keyConfigured, jarvisConfigured)
+        ControlSlice(deviceState, pending, keyConfigured, jarvisConfigured)
     }
 
     private val interactionFlow = combine(
@@ -209,10 +216,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             bannerError = banner,
             lastFailedPrompt = failedPrompt,
             inputText = input,
-            deviceControlState = controlPair.first,
-            pendingSensitiveAction = controlPair.second,
-            openRouterKeyConfigured = controlPair[2] as Boolean,
-            openJarvisConfigured = controlPair[3] as Boolean
+            deviceControlState = controlPair.deviceState,
+            pendingSensitiveAction = controlPair.pending,
+            openRouterKeyConfigured = controlPair.openRouterConfigured,
+            openJarvisConfigured = controlPair.openJarvisConfigured
         )
     }
 
