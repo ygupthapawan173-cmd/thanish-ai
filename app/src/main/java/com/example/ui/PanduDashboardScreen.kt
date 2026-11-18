@@ -315,6 +315,8 @@ fun PanduDashboardScreen(
                     onOpenTtsSettings = { showTtsSheet = true },
                     onOpenHelp = { showHelpSheet = true },
                     onRequestClearChat = { showClearDialog = true },
+                    onSaveOpenRouterKey = { viewModel.saveOpenRouterKey(it) },
+                    onClearOpenRouterKey = { viewModel.clearOpenRouterKey() },
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
 
