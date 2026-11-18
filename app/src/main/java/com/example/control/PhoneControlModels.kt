@@ -68,7 +68,7 @@ sealed interface PhoneControlCommand {
     data class PerformGlobalNav(val action: GlobalNavigationAction) : PhoneControlCommand
 }
 
-sealed interface PendingSensitiveAction {
+enum class MusicTransportAction { NEXT, PREVIOUS, PAUSE, PLAY, STOP }\n\nsealed interface PendingSensitiveAction {
     val title: String
     val description: String
 
