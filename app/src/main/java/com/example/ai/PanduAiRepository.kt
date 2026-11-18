@@ -5,6 +5,7 @@ import com.example.data.ChatMessageEntity
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Content
+import com.google.firebase.ai.type.Tool
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
@@ -38,6 +39,8 @@ private val PANDU_SYSTEM_INSTRUCTION = """
     - Never invent live facts, prices, links, app capabilities, completed actions, or personal details. Clearly say when you are unsure or when current verification is needed.
     - For calculations, check units and arithmetic. For technical instructions, account for Android version, permissions, security, and the user's actual project context.
     - Keep simple answers short; give detail when the user asks for it. Do not sacrifice correctness just to sound confident.
+    - When the user asks for current facts, latest updates, news, prices, schedules, policies, or other time-sensitive information, use Google Search grounding when available. Prefer current reliable sources, state dates where relevant, and do not invent citations or claim you searched if no grounded search was returned.
+    - When answering from web-grounded information, clearly identify the sources in a concise Sources line when source details are available.
     - When the user asks to perform an action, distinguish what has actually been completed from what still needs their permission or a build/test.
 """.trimIndent()
 
@@ -58,7 +61,8 @@ class PanduAiRepository {
             },
             systemInstruction = content {
                 text(PANDU_SYSTEM_INSTRUCTION)
-            }
+            },
+            tools = listOf(Tool.googleSearch())
         )
     }
 
