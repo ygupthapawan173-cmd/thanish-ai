@@ -6,36 +6,27 @@ enum class TtsPersonalityPreset(
     val speechRate: Float,
     val shortHudLabel: String
 ) {
-    WITTY_JARVIS(
-        id = "witty_jarvis",
-        pitch = 1.08f,
-        speechRate = 1.06f,
-        shortHudLabel = "WITTY"
-    ),
-    CALM_JARVIS(
-        id = "calm_jarvis",
-        pitch = 0.94f,
-        speechRate = 0.96f,
-        shortHudLabel = "COOL"
-    ),
-    MASS_MACHA(
-        id = "mass_macha",
-        pitch = 1.15f,
-        speechRate = 1.14f,
-        shortHudLabel = "JOSH"
-    );
+    TELUGU_MALE_JARVIS("telugu_male_jarvis", 0.88f, 1.02f, "JARVIS"),
+    TELUGU_FEMALE_SWEET("telugu_female_sweet", 1.18f, 0.96f, "SWEET"),
+    TELUGU_FUNNY_COMEDY("telugu_funny_comedy", 1.24f, 1.16f, "FUNNY"),
+    TELUGU_NATURAL("telugu_natural", 1.00f, 1.00f, "NORMAL"),
+
+    // Legacy IDs are retained so previously saved settings continue to load.
+    WITTY_JARVIS("witty_jarvis", 1.08f, 1.06f, "WITTY"),
+    CALM_JARVIS("calm_jarvis", 0.94f, 0.96f, "COOL"),
+    MASS_MACHA("mass_macha", 1.15f, 1.14f, "JOSH");
 
     companion object {
         fun fromId(id: String?): TtsPersonalityPreset {
-            return entries.firstOrNull { it.id == id } ?: WITTY_JARVIS
+            return entries.firstOrNull { it.id == id } ?: TELUGU_MALE_JARVIS
         }
     }
 }
 
 data class TeluguTtsConfig(
-    val preset: TtsPersonalityPreset = TtsPersonalityPreset.WITTY_JARVIS,
-    val pitch: Float = TtsPersonalityPreset.WITTY_JARVIS.pitch,
-    val speechRate: Float = TtsPersonalityPreset.WITTY_JARVIS.speechRate,
+    val preset: TtsPersonalityPreset = TtsPersonalityPreset.TELUGU_MALE_JARVIS,
+    val pitch: Float = TtsPersonalityPreset.TELUGU_MALE_JARVIS.pitch,
+    val speechRate: Float = TtsPersonalityPreset.TELUGU_MALE_JARVIS.speechRate,
     val selectedVoiceName: String? = null,
     val autoSpeakEnabled: Boolean = true
 )
