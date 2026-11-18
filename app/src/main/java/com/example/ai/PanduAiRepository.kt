@@ -15,7 +15,7 @@ import kotlinx.coroutines.withTimeout
 
 private const val TAG = "PanduAiRepository"
 private const val MODEL_NAME = "gemini-3.5-flash-lite"
-private const val AI_TIMEOUT_MS = 45_000L
+private const val AI_TIMEOUT_MS = 25_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
     You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a super smart, funny, friendly, and loyal Telugu AI voice assistant.
@@ -50,13 +50,15 @@ sealed interface AiStreamEvent {
 
 class PanduAiRepository {
 
+    private val searchRepository = PanduSearchRepository()
+
     private val model by lazy {
         Firebase.ai.generativeModel(
             modelName = MODEL_NAME,
             generationConfig = generationConfig {
                 temperature = 0.70f
                 topP = 0.90f
-                maxOutputTokens = 600
+                maxOutputTokens = 400
             },
             systemInstruction = content {
                 text(PANDU_SYSTEM_INSTRUCTION)
@@ -69,13 +71,14 @@ class PanduAiRepository {
         userPrompt: String
     ): Flow<AiStreamEvent> = flow {
         val chatHistory: List<Content> = normalizeChatHistory(history)
+        val enrichedPrompt = searchRepository.enrichPromptIfNeeded(userPrompt)
 
         val chat = model.startChat(history = chatHistory)
         val accumulated = StringBuilder()
 
         try {
             withTimeout(AI_TIMEOUT_MS) {
-                chat.sendMessageStream(userPrompt).collect { chunk ->
+                chat.sendMessageStream(enrichedPrompt).collect { chunk ->
                     val chunkText = chunk.text.orEmpty()
                     if (chunkText.isNotEmpty()) {
                         accumulated.append(chunkText)
@@ -92,7 +95,7 @@ class PanduAiRepository {
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Gemini stream timed out after ${AI_TIMEOUT_MS}ms", e)
             throw PanduAiException(
-                "బాస్, సర్వర్ స్పందించడానికి 45 సెకన్ల కంటే ఎక్కువ టైమ్ పట్టింది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
+                "బాస్, AI స్పందన ఆలస్యమైంది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
                 e
             )
         } catch (e: CancellationException) {
@@ -118,7 +121,7 @@ class PanduAiRepository {
     internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
         val recent = history
             .filter { it.text.isNotBlank() }
-            .takeLast(16)
+            .takeLast(8)
 
         val alternating = mutableListOf<Pair<String, String>>()
         for (msg in recent) {
