@@ -706,9 +706,14 @@ fun SettingsCommandTab(
     onRequestClearChat: () -> Unit,
     onSaveOpenRouterKey: (String) -> Unit,
     onClearOpenRouterKey: () -> Unit,
+    onSaveOpenJarvisSettings: (String, String, String) -> Unit,
+    onClearOpenJarvisSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var openRouterKeyInput by rememberSaveable { mutableStateOf("") }
+    var openJarvisUrlInput by rememberSaveable { mutableStateOf("") }
+    var openJarvisKeyInput by rememberSaveable { mutableStateOf("") }
+    var openJarvisModelInput by rememberSaveable { mutableStateOf("openrouter/free") }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -779,6 +784,78 @@ fun SettingsCommandTab(
                     }
                     Text(
                         "Key Android Keystore encryption‌తో ఈ phone‌లో మాత్రమే నిల్వ ఉంటుంది. Chat‌లో key పంపవద్దు.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SlateCyan
+                    )
+                }
+            }
+        }
+
+        // OpenJarvis Cloud API connection
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = JarvisSurface.copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, NeonSapphire.copy(alpha = 0.8f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("AI Provider — OpenJarvis Cloud", style = MaterialTheme.typography.titleMedium, color = NeonSapphire)
+                    Text(
+                        text = if (uiState.openJarvisConfigured) "OpenJarvis connection settings ఈ device‌లో secure‌గా save అయ్యాయి." else "Render deployment తర్వాత ఇక్కడ server URL, API key ఇవ్వండి.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (uiState.openJarvisConfigured) HudOnlineGreen else SlateCyan
+                    )
+                    OutlinedTextField(
+                        value = openJarvisUrlInput,
+                        onValueChange = { openJarvisUrlInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Render HTTPS URL") },
+                        placeholder = { Text("https://your-service.onrender.com") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = openJarvisKeyInput,
+                        onValueChange = { openJarvisKeyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("OpenJarvis API key") },
+                        placeholder = { Text("Render dashboard generated key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                    OutlinedTextField(
+                        value = openJarvisModelInput,
+                        onValueChange = { openJarvisModelInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Model ID") },
+                        placeholder = { Text("openrouter/free") },
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = {
+                            onSaveOpenJarvisSettings(openJarvisUrlInput, openJarvisKeyInput, openJarvisModelInput)
+                            openJarvisKeyInput = ""
+                        },
+                        enabled = openJarvisUrlInput.startsWith("https://") &&
+                            openJarvisKeyInput.length >= 20 && openJarvisModelInput.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Connect OpenJarvis Securely")
+                    }
+                    if (uiState.openJarvisConfigured) {
+                        OutlinedButton(
+                            onClick = onClearOpenJarvisSettings,
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, HudAlertRed)
+                        ) {
+                            Text("Disconnect OpenJarvis", color = HudAlertRed)
+                        }
+                    }
+                    Text(
+                        "API key Android Keystore encryption‌తో ఈ phone‌లోనే నిల్వ ఉంటుంది. API key ను GitHub లేదా Chat‌లో పెట్టవద్దు. openrouter/free model free-tier పరిమితులకు లోబడి ఉంటుంది.",
                         style = MaterialTheme.typography.bodySmall,
                         color = SlateCyan
                     )
