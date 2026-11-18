@@ -1,22 +1,29 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# ZENO AI
 
-# Run and deploy your AI Studio app
+ZENO AI is an Android-first Telugu voice assistant with chat, speech input/output, phone shortcuts, and an opt-in local memory.
 
-This contains everything you need to run your app locally.
+## Local memory commands
 
-View your app in AI Studio: https://ai.studio/apps/8beefbf6-6ffb-4b72-8da6-01e77fc5ef21
+ZENO only saves long-term memories when the user explicitly asks:
 
-## Run Locally
+- `Remember: I prefer Telugu replies`
+- `గుర్తుపెట్టుకో: నాకు చిన్న సమాధానాలు ఇష్టం`
+- `Forget: I prefer Telugu replies`
+- `Forget all memory`
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+Memories are stored locally on the device and added to the AI prompt when relevant. Ordinary conversation is not automatically saved as a personal memory. Passwords, OTPs, PINs, and API keys are rejected by the memory command.
 
+## Build
 
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+1. Open the project in Android Studio.
+2. Use JDK 21 and the Gradle wrapper configured by the project.
+3. Configure Firebase / AI provider credentials using local secrets. Never commit API keys or embed them in the APK.
+4. Run unit tests and build the debug APK.
+
+## Self-improvement safety
+
+Memory is opt-in and user-editable through explicit remember / forget commands. Future skill packs, knowledge refresh, and app updates must be verified and require user approval before code or permissions change. This app does not silently rewrite or install its own code.
+
+## Wake phrase note
+
+The bundled VoxRT wake-word model currently detects **“Hey Assistant”**, not “Hey Zeno”. ZENO branding is updated, but a custom Hey Zeno acoustic model is still required before that exact wake phrase can work.
