@@ -57,6 +57,7 @@ data class DeviceControlState(
 
 sealed interface PhoneControlCommand {
     data class OpenApp(val target: AppControlTarget) : PhoneControlCommand
+    data class SearchYouTube(val query: String) : PhoneControlCommand
     data class SetTorch(val enabled: Boolean) : PhoneControlCommand
     data object IncreaseVolume : PhoneControlCommand
     data object DecreaseVolume : PhoneControlCommand
