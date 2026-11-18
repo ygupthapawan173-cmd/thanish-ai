@@ -684,6 +684,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                     phoneControlManager.openApp(command.target)
                 }
                 is PhoneControlCommand.SearchYouTube -> phoneControlManager.searchYouTube(command.query)
+                is PhoneControlCommand.ShareWhatsAppMessage -> phoneControlManager.shareWhatsAppMessage(command.message)
                 is PhoneControlCommand.SetTorch -> phoneControlManager.setTorchEnabled(command.enabled)
                 is PhoneControlCommand.IncreaseVolume -> phoneControlManager.adjustVolume(+1)
                 is PhoneControlCommand.DecreaseVolume -> phoneControlManager.adjustVolume(-1)
