@@ -82,8 +82,6 @@ class PanduAiRepository(context: Context? = null) {
             throw PanduAiException("బాస్, మీ మెసేజ్ చాలా పెద్దగా ఉంది. దయచేసి 12,000 అక్షరాల్లోపు పంపండి.")
         }
 
-        val apiKey = keyStore?.read()
-            ?: throw PanduAiException("బాస్, Settings‌లో OpenRouter API key save చేయండి.")
         val enrichedPrompt = searchRepository.enrichPromptIfNeeded(cleanPrompt)
         val safeMemory = memoryContext.take(MAX_MEMORY_CONTEXT_CHARS)
         val promptWithMemory = if (safeMemory.isBlank()) enrichedPrompt else buildString {
@@ -93,6 +91,31 @@ class PanduAiRepository(context: Context? = null) {
             append("Current user request: ")
             append(enrichedPrompt)
         }
+
+        // Prefer the OpenJarvis engine when a private HTTPS endpoint is configured.
+        // An empty endpoint preserves the existing OpenRouter behavior.
+        val openJarvis = OpenJarvisClient()
+        if (openJarvis.isConfigured) {
+            try {
+                withTimeout(60_000L) {
+                    openJarvis.streamReply(history, promptWithMemory, safeMemory).collect { event ->
+                        send(event)
+                    }
+                }
+                return@channelFlow
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "OpenJarvis request failed", e)
+                throw PanduAiException(
+                    "బాస్, OpenJarvis server‌కు కనెక్ట్ కాలేకపోయాను. Server URL మరియు status తనిఖీ చేయండి.",
+                    e
+                )
+            }
+        }
+
+        val apiKey = keyStore?.read()
+            ?: throw PanduAiException("బాస్, Settings‌లో OpenRouter API key save చేయండి.")
 
         try {
             val answer = withTimeout(AI_TIMEOUT_MS) {
