@@ -51,6 +51,9 @@ object PhoneCommandParser {
             return null
         }
 
+        // WhatsApp message drafting; Android opens WhatsApp's recipient picker.
+        extractWhatsAppMessage(text)?.let { return PhoneControlCommand.ShareWhatsAppMessage(it) }
+
         // Fast YouTube song / artist search commands.
         extractYouTubeQuery(text)?.let { return PhoneControlCommand.SearchYouTube(it) }
 
@@ -161,6 +164,17 @@ object PhoneCommandParser {
             .trim()
         if (query.length < 2 || query in setOf("music", "song", "పాట", "సాంగ్")) return null
         return query.take(120)
+    }
+
+    private fun extractWhatsAppMessage(text: String): String? {
+        val patterns = listOf(
+            Regex("^send (.+?) on whatsapp$"),
+            Regex("^whatsapp lo (.+?) pampu$"),
+            Regex("^whatsapp లో (.+?) పంపు$"),
+            Regex("^(.+?) ను whatsapp ద్వారా పంపు$")
+        )
+        return patterns.firstNotNullOfOrNull { it.find(text)?.groupValues?.getOrNull(1)?.trim() }
+            ?.takeIf { it.isNotBlank() && it.length <= 1000 }
     }
 
     private fun containsAny(text: String, vararg needles: String): Boolean {
