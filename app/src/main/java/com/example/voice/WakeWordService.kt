@@ -145,9 +145,9 @@ class WakeWordService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Pandu wake word",
+                "ZENO wake word",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "Microphone is active for the Hey Assistant wake phrase" }
+            ).apply { description = "Microphone is active for the configured wake phrase" }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -155,8 +155,8 @@ class WakeWordService : Service() {
     private fun buildNotification(): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Pandu Babu is listening")
-            .setContentText("Say “Hey Assistant” to wake Pandu")
+            .setContentTitle("ZENO is listening")
+            .setContentText("Wake phrase engine currently listens for “Hey Assistant”")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
@@ -171,8 +171,8 @@ class WakeWordService : Service() {
     }
 
     companion object {
-        private const val TAG = "PanduWakeWord"
-        private const val CHANNEL_ID = "pandu_wake_word"
+        private const val TAG = "ZenoWakeWord"
+        private const val CHANNEL_ID = "zeno_wake_word"
         private const val NOTIFICATION_ID = 7401
         private const val MODEL_FILE = "voxrt_wake_word.vxrt"
         private const val MODEL_URL =
