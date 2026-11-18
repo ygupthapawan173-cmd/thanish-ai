@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "PanduAiRepository"
-private const val MODEL_NAME = "gemini-3.8-flash"
+private const val MODEL_NAME = "gemini-3.5-flash-lite"
 private const val AI_TIMEOUT_MS = 45_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
@@ -57,7 +57,7 @@ class PanduAiRepository {
             generationConfig = generationConfig {
                 temperature = 0.70f
                 topP = 0.90f
-                maxOutputTokens = 900
+                maxOutputTokens = 600
             },
             systemInstruction = content {
                 text(PANDU_SYSTEM_INSTRUCTION)
@@ -102,10 +102,18 @@ class PanduAiRepository {
         } catch (e: Exception) {
             Log.e(TAG, "Gemini stream failed", e)
             val detail = e.localizedMessage?.takeIf { it.isNotBlank() } ?: "Unknown AI error"
-            throw PanduAiException(
-                "అయ్యో బాస్, జార్విస్ లింక్‌లో చిన్న టెక్నికల్ సమస్య వచ్చింది: $detail",
-                e
-            )
+            val userMessage = when {
+                detail.contains("429") || detail.contains("quota", ignoreCase = true) ||
+                    detail.contains("rate limit", ignoreCase = true) ->
+                    "బాస్, Gemini Free quota లేదా rate limit చేరింది. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి. Billing అవసరం లేదు; quota reset అయ్యే వరకు వేచి ఉండండి."
+                detail.contains("503") || detail.contains("UNAVAILABLE", ignoreCase = true) ->
+                    "బాస్, Gemini సర్వర్ ప్రస్తుతం బిజీగా ఉంది. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
+                detail.contains("404") || detail.contains("NOT_FOUND", ignoreCase = true) ->
+                    "బాస్, ఎంచుకున్న AI model అందుబాటులో లేదు. App update అవసరం కావచ్చు."
+                else ->
+                    "అయ్యో బాస్, జార్విస్ లింక్‌లో చిన్న టెక్నికల్ సమస్య వచ్చింది: $detail"
+            }
+            throw PanduAiException(userMessage, e)
         }
     }
 
