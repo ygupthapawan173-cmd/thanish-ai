@@ -192,9 +192,10 @@ fun TtsCalibrationSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val presets = listOf(
-                        TtsPersonalityPreset.WITTY_JARVIS to stringResource(R.string.tts_preset_witty),
-                        TtsPersonalityPreset.CALM_JARVIS to stringResource(R.string.tts_preset_calm),
-                        TtsPersonalityPreset.MASS_MACHA to stringResource(R.string.tts_preset_hyper)
+                        TtsPersonalityPreset.TELUGU_MALE_JARVIS to "తెలుగు Male • Jarvis",
+                        TtsPersonalityPreset.TELUGU_FEMALE_SWEET to "తెలుగు Female • Sweet",
+                        TtsPersonalityPreset.TELUGU_FUNNY_COMEDY to "తెలుగు Funny • Comedy",
+                        TtsPersonalityPreset.TELUGU_NATURAL to "తెలుగు Natural • Normal"
                     )
                     presets.forEach { (preset, label) ->
                         val selected = ttsConfig.preset == preset
@@ -297,7 +298,7 @@ fun TtsCalibrationSheet(
                         onClick = { onSelectVoice(null) }
                     )
 
-                    availableVoices.take(4).forEach { voice ->
+                    availableVoices.forEach { voice ->
                         VoiceChoiceRow(
                             label = voice.displayLabel,
                             selected = ttsConfig.selectedVoiceName == voice.name,
