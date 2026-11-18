@@ -51,6 +51,9 @@ object PhoneCommandParser {
             return null
         }
 
+        // Fast YouTube song / artist search commands.
+        extractYouTubeQuery(text)?.let { return PhoneControlCommand.SearchYouTube(it) }
+
         // 1. Device Settings Panels (checked before generic "settings" app open)
         if (containsAny(text, "wifi", "wi-fi", "wi fi", "వైఫై", "వై-ఫై", "వై ఫై")) {
             if (containsAny(text, openTriggers) || containsAny(text, "settings", "సెట్టింగ్స్", "సెట్టింగ్")) {
@@ -147,6 +150,17 @@ object PhoneCommandParser {
         }
 
         return null
+    }
+
+    private fun extractYouTubeQuery(text: String): String? {
+        val prefixes = listOf("play ", "search youtube for ", "youtube lo ", "youtube లో ", "ప్లే చేయి ", "ప్లే చెయ్ ", "పాట ప్లే చేయి ", "సాంగ్ ప్లే చేయి ")
+        val prefix = prefixes.firstOrNull { text.startsWith(it) } ?: return null
+        val query = text.removePrefix(prefix)
+            .replace(Regex("\\s+on youtube$"), "")
+            .replace(Regex("\\s+పాట(లు)?$"), "")
+            .trim()
+        if (query.length < 2 || query in setOf("music", "song", "పాట", "సాంగ్")) return null
+        return query.take(120)
     }
 
     private fun containsAny(text: String, vararg needles: String): Boolean {
