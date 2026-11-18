@@ -64,9 +64,9 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
-class PanduAiRepository(context: Context) {
+class PanduAiRepository(context: Context? = null) {
 
-    private val keyStore = OpenRouterKeyStore(context.applicationContext)
+    private val keyStore = context?.let { OpenRouterKeyStore(it.applicationContext) }
     private val searchRepository = PanduSearchRepository()
 
     fun streamReply(
@@ -82,7 +82,7 @@ class PanduAiRepository(context: Context) {
             throw PanduAiException("బాస్, మీ మెసేజ్ చాలా పెద్దగా ఉంది. దయచేసి 12,000 అక్షరాల్లోపు పంపండి.")
         }
 
-        val apiKey = keyStore.read()
+        val apiKey = keyStore?.read()
             ?: throw PanduAiException("బాస్, Settings‌లో OpenRouter API key save చేయండి.")
         val enrichedPrompt = searchRepository.enrichPromptIfNeeded(cleanPrompt)
         val safeMemory = memoryContext.take(MAX_MEMORY_CONTEXT_CHARS)
