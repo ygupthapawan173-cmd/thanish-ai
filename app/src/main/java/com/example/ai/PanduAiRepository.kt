@@ -14,7 +14,7 @@ import com.google.firebase.ai.type.content
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "PanduAiRepository"
@@ -73,7 +73,7 @@ class PanduAiRepository(context: Context? = null) {
         history: List<ChatMessageEntity>,
         userPrompt: String,
         memoryContext: String = ""
-    ): Flow<AiStreamEvent> = flow {
+    ): Flow<AiStreamEvent> = channelFlow {
         val cleanPrompt = userPrompt.trim()
         if (cleanPrompt.isBlank()) {
             throw PanduAiException("బాస్, ముందుగా మీ ప్రశ్న టైప్ చేయండి.")
@@ -97,11 +97,12 @@ class PanduAiRepository(context: Context? = null) {
         try {
             val answer = withTimeout(AI_TIMEOUT_MS) {
                 withContext(Dispatchers.IO) {
-                    requestOpenRouter(apiKey, history, promptWithMemory)
+                    requestOpenRouter(apiKey, history, promptWithMemory) { partial ->
+                        trySend(AiStreamEvent.Chunk(partial))
+                    }
                 }
             }
-            emit(AiStreamEvent.Chunk(answer))
-            emit(AiStreamEvent.Completed(answer))
+            send(AiStreamEvent.Completed(answer))
         } catch (e: TimeoutCancellationException) {
             throw PanduAiException("బాస్, AI స్పందన ఆలస్యమైంది. మళ్లీ ప్రయత్నించండి.", e)
         } catch (e: CancellationException) {
@@ -131,7 +132,8 @@ class PanduAiRepository(context: Context? = null) {
     private fun requestOpenRouter(
         apiKey: String,
         history: List<ChatMessageEntity>,
-        prompt: String
+        prompt: String,
+        onChunk: (String) -> Unit
     ): String {
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", PANDU_SYSTEM_INSTRUCTION))
@@ -144,7 +146,7 @@ class PanduAiRepository(context: Context? = null) {
         val body = JSONObject()
             .put("model", OPENROUTER_MODEL)
             .put("messages", messages)
-            .put("stream", false)
+            .put("stream", true)
             .put("temperature", 0.7)
             .put("max_tokens", 700)
 
@@ -155,34 +157,46 @@ class PanduAiRepository(context: Context? = null) {
             doOutput = true
             setRequestProperty("Authorization", "Bearer $apiKey")
             setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept", "text/event-stream")
         }
 
         try {
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val responseText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
-                throw IllegalStateException("OpenRouter HTTP $status: $responseText")
+                val errorText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                throw IllegalStateException("OpenRouter HTTP $status: $errorText")
             }
-            val response = JSONObject(responseText)
-            val content = response.optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.opt("content")
-            val answer = when (content) {
-                is String -> content
-                is JSONArray -> buildString {
-                    for (i in 0 until content.length()) {
-                        val part = content.optJSONObject(i)
-                        append(part?.optString("text").orEmpty())
+
+            val answer = StringBuilder()
+            stream?.bufferedReader()?.useLines { lines ->
+                lines.forEach { line ->
+                    if (!line.startsWith("data:")) return@forEach
+                    val payload = line.removePrefix("data:").trim()
+                    if (payload.isBlank() || payload == "[DONE]") return@forEach
+                    val delta = runCatching {
+                        val choice = JSONObject(payload).optJSONArray("choices")?.optJSONObject(0)
+                        val deltaContent = choice?.optJSONObject("delta")?.opt("content")
+                        when (deltaContent) {
+                            is String -> deltaContent
+                            is JSONArray -> buildString {
+                                for (index in 0 until deltaContent.length()) {
+                                    append(deltaContent.optJSONObject(index)?.optString("text").orEmpty())
+                                }
+                            }
+                            else -> ""
+                        }
+                    }.getOrDefault("")
+                    if (delta.isNotEmpty()) {
+                        answer.append(delta)
+                        onChunk(answer.toString())
                     }
                 }
-                else -> ""
-            }.trim()
-            if (answer.isBlank()) throw IllegalStateException("OpenRouter returned an empty answer")
-            return answer
+            }
+            val result = answer.toString().trim()
+            if (result.isBlank()) throw IllegalStateException("OpenRouter returned an empty streaming answer")
+            return result
         } finally {
             connection.disconnect()
         }
