@@ -51,6 +51,41 @@ object PhoneCommandParser {
             return null
         }
 
+
+        // Music commands: search a named artist/hero or a specific track in YouTube.
+        when {
+            containsAny(text, "next song", "next track", "తర్వాతి పాట", "నెక్స్ట్ సాంగ్", "తర్వాత పాట") ->
+                return PhoneControlCommand.MusicTransport(MusicTransportAction.NEXT)
+            containsAny(text, "previous song", "previous track", "పాత పాట", "ముందు పాట", "ప్రీవియస్ సాంగ్") ->
+                return PhoneControlCommand.MusicTransport(MusicTransportAction.PREVIOUS)
+            containsAny(text, "pause music", "pause song", "పాట ఆపు", "మ్యూజిక్ పాజ్", "పాజ్ చేయి") ->
+                return PhoneControlCommand.MusicTransport(MusicTransportAction.PAUSE)
+            containsAny(text, "resume music", "resume song", "మళ్ళీ ప్లే", "మళ్లీ ప్లే", "రెస్యూమ్") ->
+                return PhoneControlCommand.MusicTransport(MusicTransportAction.PLAY)
+            containsAny(text, "stop music", "stop song", "మ్యూజిక్ ఆపు", "పాటలు ఆపు", "స్టాప్ మ్యూజిక్") ->
+                return PhoneControlCommand.MusicTransport(MusicTransportAction.STOP)
+        }
+        val hasMusicIntent = containsAny(
+            text, "play ", "ప్లే", "వినిపించు", "పాటలు", "పాటలన్నీ", "songs", "song "
+        )
+        if (hasMusicIntent) {
+            val collection = containsAny(text, "songs", "song list", "పాటలు", "పాటలన్నీ", "paatalu", "patalu")
+            val query = rawInput.trim()
+                .replace(Regex("(?i)\\b(hey zeno|zeno|youtube|play|songs?|song|please|paatalu|patalu|chey|cheyi|cheyyi|open)\\b"), " ")
+                .replace("పాటలన్నీ", " ")
+                .replace("పాటలు", " ")
+                .replace("ప్లే", " ")
+                .replace("వినిపించు", " ")
+                .replace("చేయి", " ")
+                .replace("చేయ్", " ")
+                .replace("యూట్యూబ్", " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            if (query.isNotBlank()) {
+                return PhoneControlCommand.MusicSearch(query, collection)
+            }
+        }
+
         // 1. Device Settings Panels (checked before generic "settings" app open)
         if (containsAny(text, "wifi", "wi-fi", "wi fi", "వైఫై", "వై-ఫై", "వై ఫై")) {
             if (containsAny(text, openTriggers) || containsAny(text, "settings", "సెట్టింగ్స్", "సెట్టింగ్")) {
