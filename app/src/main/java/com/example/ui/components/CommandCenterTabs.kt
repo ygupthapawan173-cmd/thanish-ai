@@ -866,9 +866,10 @@ fun SettingsCommandTab(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val presets = listOf(
-                            TtsPersonalityPreset.WITTY_JARVIS to stringResource(R.string.tts_preset_witty),
-                            TtsPersonalityPreset.CALM_JARVIS to stringResource(R.string.tts_preset_calm),
-                            TtsPersonalityPreset.MASS_MACHA to stringResource(R.string.tts_preset_hyper)
+                            TtsPersonalityPreset.TELUGU_MALE_JARVIS to "తెలుగు Male • Jarvis",
+                            TtsPersonalityPreset.TELUGU_FEMALE_SWEET to "తెలుగు Female • Sweet",
+                            TtsPersonalityPreset.TELUGU_FUNNY_COMEDY to "తెలుగు Funny • Comedy",
+                            TtsPersonalityPreset.TELUGU_NATURAL to "తెలుగు Natural • Normal"
                         )
                         presets.forEach { (preset, label) ->
                             val selected = uiState.ttsConfig.preset == preset
@@ -963,7 +964,7 @@ fun SettingsCommandTab(
                             selected = uiState.ttsConfig.selectedVoiceName == null,
                             onClick = { onSelectVoice(null) }
                         )
-                        uiState.availableTeluguVoices.take(4).forEach { voice ->
+                        uiState.availableTeluguVoices.forEach { voice ->
                             SettingsVoiceOption(
                                 label = voice.displayLabel,
                                 selected = uiState.ttsConfig.selectedVoiceName == voice.name,
