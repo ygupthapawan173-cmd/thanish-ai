@@ -1,12 +1,16 @@
 package com.example.ai
 
+import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import com.example.data.ChatMessageEntity
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.content
-import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
@@ -14,7 +18,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "PanduAiRepository"
-private const val MODEL_NAME = "gemini-3.5-flash-lite"
+private const val OPENROUTER_MODEL = "openrouter/free"
+private const val OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 private const val AI_TIMEOUT_MS = 40_000L
 private const val MAX_PROMPT_CHARS = 12_000
 private const val MAX_MEMORY_CONTEXT_CHARS = 4_000
@@ -59,23 +64,10 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
-class PanduAiRepository {
+class PanduAiRepository(context: Context) {
 
+    private val keyStore = OpenRouterKeyStore(context.applicationContext)
     private val searchRepository = PanduSearchRepository()
-
-    private val model by lazy {
-        Firebase.ai.generativeModel(
-            modelName = MODEL_NAME,
-            generationConfig = generationConfig {
-                temperature = 0.70f
-                topP = 0.90f
-                maxOutputTokens = 700
-            },
-            systemInstruction = content {
-                text(PANDU_SYSTEM_INSTRUCTION)
-            }
-        )
-    }
 
     fun streamReply(
         history: List<ChatMessageEntity>,
@@ -90,7 +82,8 @@ class PanduAiRepository {
             throw PanduAiException("బాస్, మీ మెసేజ్ చాలా పెద్దగా ఉంది. దయచేసి 12,000 అక్షరాల్లోపు పంపండి.")
         }
 
-        val chatHistory: List<Content> = normalizeChatHistory(history)
+        val apiKey = keyStore.read()
+            ?: throw PanduAiException("బాస్, Settings‌లో OpenRouter API key save చేయండి.")
         val enrichedPrompt = searchRepository.enrichPromptIfNeeded(cleanPrompt)
         val safeMemory = memoryContext.take(MAX_MEMORY_CONTEXT_CHARS)
         val promptWithMemory = if (safeMemory.isBlank()) enrichedPrompt else buildString {
@@ -101,54 +94,97 @@ class PanduAiRepository {
             append(enrichedPrompt)
         }
 
-        val chat = model.startChat(history = chatHistory)
-        val accumulated = StringBuilder()
-
         try {
-            withTimeout(AI_TIMEOUT_MS) {
-                chat.sendMessageStream(promptWithMemory).collect { chunk ->
-                    val chunkText = chunk.text.orEmpty()
-                    if (chunkText.isNotEmpty()) {
-                        accumulated.append(chunkText)
-                        emit(AiStreamEvent.Chunk(accumulated.toString()))
-                    }
+            val answer = withTimeout(AI_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) {
+                    requestOpenRouter(apiKey, history, promptWithMemory)
                 }
             }
-
-            val finalText = accumulated.toString().trim()
-            if (finalText.isBlank()) {
-                throw IllegalStateException("అయ్యో బాస్! జెమిని ఖాళీ సమాధానం పంపింది. మళ్ళీ అడగండి!")
-            }
-            emit(AiStreamEvent.Completed(finalText))
+            emit(AiStreamEvent.Chunk(answer))
+            emit(AiStreamEvent.Completed(answer))
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "Gemini stream timed out after ${AI_TIMEOUT_MS}ms", e)
-            throw PanduAiException(
-                "బాస్, AI స్పందన ఆలస్యమైంది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
-                e
-            )
+            throw PanduAiException("బాస్, AI స్పందన ఆలస్యమైంది. మళ్లీ ప్రయత్నించండి.", e)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: PanduAiException) {
+            throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Gemini stream failed", e)
-            val detail = e.localizedMessage.orEmpty()
-            val normalizedDetail = detail.lowercase()
-            val userMessage = when {
-                "429" in detail || "quota" in normalizedDetail || "rate limit" in normalizedDetail ->
-                    "బాస్, AI usage limit చేరింది. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
-                "401" in detail || "403" in detail || "unauthenticated" in normalizedDetail ||
-                    "permission_denied" in normalizedDetail ->
-                    "బాస్, Firebase AI లేదా App Check configuration తనిఖీ చేయాలి."
-                "503" in detail || "unavailable" in normalizedDetail ->
-                    "బాస్, AI సర్వర్ ప్రస్తుతం బిజీగా ఉంది. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
-                "404" in detail || "not_found" in normalizedDetail ->
-                    "బాస్, ఎంచుకున్న AI model అందుబాటులో లేదు. Model configuration తనిఖీ చేయాలి."
-                "socket" in normalizedDetail || "network" in normalizedDetail ||
-                    "timeout" in normalizedDetail || "failed to connect" in normalizedDetail ->
-                    "బాస్, ఇంటర్నెట్ కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి."
-                else ->
-                    "బాస్, AIకి కనెక్ట్ కావడంలో సమస్య వచ్చింది. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి."
+            Log.e(TAG, "OpenRouter request failed", e)
+            val detail = e.localizedMessage.orEmpty().lowercase()
+            val message = when {
+                "401" in detail || "403" in detail ->
+                    "బాస్, OpenRouter API key తప్పుగా ఉంది లేదా access లేదు. Settings‌లో key తనిఖీ చేయండి."
+                "402" in detail ->
+                    "బాస్, ఈ OpenRouter model‌కు paid credits అవసరం కావచ్చు. Free model అందుబాటులో ఉందో చూడండి."
+                "429" in detail || "rate limit" in detail ->
+                    "బాస్, OpenRouter free usage limit చేరింది. కొద్దిసేపటి తర్వాత ప్రయత్నించండి."
+                "404" in detail ->
+                    "బాస్, OpenRouter free model ప్రస్తుతం అందుబాటులో లేదు. తర్వాత మళ్లీ ప్రయత్నించండి."
+                "socket" in detail || "network" in detail || "connect" in detail ->
+                    "బాస్, Internet connection తనిఖీ చేసి మళ్లీ ప్రయత్నించండి."
+                else -> "బాస్, OpenRouter‌కు కనెక్ట్ కావడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించండి."
             }
-            throw PanduAiException(userMessage, e)
+            throw PanduAiException(message, e)
+        }
+    }
+
+    private fun requestOpenRouter(
+        apiKey: String,
+        history: List<ChatMessageEntity>,
+        prompt: String
+    ): String {
+        val messages = JSONArray()
+        messages.put(JSONObject().put("role", "system").put("content", PANDU_SYSTEM_INSTRUCTION))
+        history.filter { it.text.isNotBlank() }.takeLast(MAX_HISTORY_MESSAGES).forEach { item ->
+            val role = if (item.role == ChatMessageEntity.ROLE_USER) "user" else "assistant"
+            messages.put(JSONObject().put("role", role).put("content", item.text.take(MAX_PROMPT_CHARS)))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", prompt))
+
+        val body = JSONObject()
+            .put("model", OPENROUTER_MODEL)
+            .put("messages", messages)
+            .put("stream", false)
+            .put("temperature", 0.7)
+            .put("max_tokens", 700)
+
+        val connection = (URL(OPENROUTER_URL).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15_000
+            readTimeout = 35_000
+            doOutput = true
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+        }
+
+        try {
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val responseText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                throw IllegalStateException("OpenRouter HTTP $status: $responseText")
+            }
+            val response = JSONObject(responseText)
+            val content = response.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.opt("content")
+            val answer = when (content) {
+                is String -> content
+                is JSONArray -> buildString {
+                    for (i in 0 until content.length()) {
+                        val part = content.optJSONObject(i)
+                        append(part?.optString("text").orEmpty())
+                    }
+                }
+                else -> ""
+            }.trim()
+            if (answer.isBlank()) throw IllegalStateException("OpenRouter returned an empty answer")
+            return answer
+        } finally {
+            connection.disconnect()
         }
     }
 
