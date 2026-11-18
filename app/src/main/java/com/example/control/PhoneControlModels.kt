@@ -66,9 +66,13 @@ sealed interface PhoneControlCommand {
     data object CheckBattery : PhoneControlCommand
     data class OpenDeviceSettings(val target: DeviceSettingTarget) : PhoneControlCommand
     data class PerformGlobalNav(val action: GlobalNavigationAction) : PhoneControlCommand
+    data class MusicSearch(val query: String, val isArtistCollection: Boolean) : PhoneControlCommand
+    data class MusicTransport(val action: MusicTransportAction) : PhoneControlCommand
 }
 
-enum class MusicTransportAction { NEXT, PREVIOUS, PAUSE, PLAY, STOP }\n\nsealed interface PendingSensitiveAction {
+enum class MusicTransportAction { NEXT, PREVIOUS, PAUSE, PLAY, STOP }
+
+sealed interface PendingSensitiveAction {
     val title: String
     val description: String
 
