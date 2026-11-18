@@ -669,6 +669,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
             val result: CommandExecutionResult = when (command) {
                 is PhoneControlCommand.OpenApp -> phoneControlManager.openApp(command.target)
+                is PhoneControlCommand.SearchYouTube -> phoneControlManager.searchYouTube(command.query)
                 is PhoneControlCommand.SetTorch -> phoneControlManager.setTorchEnabled(command.enabled)
                 is PhoneControlCommand.IncreaseVolume -> phoneControlManager.adjustVolume(+1)
                 is PhoneControlCommand.DecreaseVolume -> phoneControlManager.adjustVolume(-1)
