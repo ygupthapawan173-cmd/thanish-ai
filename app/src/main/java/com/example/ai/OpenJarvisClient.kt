@@ -1,6 +1,6 @@
 package com.example.ai
 
-import com.example.BuildConfig
+import android.content.Context
 import com.example.data.ChatMessageEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -20,20 +20,21 @@ import java.net.URL
  * Leave the property empty to keep the existing OpenRouter path unchanged.
  * Do not point this at an unauthenticated public server.
  */
-internal class OpenJarvisClient {
-    private val baseUrl = BuildConfig.OPENJARVIS_BASE_URL.trim().trimEnd('/')
+internal class OpenJarvisClient(context: Context) {
+    private val settingsStore = OpenJarvisSettingsStore(context.applicationContext)
 
     val isConfigured: Boolean
-        get() = baseUrl.startsWith("https://", ignoreCase = true)
+        get() = settingsStore.read() != null
 
     fun streamReply(
         history: List<ChatMessageEntity>,
         prompt: String,
         memoryContext: String
     ): Flow<AiStreamEvent> = channelFlow {
-        if (!isConfigured) throw PanduAiException("OpenJarvis endpoint HTTPS లో configure కాలేదు.")
+        val config = settingsStore.read()
+            ?: throw PanduAiException("Settings‌లో OpenJarvis HTTPS URL మరియు API key save చేయండి.")
         val answer = withContext(Dispatchers.IO) {
-            request(history, prompt, memoryContext) { partial ->
+            request(config, history, prompt, memoryContext) { partial ->
                 trySend(AiStreamEvent.Chunk(partial))
             }
         }
@@ -41,6 +42,7 @@ internal class OpenJarvisClient {
     }
 
     private fun request(
+        config: OpenJarvisConnection,
         history: List<ChatMessageEntity>,
         prompt: String,
         memoryContext: String,
@@ -63,12 +65,13 @@ internal class OpenJarvisClient {
         messages.put(JSONObject().put("role", "user").put("content", prompt.take(12_000)))
 
         val body = JSONObject()
-            .put("model", BuildConfig.OPENJARVIS_MODEL)
+            .put("model", config.model)
             .put("messages", messages)
             .put("stream", true)
             .put("temperature", 0.7)
             .put("max_tokens", 900)
 
+        val baseUrl = config.baseUrl.trimEnd('/')
         val endpoint = if (baseUrl.endsWith("/v1")) "$baseUrl/chat/completions"
             else "$baseUrl/v1/chat/completions"
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -76,6 +79,7 @@ internal class OpenJarvisClient {
             connectTimeout = 12_000
             readTimeout = 60_000
             doOutput = true
+            setRequestProperty("Authorization", "Bearer ${config.apiKey}")
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "text/event-stream")
         }
