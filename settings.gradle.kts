@@ -18,8 +18,11 @@ dependencyResolutionManagement {
   repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
   repositories {
     google()
+    maven {
+      url = uri("https://jitpack.io")
+      content { includeGroup("com.github.VoxRT") }
+    }
     mavenCentral()
-    maven { url = uri("https://jitpack.io") }
   }
 }
 
