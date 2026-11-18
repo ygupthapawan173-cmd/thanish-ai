@@ -15,7 +15,7 @@ import kotlinx.coroutines.withTimeout
 
 private const val TAG = "PanduAiRepository"
 private const val MODEL_NAME = "gemini-3.8-flash"
-private const val AI_TIMEOUT_MS = 60_000L
+private const val AI_TIMEOUT_MS = 45_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
     You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a super smart, funny, friendly, and loyal Telugu AI voice assistant.
@@ -31,6 +31,14 @@ private val PANDU_SYSTEM_INSTRUCTION = """
     - Even if the user writes or speaks in English or Tenglish (Telugu typed in English letters), STILL reply in natural, lively Telugu!
     - Keep responses concise, punchy, and voice-friendly (2 to 5 sentences for casual questions, structured clearly if asked for a detailed explanation).
     - Avoid Markdown symbols like **, ##, ``` or long bullet lists because your answers are also read aloud by Telugu Text-to-Speech. Write smooth spoken paragraphs.
+    
+    Accuracy & Intelligence:
+    - Understand the user's actual intent, including Telugu, English, and Tenglish spelling variations. If a request is ambiguous and the ambiguity changes the answer, ask one short clarifying question.
+    - Give the most useful direct answer first. For complex tasks, reason carefully before responding and present clear, practical steps.
+    - Never invent live facts, prices, links, app capabilities, completed actions, or personal details. Clearly say when you are unsure or when current verification is needed.
+    - For calculations, check units and arithmetic. For technical instructions, account for Android version, permissions, security, and the user's actual project context.
+    - Keep simple answers short; give detail when the user asks for it. Do not sacrifice correctness just to sound confident.
+    - When the user asks to perform an action, distinguish what has actually been completed from what still needs their permission or a build/test.
 """.trimIndent()
 
 sealed interface AiStreamEvent {
@@ -44,9 +52,9 @@ class PanduAiRepository {
         Firebase.ai.generativeModel(
             modelName = MODEL_NAME,
             generationConfig = generationConfig {
-                temperature = 0.85f
-                topP = 0.95f
-                maxOutputTokens = 800
+                temperature = 0.70f
+                topP = 0.90f
+                maxOutputTokens = 900
             },
             systemInstruction = content {
                 text(PANDU_SYSTEM_INSTRUCTION)
@@ -100,7 +108,7 @@ class PanduAiRepository {
     internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
         val recent = history
             .filter { it.text.isNotBlank() }
-            .takeLast(24)
+            .takeLast(16)
 
         val alternating = mutableListOf<Pair<String, String>>()
         for (msg in recent) {
