@@ -1,0 +1,6 @@
+{
+  "name": "Pandu Babu",
+  "description": "Pandu Babu – Jarvis Edition: Telugu AI voice assistant with futuristic dark dashboard, voice recognition, speech synthesis, and Gemini conversations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
