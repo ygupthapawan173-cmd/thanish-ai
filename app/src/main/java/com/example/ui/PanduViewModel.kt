@@ -17,6 +17,7 @@ import com.example.control.PendingSensitiveAction
 import com.example.control.PhoneCommandParser
 import com.example.control.PhoneControlCommand
 import com.example.control.PhoneControlManager
+import com.example.control.MusicControlManager
 import com.example.data.AppDatabase
 import com.example.data.ChatMessageEntity
 import com.example.data.ChatRepository
@@ -97,6 +98,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val aiRepository = PanduAiRepository()
     private val ttsController = TeluguTtsController(application)
     private val phoneControlManager = PhoneControlManager(application)
+    private val musicControlManager = MusicControlManager(application)
 
     private lateinit var voiceInputController: VoiceInputController
 
@@ -639,6 +641,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 is PhoneControlCommand.CheckBattery -> phoneControlManager.readBatterySummary()
                 is PhoneControlCommand.OpenDeviceSettings -> phoneControlManager.openDeviceSetting(command.target)
                 is PhoneControlCommand.PerformGlobalNav -> phoneControlManager.performGlobalNavigation(command.action)
+                is PhoneControlCommand.MusicSearch -> musicControlManager.search(command.query, command.isArtistCollection)
+                is PhoneControlCommand.MusicTransport -> musicControlManager.control(command.action)
             }
 
             if (!result.succeeded) {
