@@ -465,7 +465,9 @@ fun PanduDashboardScreen(
                                 onOpenHelp = { showHelpSheet = true },
                                 onRequestClearChat = { showClearDialog = true },
                                 onSaveOpenRouterKey = { viewModel.saveOpenRouterKey(it) },
-                                onClearOpenRouterKey = { viewModel.clearOpenRouterKey() }
+                                onClearOpenRouterKey = { viewModel.clearOpenRouterKey() },
+                                onSaveOpenJarvisSettings = { url, key, model -> viewModel.saveOpenJarvisSettings(url, key, model) },
+                                onClearOpenJarvisSettings = { viewModel.clearOpenJarvisSettings() }
                             )
                         }
                     }
