@@ -67,6 +67,7 @@ sealed interface AiStreamEvent {
 class PanduAiRepository(context: Context? = null) {
 
     private val keyStore = context?.let { OpenRouterKeyStore(it.applicationContext) }
+    private val openJarvisClient = context?.let { OpenJarvisClient(it.applicationContext) }
     private val searchRepository = PanduSearchRepository()
 
     fun streamReply(
@@ -94,8 +95,8 @@ class PanduAiRepository(context: Context? = null) {
 
         // Prefer the OpenJarvis engine when a private HTTPS endpoint is configured.
         // An empty endpoint preserves the existing OpenRouter behavior.
-        val openJarvis = OpenJarvisClient()
-        if (openJarvis.isConfigured) {
+        val openJarvis = openJarvisClient
+        if (openJarvis?.isConfigured == true) {
             try {
                 withTimeout(60_000L) {
                     openJarvis.streamReply(history, enrichedPrompt, safeMemory).collect { event ->
