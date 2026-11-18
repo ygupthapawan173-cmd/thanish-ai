@@ -119,6 +119,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private var activeGenerationJob: Job? = null
     private var currentTtsConfig = TeluguTtsConfig()
     private var pendingFromVoiceOrChat = false
+    private var awaitingYouTubeSearch = false
 
     init {
         voiceInputController = VoiceInputController(
@@ -568,6 +569,16 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val parsedCommand = PhoneCommandParser.parse(trimmed)
+        if (parsedCommand == null && awaitingYouTubeSearch) {
+            awaitingYouTubeSearch = false
+            handlePhoneControlCommand(
+                prompt = trimmed,
+                command = PhoneControlCommand.SearchYouTube(trimmed),
+                isVoiceInput = isVoiceInput,
+                saveUserTurn = saveUserTurn
+            )
+            return
+        }
         if (parsedCommand != null) {
             handlePhoneControlCommand(
                 prompt = trimmed,
@@ -668,7 +679,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val result: CommandExecutionResult = when (command) {
-                is PhoneControlCommand.OpenApp -> phoneControlManager.openApp(command.target)
+                is PhoneControlCommand.OpenApp -> {
+                    if (command.target == AppControlTarget.YOUTUBE) awaitingYouTubeSearch = true
+                    phoneControlManager.openApp(command.target)
+                }
                 is PhoneControlCommand.SearchYouTube -> phoneControlManager.searchYouTube(command.query)
                 is PhoneControlCommand.SetTorch -> phoneControlManager.setTorchEnabled(command.enabled)
                 is PhoneControlCommand.IncreaseVolume -> phoneControlManager.adjustVolume(+1)
