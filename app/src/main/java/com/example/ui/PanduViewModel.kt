@@ -555,6 +555,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 chatRepository.saveUserMessage(trimmed, isVoiceInput)
             }
 
+            if (isVoiceInput && currentTtsConfig.autoSpeakEnabled) {
+                ttsController.speak("వింటున్నాను బాస్.")
+            }
             _aiGenState.value = AiGenState.Thinking
             try {
                 aiRepository.streamReply(historySnapshot, trimmed).collect { event ->
