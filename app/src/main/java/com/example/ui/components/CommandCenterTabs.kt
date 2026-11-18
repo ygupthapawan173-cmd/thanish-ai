@@ -43,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
@@ -53,6 +54,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -698,8 +704,11 @@ fun SettingsCommandTab(
     onInstallTeluguData: () -> Unit,
     onOpenHelp: () -> Unit,
     onRequestClearChat: () -> Unit,
+    onSaveOpenRouterKey: (String) -> Unit,
+    onClearOpenRouterKey: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var openRouterKeyInput by rememberSaveable { mutableStateOf("") }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -719,6 +728,61 @@ fun SettingsCommandTab(
                     style = MaterialTheme.typography.bodyMedium,
                     color = SlateCyan
                 )
+            }
+        }
+
+        // OpenRouter Free provider configuration
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = JarvisSurface.copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.65f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("AI Provider — OpenRouter Free", style = MaterialTheme.typography.titleMedium, color = ElectricCyan)
+                    Text(
+                        text = if (uiState.openRouterKeyConfigured) "API key ఈ device‌లో secure‌గా save అయింది." else "OpenRouter API key ఇంకా save చేయలేదు.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (uiState.openRouterKeyConfigured) HudOnlineGreen else SlateCyan
+                    )
+                    OutlinedTextField(
+                        value = openRouterKeyInput,
+                        onValueChange = { openRouterKeyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("OpenRouter API key") },
+                        placeholder = { Text("sk-or-...") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                    Button(
+                        onClick = {
+                            onSaveOpenRouterKey(openRouterKeyInput)
+                            openRouterKeyInput = ""
+                        },
+                        enabled = openRouterKeyInput.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save API Key Securely")
+                    }
+                    if (uiState.openRouterKeyConfigured) {
+                        OutlinedButton(
+                            onClick = onClearOpenRouterKey,
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, HudAlertRed)
+                        ) {
+                            Text("Remove Saved Key", color = HudAlertRed)
+                        }
+                    }
+                    Text(
+                        "Key Android Keystore encryption‌తో ఈ phone‌లో మాత్రమే నిల్వ ఉంటుంది. Chat‌లో key పంపవద్దు.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SlateCyan
+                    )
+                }
             }
         }
 
