@@ -63,7 +63,7 @@ internal class OpenJarvisClient {
         messages.put(JSONObject().put("role", "user").put("content", prompt.take(12_000)))
 
         val body = JSONObject()
-            .put("model", "default")
+            .put("model", BuildConfig.OPENJARVIS_MODEL)
             .put("messages", messages)
             .put("stream", true)
             .put("temperature", 0.7)
