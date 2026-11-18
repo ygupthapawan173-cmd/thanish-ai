@@ -133,6 +133,7 @@ fun PanduDashboardScreen(
     var showHelpSheet by remember { mutableStateOf(false) }
     var showAccessibilityConsentDialog by remember { mutableStateOf(false) }
     var wakeWordEnabled by rememberSaveable { mutableStateOf(false) }
+    var showWakeWordSettings by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(enabled = selectedTab != CyberpunkTab.HOME) {
         selectedTab = CyberpunkTab.HOME
@@ -214,37 +215,93 @@ fun PanduDashboardScreen(
                     .widthIn(max = 640.dp)
                     .align(Alignment.Center)
             ) {
-                Button(
-                    onClick = {
-                        val granted = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (!granted) {
-                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        } else {
-                            val serviceIntent = Intent(context, WakeWordService::class.java).apply {
-                                action = if (wakeWordEnabled) WakeWordService.ACTION_STOP
-                                else WakeWordService.ACTION_START
-                            }
-                            if (wakeWordEnabled) {
-                                context.stopService(serviceIntent)
-                                wakeWordEnabled = false
-                            } else {
-                                ContextCompat.startForegroundService(context, serviceIntent)
-                                wakeWordEnabled = true
-                            }
-                        }
-                    },
+                // ZENO Intelligence Dashboard header and wake-word controls.
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (wakeWordEnabled) HudOnlineGreen else JarvisSurfaceElevated,
-                        contentColor = IceWhite
-                    )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    color = JarvisSurface.copy(alpha = 0.94f),
+                    border = BorderStroke(1.dp, cyberDualNeonBrush())
                 ) {
-                    Text(if (wakeWordEnabled) "Stop Hey Assistant" else "Enable Hey Assistant")
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "ZENO AI",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = IceWhite
+                                )
+                                Text(
+                                    text = "INTELLIGENCE DASHBOARD  •  TELUGU VOICE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ElectricCyan
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (wakeWordEnabled) HudOnlineGreen.copy(alpha = 0.16f)
+                                else JarvisSurfaceElevated,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (wakeWordEnabled) HudOnlineGreen else MutedHudBlue
+                                )
+                            ) {
+                                Text(
+                                    text = if (wakeWordEnabled) "LISTENING" else "STANDBY",
+                                    color = if (wakeWordEnabled) HudOnlineGreen else SlateCyan,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    val granted = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (!granted) {
+                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    } else {
+                                        val serviceIntent = Intent(context, WakeWordService::class.java).apply {
+                                            action = if (wakeWordEnabled) WakeWordService.ACTION_STOP
+                                            else WakeWordService.ACTION_START
+                                        }
+                                        if (wakeWordEnabled) {
+                                            context.stopService(serviceIntent)
+                                            wakeWordEnabled = false
+                                        } else {
+                                            ContextCompat.startForegroundService(context, serviceIntent)
+                                            wakeWordEnabled = true
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (wakeWordEnabled) HudOnlineGreen else JarvisSurfaceElevated,
+                                    contentColor = IceWhite
+                                )
+                            ) {
+                                Text(if (wakeWordEnabled) "Stop Hey Assistant" else "Enable Hey Assistant")
+                            }
+                            TextButton(onClick = { showWakeWordSettings = true }) {
+                                Text("Wake word settings", color = ElectricCyan)
+                            }
+                        }
+                    }
                 }
 
                 JarvisTopBar(
@@ -418,6 +475,30 @@ fun PanduDashboardScreen(
                 )
             }
         }
+    }
+
+    if (showWakeWordSettings) {
+        AlertDialog(
+            onDismissRequest = { showWakeWordSettings = false },
+            containerColor = JarvisSurface,
+            titleContentColor = IceWhite,
+            textContentColor = SlateCyan,
+            title = { Text("ZENO Wake Word Settings") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Current installed wake-word model: Hey Assistant")
+                    Text("Status: ${if (wakeWordEnabled) "Active" else "Stopped"}")
+                    Text(
+                        "Hey Zeno is your planned wake phrase. This build still uses the Hey Assistant acoustic model; changing the label alone cannot make Hey Zeno work. A compatible custom wake-word model must be installed first."
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showWakeWordSettings = false }) {
+                    Text("Got it", color = ElectricCyan)
+                }
+            }
+        )
     }
 
     if (showClearDialog) {
