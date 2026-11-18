@@ -156,7 +156,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         val lastFailedPrompt: String?,
         val inputText: String,
         val deviceControlState: DeviceControlState,
-        val pendingSensitiveAction: PendingSensitiveAction?
+        val pendingSensitiveAction: PendingSensitiveAction?,
+        val openRouterKeyConfigured: Boolean
     )
 
     private data class TtsSlice(
@@ -184,8 +185,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val controlFlow = combine(
         phoneControlManager.state,
         _pendingSensitiveAction
-    ) { deviceState, pending ->
-        deviceState to pending
+        _openRouterKeyConfigured
+    ) { deviceState, pending, keyConfigured ->
+        Triple(deviceState, pending, keyConfigured)
     }
 
     private val interactionFlow = combine(
@@ -201,7 +203,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             lastFailedPrompt = failedPrompt,
             inputText = input,
             deviceControlState = controlPair.first,
-            pendingSensitiveAction = controlPair.second
+            pendingSensitiveAction = controlPair.second,
+            openRouterKeyConfigured = controlPair.third
         )
     }
 
@@ -226,9 +229,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         voiceInputController.state,
         ttsFlow,
         permissionFlow,
-        interactionFlow,
-        _openRouterKeyConfigured
-    ) { messages, voiceState, ttsSlice, permissions, interaction, keyConfigured ->
+        interactionFlow
+    ) { messages, voiceState, ttsSlice, permissions, interaction ->
         PanduUiState(
             messages = messages,
             aiGenState = interaction.aiGenState,
@@ -248,7 +250,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             isRecognitionAvailable = voiceInputController.isRecognitionAvailable,
             deviceControlState = interaction.deviceControlState,
             pendingSensitiveAction = interaction.pendingSensitiveAction,
-            openRouterKeyConfigured = keyConfigured
+            openRouterKeyConfigured = interaction.openRouterKeyConfigured
         )
     }.stateIn(
         scope = viewModelScope,
