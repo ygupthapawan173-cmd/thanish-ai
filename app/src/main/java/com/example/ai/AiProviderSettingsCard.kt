@@ -206,7 +206,7 @@ fun AiProviderSettingsCard() {
                                             activeProvider = next
                                         }
                                         messages = messages + (provider to "Saved key removed from this phone.")
-                                    },
+                                    }
                                 },
                                 enabled = busyProvider == null,
                                 modifier = Modifier.fillMaxWidth()
