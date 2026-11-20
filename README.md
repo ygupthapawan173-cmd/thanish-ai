@@ -2,19 +2,22 @@
 
 Telugu-first Android AI assistant built with Kotlin, Jetpack Compose, Room, Android SpeechRecognizer, Android Text-to-Speech, and Firebase AI Logic.
 
-## Gemini connection and API key safety
+## AI intelligence and provider slots
 
-This app already uses the Firebase AI Logic Android SDK through Firebase.ai.generativeModel(...).
+Open the app's **Settings** tab to configure four optional AI API providers:
 
-Do not add a Gemini Developer API key to the APK, source code, GitHub, or a client-side .env file. Firebase AI Logic's current mobile authorization flow uses a Google-managed service agent and App Check; a standard Gemini API key is not required in the Android app. Never use the Firebase configuration API key as a Gemini API key.
+1. Google Gemini — default model: `gemini-3.8-flash`
+2. Groq — default model: `openai/gpt-oss-20b`
+3. OpenRouter — default model: `openrouter/free`
+4. OpenAI — default model: `gpt-4.1-mini`
 
-Setup:
-1. In the Firebase Console, open AI Services → AI Logic and enable Gemini Developer API for this Firebase project.
-2. Keep the project's app/google-services.json in the app module. It contains Firebase app configuration, not a Gemini Developer API key.
-3. Keep Firebase App Check enabled. For a debug APK, launch the app once and copy the App Check debug token from Logcat into Firebase Console → App Check → Apps → Manage debug tokens.
-4. For release builds, configure an approved App Check attestation provider for the Android app.
+For each provider you can enter an API key, change the model ID, choose **Save & Test**, and select **Use This** to make it the active provider. You can remove a saved key at any time.
 
-The Settings screen explains this connection. If Gemini requests fail, check that AI Logic is enabled for the Firebase project and that the installed debug app's App Check token is registered.
+API keys are encrypted at rest with AES-GCM using a key held by Android Keystore. The encrypted provider preferences are excluded from Android cloud backup and device transfer. Keys are not hardcoded in the source code, BuildConfig, or APK. This is still a client-side application: a rooted or instrumented device may expose a key while it is in use. Use project restrictions and quota limits on provider accounts; never put server-only secrets in a mobile app.
+
+Responses stream into the chat as text arrives. If the active provider fails before producing response text, Pandu Babu tries the other configured providers. When no provider key is configured, the app falls back to its existing Firebase AI Logic Gemini connection.
+
+Provider usage and charges depend on the provider account and model. OpenRouter's `openrouter/free` model router uses currently available free models and is subject to provider rate limits. Model IDs can be changed from Settings as provider catalogs evolve.
 
 ## Accessibility and phone controls
 
@@ -24,7 +27,9 @@ Pandu Babu's optional Accessibility Service is deliberately limited to Android g
 - Recents
 - Notifications
 
-The user must open Android Accessibility Settings and explicitly enable the service. Every global navigation action requested by voice or tapped in the dashboard requires an in-app confirmation. The service does not read screen content, messages, passwords, OTPs, or other window content, and does not click controls inside other apps.
+The user must open Android Accessibility Settings and explicitly enable the service. The Phone Controls dashboard distinguishes between **enabled in Android Settings** and **connected to the running app**, and refreshes that state when the service connects/disconnects and when the app resumes. Use **Enable** or **Open Settings** to return to Android's Accessibility page. If Android shows the service enabled but it has not connected, toggle it off and on once.
+
+Every global navigation action requested by voice or tapped in the dashboard requires an in-app confirmation. The service does not read screen content, messages, passwords, OTPs, or other window content, and does not click controls inside other apps.
 
 Other phone controls use normal Android APIs:
 - App launch, camera, gallery, dialer, and messaging app launch
@@ -38,13 +43,14 @@ Voice recognition depends on an installed Android speech-recognition provider an
 
 1. Open this repository in Android Studio.
 2. Let Gradle sync and install the Android SDK version requested by the project.
-3. Build the debug variant with gradle assembleDebug or Android Studio's Build APK(s) action.
-4. Run unit tests with gradle testDebugUnitTest.
+3. Build the debug variant with `gradle assembleDebug` or Android Studio's Build APK(s) action.
+4. Run unit tests with `gradle testDebugUnitTest`.
 
-The GitHub Actions workflow runs unit tests before building the debug APK.
+The GitHub Actions workflow runs unit tests before building the debug APK on pushes and pull requests targeting `main`.
 
 ## Package
 
-- Application ID: com.aistudio.pandubabu.kxmpzq
+- Application ID: `com.aistudio.pandubabu.kxmpzq`
 - Display name: Pandu Babu
+- Version: 1.2
 - Minimum Android SDK: 24
