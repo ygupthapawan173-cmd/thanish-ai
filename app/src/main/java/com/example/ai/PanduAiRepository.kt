@@ -1,5 +1,6 @@
 package com.example.ai
 
+import android.content.Context
 import android.util.Log
 import com.example.data.ChatMessageEntity
 import com.google.firebase.Firebase
@@ -8,29 +9,32 @@ import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 
 private const val TAG = "PanduAiRepository"
 private const val MODEL_NAME = "gemini-3.8-flash"
-private const val AI_TIMEOUT_MS = 60_000L
+private const val AI_TIMEOUT_MS = 30_000L
+private const val CONNECT_TIMEOUT_MS = 10_000
+private const val READ_TIMEOUT_MS = 30_000
 
 private val PANDU_SYSTEM_INSTRUCTION = """
-    You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a super smart, funny, friendly, and loyal Telugu AI voice assistant.
-    
-    Personality & Tone:
-    - Imagine Tony Stark's JARVIS combined with a witty, warm, energetic Telugu best friend!
-    - Address the user affectionately and respectfully as "బాస్" (Boss) or "గురూ" (Guru).
-    - Be funny, clever, optimistic, and genuinely helpful—sprinkle light Telugu humor, relatable punchlines, or playful Jarvis-style remarks when natural.
-    
-    Language & Voice Rules (CRITICAL):
-    - ALWAYS reply primarily in natural, everyday spoken Telugu written in Telugu script (తెలుగు లిపి).
-    - Common everyday tech or modern words (like AI, phone, app, code, battery, dinner, joke, cricket, Wi-Fi) can be kept natural in Telugu transliteration or simple English if Telugu speakers use them naturally, e.g., "బాస్, మీ సిస్టమ్ ఫుల్ ఛార్జ్‌లో ఉంది!".
-    - Even if the user writes or speaks in English or Tenglish (Telugu typed in English letters), STILL reply in natural, lively Telugu!
-    - Keep responses concise, punchy, and voice-friendly (2 to 5 sentences for casual questions, structured clearly if asked for a detailed explanation).
-    - Avoid Markdown symbols like **, ##, ``` or long bullet lists because your answers are also read aloud by Telugu Text-to-Speech. Write smooth spoken paragraphs.
+    You are Pandu Babu – Jarvis Edition, a smart, warm, witty Telugu voice assistant.
+    Address the user respectfully as బాస్ or గురూ. Reply mainly in natural spoken Telugu script,
+    even when the user writes English or Tenglish. Keep casual answers short, clear, useful and
+    voice-friendly. Use simple English tech terms naturally. Never claim to have performed a
+    phone action unless the app confirms it succeeded. Ask before sensitive actions.
 """.trimIndent()
 
 sealed interface AiStreamEvent {
@@ -38,15 +42,17 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
-class PanduAiRepository {
+class PanduAiRepository(context: Context) {
 
-    private val model by lazy {
+    private val apiKeyVault = GeminiApiKeyVault(context)
+
+    private val firebaseModel by lazy {
         Firebase.ai.generativeModel(
             modelName = MODEL_NAME,
             generationConfig = generationConfig {
-                temperature = 0.85f
-                topP = 0.95f
-                maxOutputTokens = 800
+                temperature = 0.65f
+                topP = 0.9f
+                maxOutputTokens = 512
             },
             systemInstruction = content {
                 text(PANDU_SYSTEM_INSTRUCTION)
@@ -54,15 +60,54 @@ class PanduAiRepository {
         )
     }
 
+    /**
+     * If one or more local key slots are configured, try them in slot order (1 → 4).
+     * With no saved keys, keep using the app's existing Firebase AI Logic connection.
+     */
     fun streamReply(
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<AiStreamEvent> = flow {
-        val chatHistory: List<Content> = normalizeChatHistory(history)
+        val configuredKeys = apiKeyVault.configuredKeys()
+        if (configuredKeys.isEmpty()) {
+            emitAll(streamWithFirebase(history, userPrompt))
+            return@flow
+        }
 
-        val chat = model.startChat(history = chatHistory)
+        var lastFailure: Exception? = null
+        for ((slot, apiKey) in configuredKeys) {
+            try {
+                withTimeout(AI_TIMEOUT_MS) {
+                    emitAll(streamWithGeminiKey(apiKey, history, userPrompt))
+                }
+                return@flow
+            } catch (e: TimeoutCancellationException) {
+                lastFailure = e
+                Log.w(TAG, "Gemini API key slot " + slot + " timed out", e)
+                emit(AiStreamEvent.Chunk(""))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastFailure = e
+                Log.w(TAG, "Gemini API key slot " + slot + " failed; trying next configured slot", e)
+                emit(AiStreamEvent.Chunk(""))
+            }
+        }
+
+        val detail = lastFailure?.localizedMessage?.take(180)
+            ?: "No configured key accepted the request"
+        throw PanduAiException(
+            "Gemini API slots 1–4 failed. Check key, quota, billing and model access. Details: " + detail,
+            lastFailure
+        )
+    }.flowOn(Dispatchers.IO)
+
+    private fun streamWithFirebase(
+        history: List<ChatMessageEntity>,
+        userPrompt: String
+    ): Flow<AiStreamEvent> = flow {
+        val chat = firebaseModel.startChat(history = normalizeChatHistory(history))
         val accumulated = StringBuilder()
-
         try {
             withTimeout(AI_TIMEOUT_MS) {
                 chat.sendMessageStream(userPrompt).collect { chunk ->
@@ -73,64 +118,166 @@ class PanduAiRepository {
                     }
                 }
             }
-
             val finalText = accumulated.toString().trim()
             if (finalText.isBlank()) {
-                throw IllegalStateException("అయ్యో బాస్! జెమిని ఖాళీ సమాధానం పంపింది. మళ్ళీ అడగండి!")
+                throw IllegalStateException("Gemini returned an empty response.")
             }
             emit(AiStreamEvent.Completed(finalText))
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "Gemini stream timed out after ${AI_TIMEOUT_MS}ms", e)
+            Log.e(TAG, "Firebase AI Logic stream timed out", e)
             throw PanduAiException(
-                "బాస్, సర్వర్ స్పందించడానికి 60 సెకన్ల కంటే ఎక్కువ టైమ్ పట్టింది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
+                "Boss, AI response exceeded 30 seconds. Please retry.",
                 e
             )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Gemini stream failed", e)
+            Log.e(TAG, "Firebase AI Logic stream failed", e)
             val detail = e.localizedMessage?.takeIf { it.isNotBlank() } ?: "Unknown AI error"
-            throw PanduAiException(
-                "అయ్యో బాస్, జార్విస్ లింక్‌లో చిన్న టెక్నికల్ సమస్య వచ్చింది: $detail",
-                e
-            )
+            throw PanduAiException("Firebase AI connection failed: " + detail, e)
         }
     }
 
-    internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
+    private fun streamWithGeminiKey(
+        apiKey: String,
+        history: List<ChatMessageEntity>,
+        userPrompt: String
+    ): Flow<AiStreamEvent> = flow {
+        val url = URL(
+            "https://generativelanguage.googleapis.com/v1beta/models/" +
+                MODEL_NAME + ":streamGenerateContent?alt=sse"
+        )
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "text/event-stream")
+            setRequestProperty("x-goog-api-key", apiKey)
+        }
+
+        val accumulated = StringBuilder()
+        try {
+            val requestBody = buildRequestBody(history, userPrompt)
+            connection.outputStream.use { output ->
+                output.write(requestBody.toString().toByteArray(Charsets.UTF_8))
+            }
+
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val serverMessage = runCatching {
+                    JSONObject(errorBody).optJSONObject("error")?.optString("message")
+                }.getOrNull().orEmpty()
+                throw IOException(
+                    "HTTP " + status +
+                        (if (serverMessage.isNotBlank()) ": " + serverMessage else "")
+                )
+            }
+
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.substringAfter("data:").trim()
+                    if (data.isBlank() || data == "[DONE]") continue
+
+                    val event = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val candidates = event.optJSONArray("candidates") ?: continue
+                    val parts = candidates.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts") ?: continue
+
+                    for (index in 0 until parts.length()) {
+                        val partText = parts.optJSONObject(index)?.optString("text").orEmpty()
+                        if (partText.isNotEmpty()) accumulated.append(partText)
+                    }
+                    if (accumulated.isNotEmpty()) {
+                        emit(AiStreamEvent.Chunk(accumulated.toString()))
+                    }
+                }
+            }
+
+            val finalText = accumulated.toString().trim()
+            if (finalText.isBlank()) {
+                throw IOException("Gemini stream returned no text.")
+            }
+            emit(AiStreamEvent.Completed(finalText))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun buildRequestBody(
+        history: List<ChatMessageEntity>,
+        userPrompt: String
+    ): JSONObject {
+        val contents = JSONArray()
+        normalizedTextHistory(history).forEach { turn ->
+            contents.put(
+                JSONObject()
+                    .put("role", turn.first)
+                    .put("parts", JSONArray().put(JSONObject().put("text", turn.second)))
+            )
+        }
+        contents.put(
+            JSONObject()
+                .put("role", "user")
+                .put("parts", JSONArray().put(JSONObject().put("text", userPrompt)))
+        )
+
+        return JSONObject()
+            .put(
+                "systemInstruction",
+                JSONObject().put(
+                    "parts",
+                    JSONArray().put(JSONObject().put("text", PANDU_SYSTEM_INSTRUCTION))
+                )
+            )
+            .put("contents", contents)
+            .put(
+                "generationConfig",
+                JSONObject()
+                    .put("temperature", 0.65)
+                    .put("topP", 0.9)
+                    .put("maxOutputTokens", 512)
+            )
+    }
+
+    private fun normalizedTextHistory(history: List<ChatMessageEntity>): List<Pair<String, String>> {
         val recent = history
             .filter { it.text.isNotBlank() }
-            .takeLast(24)
+            .takeLast(12)
 
         val alternating = mutableListOf<Pair<String, String>>()
-        for (msg in recent) {
-            val role = if (msg.role == ChatMessageEntity.ROLE_USER) "user" else "model"
-            val text = msg.text.trim()
+        for (message in recent) {
+            val role = if (message.role == ChatMessageEntity.ROLE_USER) "user" else "model"
+            val text = message.text.trim()
             if (alternating.isEmpty()) {
-                if (role == "user") {
-                    alternating += role to text
-                }
+                if (role == "user") alternating += role to text
             } else {
                 val last = alternating.last()
                 if (last.first == role) {
-                    alternating[alternating.lastIndex] = role to "${last.second}\n$text"
+                    alternating[alternating.lastIndex] = role to (last.second + "\n" + text)
                 } else {
                     alternating += role to text
                 }
             }
         }
 
-        // Before sendMessageStream(userPrompt), history must end with "model" (or be empty).
         if (alternating.lastOrNull()?.first == "user") {
             alternating.removeAt(alternating.lastIndex)
         }
+        return alternating
+    }
 
-        return alternating.map { (role, text) ->
+    internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> =
+        normalizedTextHistory(history).map { (role, text) ->
             content(role) {
                 text(text)
             }
         }
-    }
 }
 
 class PanduAiException(message: String, cause: Throwable? = null) : Exception(message, cause)
