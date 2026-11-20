@@ -94,7 +94,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     private val chatRepository = ChatRepository(database.chatMessageDao())
     private val ttsPrefsRepository = TtsPreferencesRepository(application)
-    private val aiRepository = PanduAiRepository()
+    private val aiRepository = PanduAiRepository(application)
     private val ttsController = TeluguTtsController(application)
     private val phoneControlManager = PhoneControlManager(application)
 
