@@ -1,5 +1,6 @@
 package com.example.control
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
@@ -7,6 +8,8 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.view.accessibility.AccessibilityManager
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -112,9 +115,22 @@ class PhoneControlManager(
                 canWriteSystemSettings = canWrite,
                 brightnessPercent = brightnessPercent,
                 battery = batteryInfo,
-                isAccessibilityEnabled = PanduAccessibilityService.isConnected.value
+                isAccessibilityEnabled = isPanduAccessibilityEnabled()
             )
         }
+    }
+
+    private fun isPanduAccessibilityEnabled(): Boolean {
+        return runCatching {
+            val manager = appContext.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+                ?: return false
+            val expected = ComponentName(appContext, PanduAccessibilityService::class.java)
+            manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                .any { info ->
+                    val serviceInfo = info.resolveInfo.serviceInfo
+                    ComponentName(serviceInfo.packageName, serviceInfo.name) == expected
+                }
+        }.getOrDefault(false)
     }
 
     private fun readSystemBrightnessPercent(): Int {
@@ -509,10 +525,19 @@ class PhoneControlManager(
     }
 
     fun performGlobalNavigation(action: GlobalNavigationAction): CommandExecutionResult {
+        if (!isPanduAccessibilityEnabled()) {
+            refreshState()
+            val res = CommandExecutionResult(
+                succeeded = false,
+                teluguResponse = "బాస్, ${action.displayName} చేయడానికి Android Settings లో Pandu Babu Accessibility Service enable చేయండి."
+            )
+            recordFeedback(res)
+            return res
+        }
         if (!PanduAccessibilityService.isConnected.value) {
             val res = CommandExecutionResult(
                 succeeded = false,
-                teluguResponse = "బాస్, ${action.displayName} వంటి సిస్టమ్ నావిగేషన్ కోసం Accessibility Service ఆన్ చేయాలి."
+                teluguResponse = "బాస్, Accessibility ON లో ఉంది కానీ service ఇంకా connect కాలేదు. ఒకసారి OFF చేసి ON చేసి మళ్ళీ ప్రయత్నించండి."
             )
             recordFeedback(res)
             return res
