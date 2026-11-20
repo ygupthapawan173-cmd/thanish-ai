@@ -243,7 +243,7 @@ class ExampleUnitTest {
             ).isEmpty()
         )
         assertTrue(
-            repo.normalizeChatHistory(
+            PanduAiRepository.normalizeChatHistory(
                 listOf(ChatMessageEntity(id = 1, role = ChatMessageEntity.ROLE_USER, text = "Only user"))
             ).isEmpty()
         )
