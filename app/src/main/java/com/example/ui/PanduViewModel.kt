@@ -609,6 +609,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         val result = when (pending) {
             is PendingSensitiveAction.ConfirmAppLaunch -> phoneControlManager.openApp(pending.target)
             is PendingSensitiveAction.ConfirmGlobalNav -> phoneControlManager.performGlobalNavigation(pending.action)
+            is PendingSensitiveAction.ConfirmAgentAction -> CommandExecutionResult(
+                succeeded = false,
+                teluguResponse = "Agent action మళ్ళీ confirm చేయాలి బాస్."
+            )
         }
 
         applyControlResult(result)
