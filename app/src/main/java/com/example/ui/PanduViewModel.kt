@@ -17,6 +17,7 @@ import com.example.control.PendingSensitiveAction
 import com.example.control.PhoneCommandParser
 import com.example.control.PhoneControlCommand
 import com.example.control.PhoneControlManager
+import com.example.control.PanduAccessibilityService
 import com.example.data.AppDatabase
 import com.example.data.ChatMessageEntity
 import com.example.data.ChatRepository
@@ -94,7 +95,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     private val chatRepository = ChatRepository(database.chatMessageDao())
     private val ttsPrefsRepository = TtsPreferencesRepository(application)
-    private val aiRepository = PanduAiRepository()
+    private val aiRepository = PanduAiRepository(application)
     private val ttsController = TeluguTtsController(application)
     private val phoneControlManager = PhoneControlManager(application)
 
@@ -133,6 +134,13 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             ttsPrefsRepository.ttsConfig.collect { config ->
                 currentTtsConfig = config
                 ttsController.applyConfig(config)
+            }
+        }
+
+        // Keep the Phone Controls dashboard in sync while Android binds/unbinds the service.
+        viewModelScope.launch {
+            PanduAccessibilityService.isConnected.collect {
+                phoneControlManager.refreshState()
             }
         }
     }
