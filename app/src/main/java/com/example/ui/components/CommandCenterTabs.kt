@@ -83,6 +83,7 @@ import com.example.ui.theme.JarvisVoid
 import com.example.ui.theme.MutedHudBlue
 import com.example.ui.theme.NeonSapphire
 import com.example.ui.theme.SlateCyan
+import com.example.ui.components.OpenRouterSettingsCard
 import com.example.voice.SpeechLocaleOption
 import com.example.voice.TtsPersonalityPreset
 import com.example.voice.TtsReadiness
@@ -722,7 +723,7 @@ fun SettingsCommandTab(
             }
         }
 
-        // Auto-speak + Speech Input Language Card
+        item { OpenRouterSettingsCard() }\n\n        // Auto-speak + Speech Input Language Card
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
