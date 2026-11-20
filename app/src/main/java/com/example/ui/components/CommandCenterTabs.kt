@@ -798,6 +798,37 @@ fun SettingsCommandTab(
             }
         }
 
+        // Gemini is connected through Firebase AI Logic; no client-side API key is embedded.
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = JarvisSurface.copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, cyberDualNeonBrush())
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.gemini_connection_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = ElectricCyan
+                    )
+                    Text(
+                        text = stringResource(R.string.gemini_connection_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = IceWhite
+                    )
+                    Text(
+                        text = stringResource(R.string.gemini_connection_setup),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SlateCyan
+                    )
+                }
+            }
+        }
+
         // Telugu TTS Personality & Calibration Card
         item {
             Surface(
