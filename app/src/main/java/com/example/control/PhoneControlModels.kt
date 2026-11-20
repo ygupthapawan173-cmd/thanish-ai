@@ -51,6 +51,7 @@ data class DeviceControlState(
     val brightnessPercent: Int = 50,
     val battery: BatteryStatusInfo = BatteryStatusInfo(),
     val isAccessibilityEnabled: Boolean = false,
+    val isAccessibilityConnected: Boolean = false,
     val lastFeedbackMessage: String? = null,
     val lastFeedbackSuccess: Boolean = true
 )
