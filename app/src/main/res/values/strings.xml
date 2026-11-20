@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Pandu Babu</string>
-    <string name="jarvis_header_title">PANDU BABU</string>
+    <string name="app_name">THANISH AI</string>
+    <string name="jarvis_header_title">THANISH AI</string>
     <string name="jarvis_header_subtitle">JARVIS EDITION • TELUGU AI</string>
     <string name="status_online">ONLINE</string>
     <string name="status_listening">వింటున్నాను...</string>
@@ -9,7 +9,7 @@
     <string name="status_speaking">మాట్లాడుతున్నాను...</string>
     <string name="status_error">ALERT</string>
 
-    <string name="welcome_title">నమస్తే బాస్! నేను పాండు బాబు</string>
+    <string name="welcome_title">నమస్తే బాస్! నేను తనిష్ AI</string>
     <string name="welcome_subtitle">మీ పర్సనల్ తెలుగు జార్విస్ AI అసిస్టెంట్. మైక్ నొక్కి తెలుగులో మాట్లాడండి లేదా కింద టైప్ చేయండి!</string>
 
     <string name="starter_prompt_joke">ఒక సూపర్ తెలుగు జోక్ చెప్పు</string>
@@ -27,7 +27,7 @@
     <string name="tts_settings_cd">Configure Telugu TTS voice</string>
     <string name="replay_voice_cd">Speak response in Telugu</string>
     <string name="stop_voice_cd">Stop speaking</string>
-    <string name="logo_cd">Pandu Babu Jarvis core emblem</string>
+    <string name="logo_cd">THANISH AI Jarvis core emblem</string>
 
     <string name="clear_dialog_title">చాట్ క్లియర్ చేయాలా బాస్?</string>
     <string name="clear_dialog_message">మన పాత మాటలన్నీ డిలీట్ అవుతాయి. పక్కానా?</string>
@@ -47,12 +47,12 @@
     <string name="lang_chip_en">ENG</string>
     <string name="tts_stop_pill">ఆపు (Stop Voice)</string>
     <string name="you_label">YOU // BOSS</string>
-    <string name="pandu_label">PANDU BABU // JARVIS</string>
+    <string name="pandu_label">THANISH AI // JARVIS</string>
     <string name="voice_badge">VOICE</string>
 
     <!-- Telugu TTS Voice Calibration Sheet -->
     <string name="tts_sheet_title">TELUGU VOICE MATRIX</string>
-    <string name="tts_sheet_subtitle">పాండు బాబు వాయిస్ &amp; కామెడీ టైమింగ్ సెటప్</string>
+    <string name="tts_sheet_subtitle">తనిష్ AI వాయిస్ &amp; కామెడీ టైమింగ్ సెటప్</string>
     <string name="tts_preset_label">PERSONALITY MODE</string>
     <string name="tts_preset_witty">Witty Jarvis (చలాకీ)</string>
     <string name="tts_preset_calm">Calm Tech (కూల్)</string>
@@ -66,16 +66,16 @@
     <string name="tts_status_ready">te-IN తెలుగు వాయిస్ సిద్ధంగా ఉంది</string>
     <string name="tts_status_fallback">తెలుగు వాయిస్ ప్యాక్ లేదు — Fallback మోడ్‌లో ఉంది</string>
     <string name="tts_status_unavailable">TTS ఇంజిన్ అందుబాటులో లేదు</string>
-    <string name="tts_sample_phrase">హలో బాస్! నేను మీ పాండు బాబు — జార్విస్ ఎడిషన్! నా తెలుగు వాయిస్ ఇప్పుడు ఫుల్ ఫార్మ్‌లో ఉంది, ఏం పని చెప్పమంటారు?</string>
+    <string name="tts_sample_phrase">హలో బాస్! నేను మీ తనిష్ AI — జార్విస్ ఎడిషన్! నా తెలుగు వాయిస్ ఇప్పుడు ఫుల్ ఫార్మ్‌లో ఉంది, ఏం పని చెప్పమంటారు?</string>
 
     <!-- Help & Telugu Command Examples -->
     <string name="help_examples_cd">Help and Telugu command examples</string>
     <string name="help_examples_cta">తెలుగు కమాండ్స్ &amp; సహాయం చూడండి</string>
     <string name="help_sheet_title">TELUGU COMMAND GUIDE</string>
-    <string name="help_sheet_subtitle">పాండు బాబుతో మీరు తెలుగులో మాట్లాడే ఉదాహరణలు — ఏదైనా ట్యాప్ చేసి వెంటనే ట్రై చేయండి!</string>
+    <string name="help_sheet_subtitle">తనిష్ AIతో మీరు తెలుగులో మాట్లాడే ఉదాహరణలు — ఏదైనా ట్యాప్ చేసి వెంటనే ట్రై చేయండి!</string>
     <string name="help_tap_to_try">ట్యాప్ చేసి ట్రై చేయండి</string>
     <string name="help_voice_tip_title">VOICE &amp; HUD CONTROLS</string>
-    <string name="help_voice_tip_body">కింద ఉన్న బ్లూ మైక్ బటన్ నొక్కి తెలుగులో మాట్లాడండి. అవసరమైతే పైన తెలుగు / ENG టోగుల్‌తో లాంగ్వేజ్ మార్చుకోవచ్చు, లేదా Tune ఐకాన్‌లో పాండు బాబు వాయిస్ పిచ్ &amp; స్పీడ్ సెట్ చేయొచ్చు.</string>
+    <string name="help_voice_tip_body">కింద ఉన్న బ్లూ మైక్ బటన్ నొక్కి తెలుగులో మాట్లాడండి. అవసరమైతే పైన తెలుగు / ENG టోగుల్‌తో లాంగ్వేజ్ మార్చుకోవచ్చు, లేదా Tune ఐకాన్‌లో తనిష్ AI వాయిస్ పిచ్ &amp; స్పీడ్ సెట్ చేయొచ్చు.</string>
 
     <!-- Cyberpunk Command Center Navigation & Shortcuts -->
     <string name="nav_home">Home</string>
@@ -98,13 +98,13 @@
     <string name="apps_screen_title">CYBERPUNK APP DECK</string>
     <string name="apps_screen_subtitle">వేగవంతమైన యాప్స్ &amp; తెలుగు వాయిస్ షార్ట్‌కట్స్</string>
     <string name="history_screen_title">MEMORY ARCHIVE</string>
-    <string name="history_screen_subtitle">పాండు బాబుతో మీ పూర్తి సంభాషణ చరిత్ర</string>
+    <string name="history_screen_subtitle">తనిష్ AIతో మీ పూర్తి సంభాషణ చరిత్ర</string>
     <string name="history_empty_title">ఇంకా హిస్టరీ లేదు బాస్!</string>
     <string name="history_empty_subtitle">Home లేదా Chat లో మైక్ నొక్కి తెలుగులో మాట్లాడితే ఇక్కడ సేవ్ అవుతుంది.</string>
     <string name="settings_screen_title">SYSTEM CALIBRATION</string>
     <string name="settings_screen_subtitle">తెలుగు వాయిస్, TTS &amp; జార్విస్ సెట్టింగ్స్</string>
     <string name="settings_auto_speak_title">Auto-Speak Telugu Replies</string>
-    <string name="settings_auto_speak_sub">పాండు బాబు సమాధానాలను ఆటోమేటిక్‌గా చదువుతుంది</string>
+    <string name="settings_auto_speak_sub">తనిష్ AI సమాధానాలను ఆటోమేటిక్‌గా చదువుతుంది</string>
     <string name="settings_input_lang_title">Voice Recognition Language</string>
 
     <!-- Phone Control Center -->
@@ -114,13 +114,13 @@
     <string name="section_device_control">2. DEVICE CONTROL</string>
     <string name="section_voice_commands">3. TELUGU VOICE COMMANDS</string>
     <string name="section_android_restrictions">4. ANDROID RESTRICTIONS &amp; ACCESSIBILITY</string>
-    <string name="accessibility_service_label">Pandu Babu Hands-Free Navigation</string>
+    <string name="accessibility_service_label">THANISH AI Hands-Free Navigation</string>
     <string name="accessibility_service_description">Optional user-consented service used only for hands-free Back, Home, Recents, and Notification Shade actions when requested by the user.</string>
     <string name="confirm_action_title">కన్ఫర్మ్ చేయండి బాస్!</string>
     <string name="confirm_action_yes">అవును, కొనసాగు</string>
     <string name="confirm_action_no">వద్దు</string>
     <string name="accessibility_consent_title">Accessibility Service Consent</string>
-    <string name="accessibility_consent_body">Pandu Babu only uses Android Accessibility Service for optional hands-free navigation (Back, Home, Recents, Notification Shade). It does NOT read screen content, passwords, or messages. Do you want to open Android Accessibility Settings to enable it?</string>
+    <string name="accessibility_consent_body">THANISH AI only uses Android Accessibility Service for optional hands-free navigation (Back, Home, Recents, Notification Shade). It does NOT read screen content, passwords, or messages. Do you want to open Android Accessibility Settings to enable it?</string>
 
     <!-- Dashboard Battery Telemetry -->
     <string name="battery_telemetry_label">POWER CORE // BATTERY</string>
