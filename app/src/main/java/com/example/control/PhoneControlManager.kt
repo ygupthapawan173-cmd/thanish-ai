@@ -121,9 +121,9 @@ class PhoneControlManager(
     }
 
     private fun isPanduAccessibilityEnabled(): Boolean {
+        val manager = appContext.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+            ?: return false
         return runCatching {
-            val manager = appContext.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-                ?: return false
             val expected = ComponentName(appContext, PanduAccessibilityService::class.java)
             manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
                 .any { info ->
