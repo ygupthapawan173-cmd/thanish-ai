@@ -10,6 +10,7 @@ import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -90,6 +91,11 @@ class PanduAiRepository(context: Context) {
                 }
                 send(AiStreamEvent.Completed(finalText))
                 return@channelFlow
+            } catch (e: TimeoutCancellationException) {
+                Log.w(TAG, "${provider.name} timed out; checking configured fallback providers", e)
+                lastError = e
+                // Do not splice two providers' answers together after visible text has streamed.
+                if (accumulated.isNotEmpty()) throw e
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
