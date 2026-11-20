@@ -130,7 +130,13 @@ class PhoneControlManager(
                 component.flattenToString(),
                 component.flattenToShortString()
             )
-            enabledServices.split(':').any { it in expectedNames }
+            enabledServices.split(':')
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .any { enabledName ->
+                    enabledName in expectedNames ||
+                        ComponentName.unflattenFromString(enabledName) == component
+                }
         }.getOrDefault(false)
     }
 
