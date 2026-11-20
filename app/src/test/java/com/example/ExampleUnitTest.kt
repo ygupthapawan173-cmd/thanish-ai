@@ -177,6 +177,38 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun `phone command parser handles user confirmed accessibility navigation commands`() {
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.BACK),
+            PhoneCommandParser.parse("go back")
+        )
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.HOME),
+            PhoneCommandParser.parse("home ki vellu")
+        )
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.HOME),
+            PhoneCommandParser.parse("హోమ్ కి వెళ్ళు")
+        )
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.RECENTS),
+            PhoneCommandParser.parse("open recents")
+        )
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.RECENTS),
+            PhoneCommandParser.parse("రీసెంట్స్")
+        )
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.NOTIFICATIONS),
+            PhoneCommandParser.parse("open notifications")
+        )
+        assertEquals(
+            PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.NOTIFICATIONS),
+            PhoneCommandParser.parse("నోటిఫికేషన్ ప్యానెల్ ఓపెన్")
+        )
+    }
+
+    @Test
     fun `phone command parser returns null for conversational ai queries`() {
         assertNull(PhoneCommandParser.parse("YouTube గురించి చెప్పు"))
         assertNull(PhoneCommandParser.parse("WhatsApp కోసం జోక్ చెప్పు"))
