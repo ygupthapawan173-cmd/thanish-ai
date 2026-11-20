@@ -1,5 +1,6 @@
 package com.example.control
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
@@ -112,9 +113,25 @@ class PhoneControlManager(
                 canWriteSystemSettings = canWrite,
                 brightnessPercent = brightnessPercent,
                 battery = batteryInfo,
-                isAccessibilityEnabled = PanduAccessibilityService.isConnected.value
+                isAccessibilityEnabled = isAccessibilityServiceEnabled(),
+                isAccessibilityConnected = PanduAccessibilityService.isConnected.value
             )
         }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        return runCatching {
+            val component = ComponentName(appContext, PanduAccessibilityService::class.java)
+            val enabledServices = Settings.Secure.getString(
+                appContext.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            val expectedNames = setOf(
+                component.flattenToString(),
+                component.flattenToShortString()
+            )
+            enabledServices.split(':').any { it in expectedNames }
+        }.getOrDefault(false)
     }
 
     private fun readSystemBrightnessPercent(): Int {
@@ -509,10 +526,18 @@ class PhoneControlManager(
     }
 
     fun performGlobalNavigation(action: GlobalNavigationAction): CommandExecutionResult {
+        if (!isAccessibilityServiceEnabled()) {
+            val res = CommandExecutionResult(
+                succeeded = false,
+                teluguResponse = "బాస్, ముందుగా Android Settings → Accessibility → Pandu Babu Service ఆన్ చేయాలి."
+            )
+            recordFeedback(res)
+            return res
+        }
         if (!PanduAccessibilityService.isConnected.value) {
             val res = CommandExecutionResult(
                 succeeded = false,
-                teluguResponse = "బాస్, ${action.displayName} వంటి సిస్టమ్ నావిగేషన్ కోసం Accessibility Service ఆన్ చేయాలి."
+                teluguResponse = "బాస్, Accessibility Service ON‌లో ఉంది కానీ connect కాలేదు. Settings‌లో OFF చేసి మళ్లీ ON చేసి app‌కు తిరిగి రండి."
             )
             recordFeedback(res)
             return res
