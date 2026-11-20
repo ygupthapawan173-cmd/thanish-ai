@@ -54,3 +54,17 @@ The GitHub Actions workflow runs unit tests before building the debug APK on pus
 - Display name: Pandu Babu
 - Version: 1.2
 - Minimum Android SDK: 24
+
+
+## AI Phone Agent (v1.2 integration)
+
+The Apps tab includes a user-started AI Phone Agent. It uses the configured provider slots already available in Settings (Gemini, Groq, OpenRouter, or OpenAI) and asks the selected provider to propose one action at a time.
+
+Privacy and execution boundaries:
+- The user must explicitly consent before a task starts.
+- Visible on-screen controls and labels are sent to the selected AI provider while the task is active.
+- Password values and editable-field contents are not included in screen snapshots.
+- WhatsApp, WhatsApp Business, Android/Google Messages, Gmail, Google Authenticator, Google Wallet, PhonePe, Paytm, and Google Pay package IDs are blocked from screen capture.
+- App launches, taps, text entry, scrolling, and system navigation each require a separate in-app confirmation.
+- The task stops after 12 planning steps or when the user presses Stop / Cancel.
+- The optional always-listening wake-word service and the standalone backend from the supplied patch are not integrated in this first build.
