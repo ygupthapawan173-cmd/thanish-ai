@@ -777,23 +777,24 @@ fun PhoneControlDashboard(
                                 tint = if (controlState.isAccessibilityEnabled) HudOnlineGreen else CyberOrange
                             )
                             Text(
-                                text = if (controlState.isAccessibilityEnabled) {
-                                    "Hands-Free Navigation: Enabled"
-                                } else {
-                                    "Hands-Free Navigation (Optional)"
+                                text = when {
+                                    controlState.isAccessibilityConnected -> "Hands-Free Navigation: Connected"
+                                    controlState.isAccessibilityEnabled -> "Enabled in Settings • Reconnect needed"
+                                    else -> "Hands-Free Navigation (Optional)"
                                 },
                                 style = MaterialTheme.typography.labelLarge,
                                 color = IceWhite
                             )
                         }
-                        if (!controlState.isAccessibilityEnabled) {
-                            OutlinedButton(
-                                onClick = onRequestAccessibilityConsent,
-                                border = BorderStroke(1.dp, ElectricCyan),
-                                modifier = Modifier.testTag("accessibility_consent_button")
-                            ) {
-                                Text("Enable", color = ElectricCyan)
-                            }
+                        OutlinedButton(
+                            onClick = onRequestAccessibilityConsent,
+                            border = BorderStroke(1.dp, ElectricCyan),
+                            modifier = Modifier.testTag("accessibility_consent_button")
+                        ) {
+                            Text(
+                                if (controlState.isAccessibilityEnabled) "Open Settings" else "Enable",
+                                color = ElectricCyan
+                            )
                         }
                     }
 
@@ -804,15 +805,15 @@ fun PhoneControlDashboard(
                         GlobalNavigationAction.entries.forEach { action ->
                             OutlinedButton(
                                 onClick = { onGlobalNavAction(action) },
-                                enabled = controlState.isAccessibilityEnabled,
+                                enabled = controlState.isAccessibilityConnected,
                                 border = BorderStroke(
                                     1.dp,
-                                    if (controlState.isAccessibilityEnabled) ElectricCyan else MutedHudBlue.copy(alpha = 0.35f)
+                                    if (controlState.isAccessibilityConnected) ElectricCyan else MutedHudBlue.copy(alpha = 0.35f)
                                 )
                             ) {
                                 Text(
                                     text = action.displayName,
-                                    color = if (controlState.isAccessibilityEnabled) IceWhite else MutedHudBlue
+                                    color = if (controlState.isAccessibilityConnected) IceWhite else MutedHudBlue
                                 )
                             }
                         }

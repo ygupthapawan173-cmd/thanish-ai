@@ -14,10 +14,10 @@ import com.example.control.DeviceControlState
 import com.example.control.DeviceSettingTarget
 import com.example.control.GlobalNavigationAction
 import com.example.control.PendingSensitiveAction
+import com.example.control.PanduAccessibilityService
 import com.example.control.PhoneCommandParser
 import com.example.control.PhoneControlCommand
 import com.example.control.PhoneControlManager
-import com.example.control.PanduAccessibilityService
 import com.example.data.AppDatabase
 import com.example.data.ChatMessageEntity
 import com.example.data.ChatRepository
@@ -137,7 +137,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Keep the Phone Controls dashboard in sync while Android binds/unbinds the service.
+        // Refresh dashboard state immediately as Android binds or unbinds the Accessibility service.
         viewModelScope.launch {
             PanduAccessibilityService.isConnected.collect {
                 phoneControlManager.refreshState()
@@ -622,7 +622,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 is PhoneControlCommand.PerformGlobalNav -> {
-                    if (phoneControlManager.state.value.isAccessibilityEnabled) {
+                    if (phoneControlManager.state.value.isAccessibilityConnected) {
                         pendingFromVoiceOrChat = true
                         _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmGlobalNav(
                             action = command.action,

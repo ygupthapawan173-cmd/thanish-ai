@@ -8,8 +8,6 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
-import android.view.accessibility.AccessibilityManager
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -115,21 +113,24 @@ class PhoneControlManager(
                 canWriteSystemSettings = canWrite,
                 brightnessPercent = brightnessPercent,
                 battery = batteryInfo,
-                isAccessibilityEnabled = isPanduAccessibilityEnabled()
+                isAccessibilityEnabled = isAccessibilityServiceEnabled(),
+                isAccessibilityConnected = PanduAccessibilityService.isConnected.value
             )
         }
     }
 
-    private fun isPanduAccessibilityEnabled(): Boolean {
-        val manager = appContext.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-            ?: return false
+    private fun isAccessibilityServiceEnabled(): Boolean {
         return runCatching {
-            val expected = ComponentName(appContext, PanduAccessibilityService::class.java)
-            manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-                .any { info ->
-                    val serviceInfo = info.resolveInfo.serviceInfo
-                    ComponentName(serviceInfo.packageName, serviceInfo.name) == expected
-                }
+            val component = ComponentName(appContext, PanduAccessibilityService::class.java)
+            val enabledServices = Settings.Secure.getString(
+                appContext.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            val expectedNames = setOf(
+                component.flattenToString(),
+                component.flattenToShortString()
+            )
+            enabledServices.split(':').any { it in expectedNames }
         }.getOrDefault(false)
     }
 
@@ -525,11 +526,10 @@ class PhoneControlManager(
     }
 
     fun performGlobalNavigation(action: GlobalNavigationAction): CommandExecutionResult {
-        if (!isPanduAccessibilityEnabled()) {
-            refreshState()
+        if (!isAccessibilityServiceEnabled()) {
             val res = CommandExecutionResult(
                 succeeded = false,
-                teluguResponse = "బాస్, ${action.displayName} చేయడానికి Android Settings లో Pandu Babu Accessibility Service enable చేయండి."
+                teluguResponse = "బాస్, ముందుగా Android Settings → Accessibility → Pandu Babu Service ఆన్ చేయాలి."
             )
             recordFeedback(res)
             return res
@@ -537,7 +537,7 @@ class PhoneControlManager(
         if (!PanduAccessibilityService.isConnected.value) {
             val res = CommandExecutionResult(
                 succeeded = false,
-                teluguResponse = "బాస్, Accessibility ON లో ఉంది కానీ service ఇంకా connect కాలేదు. ఒకసారి OFF చేసి ON చేసి మళ్ళీ ప్రయత్నించండి."
+                teluguResponse = "బాస్, Accessibility Service ON‌లో ఉంది కానీ connect కాలేదు. Settings‌లో OFF చేసి మళ్లీ ON చేసి app‌కు తిరిగి రండి."
             )
             recordFeedback(res)
             return res
