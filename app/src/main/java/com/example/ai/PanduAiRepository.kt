@@ -42,9 +42,9 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
-class PanduAiRepository(context: Context) {
+class PanduAiRepository(context: Context? = null) {
 
-    private val apiKeyVault = GeminiApiKeyVault(context)
+    private val apiKeyVault = context?.let(::GeminiApiKeyVault)
 
     private val firebaseModel by lazy {
         Firebase.ai.generativeModel(
@@ -68,7 +68,7 @@ class PanduAiRepository(context: Context) {
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<AiStreamEvent> = flow {
-        val configuredKeys = apiKeyVault.configuredKeys()
+        val configuredKeys = apiKeyVault?.configuredKeys().orEmpty()
         if (configuredKeys.isEmpty()) {
             emitAll(streamWithFirebase(history, userPrompt))
             return@flow
