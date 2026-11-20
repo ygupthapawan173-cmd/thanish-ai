@@ -4,17 +4,11 @@ Telugu-first Android AI assistant built with Kotlin, Jetpack Compose, Room, Andr
 
 ## Gemini connection and API key safety
 
-This app already uses the Firebase AI Logic Android SDK through Firebase.ai.generativeModel(...).
+The app keeps Firebase AI Logic as its no-key fallback. Settings also provides four optional Gemini Developer API key slots (one primary and three backups). When any slot is filled, the app tries configured keys in slot order and streams from the first working key. The model is gemini-3.8-flash.
 
-Do not add a Gemini Developer API key to the APK, source code, GitHub, or a client-side .env file. Firebase AI Logic's current mobile authorization flow uses a Google-managed service agent and App Check; a standard Gemini API key is not required in the Android app. Never use the Firebase configuration API key as a Gemini API key.
+Keys entered in the app are encrypted at rest with an AES-GCM key held by Android Keystore. They are not written to source code, BuildConfig, resources, GitHub, or the APK. This is still a client-side app: a rooted or instrumented device may expose a key while it is in use. Use keys with appropriate project restrictions and quota limits, and never put server-only secrets in a mobile app.
 
-Setup:
-1. In the Firebase Console, open AI Services → AI Logic and enable Gemini Developer API for this Firebase project.
-2. Keep the project's app/google-services.json in the app module. It contains Firebase app configuration, not a Gemini Developer API key.
-3. Keep Firebase App Check enabled. For a debug APK, launch the app once and copy the App Check debug token from Logcat into Firebase Console → App Check → Apps → Manage debug tokens.
-4. For release builds, configure an approved App Check attestation provider for the Android app.
-
-The Settings screen explains this connection. If Gemini requests fail, check that AI Logic is enabled for the Firebase project and that the installed debug app's App Check token is registered.
+To use Firebase AI Logic instead, clear all four key slots, enable Gemini Developer API in Firebase Console → AI Services → AI Logic, and register the debug App Check token under Firebase Console → App Check → Apps → Manage debug tokens. The Firebase configuration API key in google-services.json is not a Gemini Developer API key.
 
 ## Accessibility and phone controls
 
@@ -24,7 +18,7 @@ Pandu Babu's optional Accessibility Service is deliberately limited to Android g
 - Recents
 - Notifications
 
-The user must open Android Accessibility Settings and explicitly enable the service. Every global navigation action requested by voice or tapped in the dashboard requires an in-app confirmation. The service does not read screen content, messages, passwords, OTPs, or other window content, and does not click controls inside other apps.
+The user must open Android Accessibility Settings and explicitly enable the service. The app checks Android's enabled Accessibility Service list and refreshes its status when the service connects/disconnects and when the app resumes. Every global navigation action requested by voice or tapped in the dashboard requires an in-app confirmation. If Android shows the service enabled but it has not connected yet, toggle it off and on once in system settings. The service does not read screen content, messages, passwords, OTPs, or other window content, and does not click controls inside other apps.
 
 Other phone controls use normal Android APIs:
 - App launch, camera, gallery, dialer, and messaging app launch
