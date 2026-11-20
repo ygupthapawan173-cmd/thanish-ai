@@ -103,6 +103,10 @@
     <string name="history_empty_subtitle">Home లేదా Chat లో మైక్ నొక్కి తెలుగులో మాట్లాడితే ఇక్కడ సేవ్ అవుతుంది.</string>
     <string name="settings_screen_title">SYSTEM CALIBRATION</string>
     <string name="settings_screen_subtitle">తెలుగు వాయిస్, TTS &amp; జార్విస్ సెట్టింగ్స్</string>
+    <string name="gemini_connection_title">GEMINI AI // SECURE CONNECTION</string>
+    <string name="gemini_connection_body">పాండు బాబు Firebase AI Logic ద్వారా Geminiని ఉపయోగిస్తుంది. Gemini API keyని APKలో లేదా GitHubలో పెట్టాల్సిన అవసరం లేదు.</string>
+    <string name="gemini_connection_setup">Firebase Console → AI Logicలో Gemini Developer API enable చేసి, App Checkలో debug tokenని register చేయండి.</string>
+
     <string name="settings_auto_speak_title">Auto-Speak Telugu Replies</string>
     <string name="settings_auto_speak_sub">పాండు బాబు సమాధానాలను ఆటోమేటిక్‌గా చదువుతుంది</string>
     <string name="settings_input_lang_title">Voice Recognition Language</string>

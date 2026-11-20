@@ -113,11 +113,18 @@ object PhoneCommandParser {
             }
         }
 
-        // 6. Optional Accessibility Global Navigation
-        if (containsAny(text, "go back", "back vellu", "వెనక్కి వెళ్ళు")) {
+        // 6. Optional Accessibility Global Navigation.
+        // The ViewModel always asks the user to confirm before executing these actions.
+        if (containsAny(text, "go back", "back vellu", "వెనక్కి వెళ్ళు", "వెనక్కి వెళ్లు", "బ్యాక్ వెళ్ళు")) {
             return PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.BACK)
         }
-        if (containsAny(text, "notification panel", "notifications open", "నోటిఫికేషన్స్ ఓపెన్")) {
+        if (containsAny(text, "go home", "home screen", "home ki vellu", "home ki po", "హోమ్ కి వెళ్ళు", "హోమ్ కి వెళ్లు", "హోమ్ స్క్రీన్")) {
+            return PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.HOME)
+        }
+        if (containsAny(text, "open recents", "show recents", "recent apps", "recents open", "recents", "ఇటీవలి యాప్స్", "రీసెంట్స్", "రీసెంట్ యాప్స్")) {
+            return PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.RECENTS)
+        }
+        if (containsAny(text, "notification panel", "notifications open", "open notifications", "show notifications", "నోటిఫికేషన్స్ ఓపెన్", "నోటిఫికేషన్ ప్యానెల్", "నోటిఫికేషన్ షేడ్")) {
             return PhoneControlCommand.PerformGlobalNav(GlobalNavigationAction.NOTIFICATIONS)
         }
 
