@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,18 +54,25 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.ai.GeminiApiKeyVault
 import com.example.control.BatteryStatusInfo
 import com.example.data.ChatMessageEntity
 import com.example.ui.AiGenState
@@ -683,6 +691,97 @@ private fun StatTile(
     }
 }
 
+
+@Composable
+private fun GeminiApiKeySlotsCard() {
+    val context = LocalContext.current
+    val vault = remember(context) { GeminiApiKeyVault(context) }
+    val keys = remember(vault) {
+        mutableStateListOf(
+            vault.readKey(1).orEmpty(),
+            vault.readKey(2).orEmpty(),
+            vault.readKey(3).orEmpty(),
+            vault.readKey(4).orEmpty()
+        )
+    }
+    val saveStatus = remember { mutableStateOf("") }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = JarvisSurface.copy(alpha = 0.92f),
+        border = BorderStroke(1.dp, cyberDualNeonBrush())
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "GEMINI AI // FOUR API KEY SLOTS",
+                style = MaterialTheme.typography.labelLarge,
+                color = ElectricCyan
+            )
+            Text(
+                text = "Main key + 3 backup keys. Pandu Babu tries the filled slots in order when a key fails.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = IceWhite
+            )
+            keys.forEachIndexed { index, key ->
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = {
+                        keys[index] = it
+                        saveStatus.value = ""
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Gemini API Key Slot " + (index + 1)) },
+                    placeholder = { Text("Paste Gemini API key") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+            }
+            Button(
+                onClick = {
+                    runCatching {
+                        keys.forEachIndexed { index, value ->
+                            vault.saveKey(index + 1, value)
+                        }
+                    }.onSuccess {
+                        saveStatus.value = "Saved securely on this device."
+                    }.onFailure {
+                        saveStatus.value = "Unable to save keys: " + (it.localizedMessage ?: "Storage error")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ElectricCyan,
+                    contentColor = JarvisVoid
+                )
+            ) {
+                Text("SAVE API KEYS")
+            }
+            if (saveStatus.value.isNotBlank()) {
+                Text(
+                    text = saveStatus.value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = HudOnlineGreen
+                )
+            }
+            Text(
+                text = "Keys are encrypted at rest with Android Keystore and are never included in the APK or GitHub. This is still a client app: a rooted or instrumented device can expose a key while it is being used. Keep quota limits on each key.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SlateCyan
+            )
+            Text(
+                text = "Leave all four slots blank to use the existing Firebase AI Logic connection.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SlateCyan
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsCommandTab(
@@ -798,35 +897,8 @@ fun SettingsCommandTab(
             }
         }
 
-        // Gemini is connected through Firebase AI Logic; no client-side API key is embedded.
         item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = JarvisSurface.copy(alpha = 0.92f),
-                border = BorderStroke(1.dp, cyberDualNeonBrush())
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.gemini_connection_title),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = ElectricCyan
-                    )
-                    Text(
-                        text = stringResource(R.string.gemini_connection_body),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = IceWhite
-                    )
-                    Text(
-                        text = stringResource(R.string.gemini_connection_setup),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SlateCyan
-                    )
-                }
-            }
+            GeminiApiKeySlotsCard()
         }
 
         // Telugu TTS Personality & Calibration Card
