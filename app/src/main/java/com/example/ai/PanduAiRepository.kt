@@ -1,5 +1,6 @@
 package com.example.ai
 
+import android.content.Context
 import android.util.Log
 import com.example.data.ChatMessageEntity
 import com.google.firebase.Firebase
@@ -38,7 +39,7 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
-class PanduAiRepository {
+class PanduAiRepository(context: Context) {\n\n    private val openRouterKeyStore = OpenRouterKeyStore(context)\n    private val openRouterClient = OpenRouterClient(openRouterKeyStore)
 
     private val model by lazy {
         Firebase.ai.generativeModel(
