@@ -39,7 +39,10 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
-class PanduAiRepository(context: Context) {\n\n    private val openRouterKeyStore = OpenRouterKeyStore(context)\n    private val openRouterClient = OpenRouterClient(openRouterKeyStore)
+class PanduAiRepository(context: Context) {
+
+    private val openRouterKeyStore = OpenRouterKeyStore(context)
+    private val openRouterClient = OpenRouterClient(openRouterKeyStore)
 
     private val model by lazy {
         Firebase.ai.generativeModel(
