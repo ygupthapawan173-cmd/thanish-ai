@@ -131,6 +131,8 @@ fun PanduDashboardScreen(
     var showTtsSheet by remember { mutableStateOf(false) }
     var showHelpSheet by remember { mutableStateOf(false) }
     var showAccessibilityConsentDialog by remember { mutableStateOf(false) }
+    var showAgentConsentDialog by remember { mutableStateOf(false) }
+    var pendingAgentGoal by remember { mutableStateOf("") }
 
     BackHandler(enabled = selectedTab != CyberpunkTab.HOME) {
         selectedTab = CyberpunkTab.HOME
@@ -339,8 +341,13 @@ fun PanduDashboardScreen(
                                 onRunVoiceCommand = { cmd ->
                                     selectedTab = CyberpunkTab.CHAT
                                     viewModel.sendStarterPrompt(cmd)
-                                }
-                            )
+                                 },
+                                 onStartAgent = { goal ->
+                                     pendingAgentGoal = goal
+                                     showAgentConsentDialog = true
+                                 },
+                                 onStopAgent = { viewModel.stopAgentTask() }
+                             )
 
                             CyberpunkTab.HISTORY -> HistoryCommandTab(
                                 messages = uiState.messages,
@@ -507,6 +514,40 @@ fun PanduDashboardScreen(
                         text = stringResource(R.string.confirm_action_no),
                         color = SlateCyan
                     )
+                }
+            }
+        )
+    }
+
+    if (showAgentConsentDialog) {
+        AlertDialog(
+            onDismissRequest = { showAgentConsentDialog = false },
+            containerColor = JarvisSurface,
+            titleContentColor = IceWhite,
+            textContentColor = SlateCyan,
+            title = { Text("Allow AI Phone Agent screen access?") },
+            text = {
+                Text(
+                    "During this task, visible screen labels and controls from supported apps are sent to your selected AI provider. Password fields are excluded; common messaging, email, payment and authenticator apps are blocked. Every app launch, tap, text entry, scroll and navigation action requires a separate confirmation. You can stop the task at any time."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAgentConsentDialog = false
+                        viewModel.startAgentTask(pendingAgentGoal)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ElectricCyan,
+                        contentColor = JarvisVoid
+                    )
+                ) {
+                    Text("Allow & Start")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAgentConsentDialog = false }) {
+                    Text("Cancel", color = SlateCyan)
                 }
             }
         )
