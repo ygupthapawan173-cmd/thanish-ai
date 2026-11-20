@@ -723,7 +723,9 @@ fun SettingsCommandTab(
             }
         }
 
-        item { OpenRouterSettingsCard() }\n\n        // Auto-speak + Speech Input Language Card
+        item { OpenRouterSettingsCard() }
+
+        // Auto-speak + Speech Input Language Card
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
