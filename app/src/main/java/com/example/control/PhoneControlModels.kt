@@ -84,6 +84,16 @@ sealed interface PendingSensitiveAction {
         override val title: String,
         override val description: String
     ) : PendingSensitiveAction
+
+    data class ConfirmAgentAction(
+        val actionName: String,
+        val argsJson: String,
+        val goal: String,
+        val step: Int,
+        val history: List<String>,
+        override val title: String,
+        override val description: String
+    ) : PendingSensitiveAction
 }
 
 data class CommandExecutionResult(
