@@ -219,7 +219,6 @@ class ExampleUnitTest {
 
     @Test
     fun `normalizeChatHistory enforces valid gemini user-model alternation`() {
-        val repo = PanduAiRepository()
         val rawHistory = listOf(
             ChatMessageEntity(id = 1, role = ChatMessageEntity.ROLE_ASSISTANT, text = "Orphan welcome"),
             ChatMessageEntity(id = 2, role = ChatMessageEntity.ROLE_USER, text = "   "),
@@ -230,7 +229,7 @@ class ExampleUnitTest {
             ChatMessageEntity(id = 7, role = ChatMessageEntity.ROLE_USER, text = "Trailing orphan user")
         )
 
-        val normalized = repo.normalizeChatHistory(rawHistory)
+        val normalized = PanduAiRepository.normalizeChatHistory(rawHistory)
 
         assertEquals(2, normalized.size)
         assertEquals("user", normalized[0].role)
@@ -239,7 +238,7 @@ class ExampleUnitTest {
         assertEquals("Model reply 1\nModel reply 2", (normalized[1].parts.first() as TextPart).text)
 
         assertTrue(
-            repo.normalizeChatHistory(
+            PanduAiRepository.normalizeChatHistory(
                 listOf(ChatMessageEntity(id = 1, role = ChatMessageEntity.ROLE_ASSISTANT, text = "Only model"))
             ).isEmpty()
         )
