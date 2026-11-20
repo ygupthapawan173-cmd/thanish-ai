@@ -24,7 +24,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val TAG = "PanduAiRepository"
-private const val AI_TIMEOUT_MS = 60_000L
+private const val AI_TIMEOUT_MS = 45_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
     You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a smart, friendly Telugu AI voice assistant.
@@ -112,7 +112,7 @@ class PanduAiRepository(context: Context) {
     }
 
     suspend fun testProvider(provider: AiProvider, apiKey: String, model: String): String {
-        return withTimeout(35_000L) {
+        return withTimeout(20_000L) {
             providerStream(
                 provider = provider,
                 apiKey = apiKey.trim(),
@@ -133,8 +133,8 @@ class PanduAiRepository(context: Context) {
         val connection = (URL(buildEndpoint(provider, model)).openConnection() as HttpURLConnection)
         try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 45_000
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 35_000
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "text/event-stream")
@@ -217,7 +217,7 @@ class PanduAiRepository(context: Context) {
             .put("generationConfig", JSONObject()
                 .put("temperature", 0.65)
                 .put("topP", 0.9)
-                .put("maxOutputTokens", 700))
+                .put("maxOutputTokens", 550))
             .toString()
     }
 
@@ -238,7 +238,7 @@ class PanduAiRepository(context: Context) {
             .put("messages", messages)
             .put("stream", true)
             .put("temperature", 0.65)
-            .put("max_tokens", 700)
+            .put("max_tokens", 550)
             .toString()
     }
 
