@@ -295,22 +295,24 @@ class PanduAiRepository(context: Context) {
         }
     }
 
-    internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
-        val recent = history.filter { it.text.isNotBlank() }.takeLast(24)
-        val alternating = mutableListOf<Pair<String, String>>()
-        for (msg in recent) {
-            val role = if (msg.role == ChatMessageEntity.ROLE_USER) "user" else "model"
-            val text = msg.text.trim()
-            if (alternating.isEmpty()) {
-                if (role == "user") alternating += role to text
-            } else {
-                val last = alternating.last()
-                if (last.first == role) alternating[alternating.lastIndex] = role to "${last.second}\n$text"
-                else alternating += role to text
+    companion object {
+        internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
+            val recent = history.filter { it.text.isNotBlank() }.takeLast(24)
+            val alternating = mutableListOf<Pair<String, String>>()
+            for (msg in recent) {
+                val role = if (msg.role == ChatMessageEntity.ROLE_USER) "user" else "model"
+                val text = msg.text.trim()
+                if (alternating.isEmpty()) {
+                    if (role == "user") alternating += role to text
+                } else {
+                    val last = alternating.last()
+                    if (last.first == role) alternating[alternating.lastIndex] = role to "${last.second}\n$text"
+                    else alternating += role to text
+                }
             }
+            if (alternating.lastOrNull()?.first == "user") alternating.removeAt(alternating.lastIndex)
+            return alternating.map { (role, text) -> content(role) { text(text) } }
         }
-        if (alternating.lastOrNull()?.first == "user") alternating.removeAt(alternating.lastIndex)
-        return alternating.map { (role, text) -> content(role) { text(text) } }
     }
 }
 
