@@ -129,7 +129,11 @@ fun PhoneControlDashboard(
         "Wi-Fi settings open chey",
         "Bluetooth settings open chey",
         "బ్యాటరీ ఎంత ఉంది",
-        "టార్చ్ ఆన్ చెయ్"
+        "టార్చ్ ఆన్ చెయ్",
+        "go back",
+        "home ki vellu",
+        "open recents",
+        "open notifications"
     )
 
     LazyColumn(
