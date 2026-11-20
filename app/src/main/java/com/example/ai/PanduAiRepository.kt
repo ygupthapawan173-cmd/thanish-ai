@@ -10,7 +10,7 @@ import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
@@ -38,6 +38,7 @@ sealed interface AiStreamEvent {
     data class Completed(val fullText: String) : AiStreamEvent
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PanduAiRepository(context: Context) {
 
     private val appContext = context.applicationContext
