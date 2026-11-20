@@ -1,7 +1,7 @@
 package com.example.ui.components
 
 import android.content.Intent
-import.net.Uri
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
