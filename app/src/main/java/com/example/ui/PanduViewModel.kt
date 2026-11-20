@@ -14,6 +14,7 @@ import com.example.control.DeviceControlState
 import com.example.control.DeviceSettingTarget
 import com.example.control.GlobalNavigationAction
 import com.example.control.PendingSensitiveAction
+import com.example.control.PanduAccessibilityService
 import com.example.control.PhoneCommandParser
 import com.example.control.PhoneControlCommand
 import com.example.control.PhoneControlManager
@@ -133,6 +134,13 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             ttsPrefsRepository.ttsConfig.collect { config ->
                 currentTtsConfig = config
                 ttsController.applyConfig(config)
+            }
+        }
+
+        // Refresh dashboard state immediately as Android binds or unbinds the Accessibility service.
+        viewModelScope.launch {
+            PanduAccessibilityService.isConnected.collect {
+                phoneControlManager.refreshState()
             }
         }
     }
