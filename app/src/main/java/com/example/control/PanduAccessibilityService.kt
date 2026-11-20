@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Optional, user-consented Accessibility Service used exclusively for global navigation
- * actions (Back, Home, Recents, Notifications) that Android restricts regular apps from executing.
+ * User-consented service for system navigation and one-step, confirmed phone-agent actions.
+ * Screen capture is allowed only while the user has explicitly started an Agent task.
  */
 class PanduAccessibilityService : AccessibilityService() {
 
@@ -28,19 +28,24 @@ class PanduAccessibilityService : AccessibilityService() {
 
         val nodes = mutableListOf<AccessibilityNodeInfo>()
         val labels = mutableListOf<String>()
-        val screen = StringBuilder("App: $packageName\\n")
+        val screen = StringBuilder("App: $packageName\n")
 
         fun walk(node: AccessibilityNodeInfo) {
             if (!node.isVisibleToUser || node.isPassword) return
+
             val editable = node.isEditable
+            // Do not send the current value of editable fields to the AI provider.
             val rawLabel = if (editable) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     node.hintText?.toString()?.takeIf { it.isNotBlank() }
-                } else null
+                } else {
+                    null
+                }
             } else {
                 node.text?.toString()?.takeIf { it.isNotBlank() }
                     ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
             }
+
             val useful = node.isClickable || editable || node.isScrollable || !rawLabel.isNullOrBlank()
             if (useful && nodes.size < 100) {
                 val kind = when {
@@ -50,15 +55,16 @@ class PanduAccessibilityService : AccessibilityService() {
                     else -> "text"
                 }
                 val label = (rawLabel ?: if (editable) "text field" else kind)
-                    .replace("\\n", " ")
-                    .replace("\\r", " ")
-                    .replace("\\"", "'")
+                    .replace("\n", " ")
+                    .replace("\r", " ")
+                    .replace("\"", "'")
                     .take(90)
                 val id = nodes.size
                 nodes += node
                 labels += "$kind $label"
-                screen.append("[$id] $kind \"$label\"\\n")
+                screen.append("[$id] $kind \"$label\"\n")
             }
+
             for (index in 0 until node.childCount) {
                 node.getChild(index)?.let(::walk)
             }
@@ -72,18 +78,20 @@ class PanduAccessibilityService : AccessibilityService() {
 
     private fun describeAgentAction(name: String, args: JSONObject): String? {
         return when (name) {
-            "open_app" -> "Open app: ${args.optString("name").take(60)}"
+            "open_app" -> "Open app: " + args.optString("name").take(60)
             "tap" -> agentNodeLabels.getOrNull(args.optInt("id", -1))?.let { "Tap $it" }
             "set_text" -> {
                 val id = args.optInt("id", -1)
                 val node = agentNodes.getOrNull(id)
                 val text = args.optString("text").take(100)
                 if (node != null && node.isEditable && !node.isPassword && text.isNotBlank()) {
-                    "Enter \"$text\" into ${agentNodeLabels.getOrNull(id) ?: "input field"}"
-                } else null
+                    "Enter \"$text\" into " + (agentNodeLabels.getOrNull(id) ?: "input field")
+                } else {
+                    null
+                }
             }
-            "scroll" -> "Scroll ${args.optString("direction")}"
-            "press" -> "Press ${args.optString("key")}"
+            "scroll" -> "Scroll " + args.optString("direction")
+            "press" -> "Press " + args.optString("key")
             else -> null
         }
     }
@@ -111,8 +119,11 @@ class PanduAccessibilityService : AccessibilityService() {
                     var current: AccessibilityNodeInfo? = node
                     var clicked = false
                     while (current != null && !clicked) {
-                        if (current.isClickable) clicked = current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        current = if (clicked) null else current.parent
+                        val parent = current.parent
+                        if (current.isClickable) {
+                            clicked = current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        }
+                        current = if (clicked) null else parent
                     }
                     require(clicked) { "That control is no longer clickable." }
                 }
@@ -133,11 +144,15 @@ class PanduAccessibilityService : AccessibilityService() {
                     require(direction == "up" || direction == "down")
                     val target = if (args.has("id")) {
                         agentNodes.getOrNull(args.optInt("id", -1))
-                    } else agentNodes.firstOrNull { it.isScrollable }
+                    } else {
+                        agentNodes.firstOrNull { it.isScrollable }
+                    }
                     require(target != null && target.refresh() && target.isVisibleToUser && target.isScrollable)
                     val action = if (direction == "down") {
                         AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-                    } else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    } else {
+                        AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    }
                     require(target.performAction(action)) { "Nothing to scroll." }
                 }
                 "press" -> {
@@ -154,7 +169,7 @@ class PanduAccessibilityService : AccessibilityService() {
             }
             CommandExecutionResult(true, "చేశాను బాస్.")
         }.getOrElse {
-            CommandExecutionResult(false, "Agent action చేయలేకపోయాను: ${it.localizedMessage ?: "unknown error"}")
+            CommandExecutionResult(false, "Agent action చేయలేకపోయాను: " + (it.localizedMessage ?: "unknown error"))
         }
     }
 
@@ -165,7 +180,7 @@ class PanduAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Screen capture runs only from an explicitly started Agent task.
+        // Agent screen snapshots are captured only on demand, never collected in the background.
     }
 
     override fun onInterrupt() = Unit
