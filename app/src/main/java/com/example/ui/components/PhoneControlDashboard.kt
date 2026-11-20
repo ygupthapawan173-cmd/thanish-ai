@@ -56,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -66,6 +67,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -117,8 +119,12 @@ fun PhoneControlDashboard(
     onGlobalNavAction: (GlobalNavigationAction) -> Unit,
     onRequestAccessibilityConsent: () -> Unit,
     onRunVoiceCommand: (String) -> Unit,
+    onStartAgent: (String) -> Unit = {},
+    onStopAgent: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var agentGoal by remember { mutableStateOf("") }
+
     val voiceCommandSamples = listOf(
         "YouTube open chey",
         "WhatsApp open chey",
@@ -171,6 +177,71 @@ fun PhoneControlDashboard(
                         contentDescription = "Refresh device telemetry",
                         tint = ElectricCyan
                     )
+                }
+            }
+        }
+
+        // User-started AI phone agent. The screen-sharing consent prompt is shown by the parent screen.
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth().testTag("phone_agent_card"),
+                shape = RoundedCornerShape(20.dp),
+                color = JarvisSurface.copy(alpha = 0.94f),
+                border = BorderStroke(1.2.dp, ElectricCyan.copy(alpha = 0.75f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "AI PHONE AGENT",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = ElectricCyan
+                    )
+                    Text(
+                        text = "Describe a task. Pandu Babu will suggest one phone action at a time; every tap or text entry waits for your approval.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SlateCyan
+                    )
+                    OutlinedTextField(
+                        value = agentGoal,
+                        onValueChange = { agentGoal = it.take(500) },
+                        modifier = Modifier.fillMaxWidth().testTag("phone_agent_goal"),
+                        label = { Text("What should Pandu Babu do?") },
+                        placeholder = { Text("Example: Open Chrome and search for weather") },
+                        minLines = 2,
+                        maxLines = 3,
+                        singleLine = false
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onStartAgent(agentGoal.trim()) },
+                            enabled = controlState.isAccessibilityConnected && agentGoal.isNotBlank(),
+                            modifier = Modifier.weight(1f).testTag("start_phone_agent_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ElectricCyan,
+                                contentColor = JarvisVoid
+                            )
+                        ) {
+                            Text("Start Agent")
+                        }
+                        OutlinedButton(
+                            onClick = onStopAgent,
+                            modifier = Modifier.weight(1f).testTag("stop_phone_agent_button")
+                        ) {
+                            Text("Stop Agent", color = HudAlertRed)
+                        }
+                    }
+                    if (!controlState.isAccessibilityConnected) {
+                        Text(
+                            text = "Enable Hands-Free Navigation below first. Screen access is used only after the next consent prompt.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = HudWarningAmber
+                        )
+                    }
                 }
             }
         }

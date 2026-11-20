@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.R
 import com.example.ai.AiStreamEvent
+import com.example.ai.AgentAction
 import com.example.ai.PanduAiRepository
 import com.example.control.AppControlTarget
 import com.example.control.CommandExecutionResult
@@ -31,6 +32,7 @@ import com.example.voice.TtsReadiness
 import com.example.voice.VoiceInputController
 import com.example.voice.VoiceInputState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -114,6 +116,14 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private var activeGenerationJob: Job? = null
     private var currentTtsConfig = TeluguTtsConfig()
     private var pendingFromVoiceOrChat = false
+
+    private data class AgentSession(
+        val goal: String,
+        val step: Int,
+        val history: List<String>
+    )
+
+    private var agentSession: AgentSession? = null
 
     init {
         voiceInputController = VoiceInputController(
@@ -447,6 +457,121 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /**
+     * Starts a user-approved screen agent session. Each phone action is shown in
+     * the existing confirmation dialog before it can execute.
+     */
+    fun startAgentTask(goal: String) {
+        val cleanGoal = goal.trim().take(500)
+        if (cleanGoal.isBlank()) {
+            _bannerError.value = "బాస్, Agent task కోసం ఒక goal ఇవ్వండి."
+            return
+        }
+        if (!phoneControlManager.state.value.isAccessibilityConnected) {
+            _bannerError.value = "ముందుగా Apps tab లో Accessibility Service enable చేయండి."
+            return
+        }
+
+        stopAgentTask(showMessage = false)
+        PanduAccessibilityService.setAgentScreenCaptureConsent(true)
+        val session = AgentSession(cleanGoal, 0, emptyList())
+        agentSession = session
+        advanceAgentTask(session)
+    }
+
+    fun stopAgentTask() {
+        stopAgentTask(showMessage = true)
+    }
+
+    private fun stopAgentTask(showMessage: Boolean) {
+        agentSession = null
+        PanduAccessibilityService.setAgentScreenCaptureConsent(false)
+        if (_pendingSensitiveAction.value is PendingSensitiveAction.ConfirmAgentAction) {
+            _pendingSensitiveAction.value = null
+        }
+        _aiGenState.value = AiGenState.Idle
+        if (showMessage) _bannerError.value = "AI Phone Agent task ఆపేశాను బాస్."
+    }
+
+    private fun finishAgentTask(message: String) {
+        agentSession = null
+        PanduAccessibilityService.setAgentScreenCaptureConsent(false)
+        _aiGenState.value = AiGenState.Idle
+        viewModelScope.launch {
+            val finalMessage = message.ifBlank { "Agent task పూర్తయింది బాస్." }
+            val savedId = chatRepository.saveAssistantMessage(finalMessage)
+            if (currentTtsConfig.autoSpeakEnabled) ttsController.speak(finalMessage, savedId)
+        }
+    }
+
+    private fun advanceAgentTask(session: AgentSession) {
+        if (agentSession != session) return
+        if (session.step >= 12) {
+            finishAgentTask("బాస్, 12 steps పూర్తి చేశాను. మిగతా పని మీరు చెక్ చేయండి.")
+            return
+        }
+
+        _aiGenState.value = AiGenState.Thinking
+        viewModelScope.launch {
+            try {
+                val screen = PanduAccessibilityService.captureAgentScreen()
+                    ?: error("ఈ app screen చదవలేకపోయాను. Accessibility Service status చెక్ చేయండి లేదా supported app తెరవండి.")
+                val action: AgentAction = aiRepository.suggestAgentAction(
+                    goal = session.goal,
+                    screen = screen,
+                    step = session.step,
+                    history = session.history
+                )
+                if (agentSession != session) return@launch
+
+                when (action.name) {
+                    "finish" -> finishAgentTask(action.args.optString("message"))
+                    "speak" -> {
+                        val message = action.args.optString("text")
+                        val savedId = chatRepository.saveAssistantMessage(message)
+                        if (currentTtsConfig.autoSpeakEnabled) ttsController.speak(message, savedId)
+                        val next = session.copy(
+                            step = session.step + 1,
+                            history = (session.history + "speak: ${message.take(120)}").takeLast(10)
+                        )
+                        _aiGenState.value = AiGenState.Idle
+                        delay(300)
+                        advanceAgentTask(next)
+                    }
+                    "wait" -> {
+                        val next = session.copy(
+                            step = session.step + 1,
+                            history = (session.history + "wait").takeLast(10)
+                        )
+                        _aiGenState.value = AiGenState.Idle
+                        delay(900)
+                        advanceAgentTask(next)
+                    }
+                    else -> {
+                        val description = PanduAccessibilityService.describeAgentAction(action.name, action.args)
+                            ?: error("AI proposed an action for a screen item that is no longer available.")
+                        _aiGenState.value = AiGenState.Idle
+                        _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmAgentAction(
+                            actionName = action.name,
+                            argsJson = action.args.toString(),
+                            goal = session.goal,
+                            step = session.step,
+                            history = session.history,
+                            title = "AI proposes: $description",
+                            description = "ఈ ఒక్క action మాత్రమే execute అవుతుంది. Continue చేయడానికి Confirm నొక్కండి; వద్దంటే Cancel చేయండి."
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Phone agent failed", e)
+                stopAgentTask(showMessage = false)
+                _bannerError.value = "Agent ఆగిపోయింది: ${e.localizedMessage ?: "AI లేదా screen access error"}"
+            }
+        }
+    }
+
     fun createAccessibilitySettingsIntent(): Intent {
         return phoneControlManager.createAccessibilitySettingsIntent()
     }
@@ -457,9 +582,37 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         val fromVoice = pendingFromVoiceOrChat
         pendingFromVoiceOrChat = false
 
+        if (pending is PendingSensitiveAction.ConfirmAgentAction) {
+            viewModelScope.launch {
+                val result = PanduAccessibilityService.executeAgentAction(
+                    pending.actionName,
+                    pending.argsJson
+                )
+                applyControlResult(result)
+                if (!result.succeeded) {
+                    stopAgentTask(showMessage = false)
+                    _bannerError.value = result.teluguResponse
+                    return@launch
+                }
+                val next = AgentSession(
+                    goal = pending.goal,
+                    step = pending.step + 1,
+                    history = (pending.history + "${pending.actionName}: ${pending.argsJson.take(160)}").takeLast(10)
+                )
+                agentSession = next
+                delay(if (pending.actionName == "open_app") 1_500L else 700L)
+                if (agentSession == next) advanceAgentTask(next)
+            }
+            return
+        }
+
         val result = when (pending) {
             is PendingSensitiveAction.ConfirmAppLaunch -> phoneControlManager.openApp(pending.target)
             is PendingSensitiveAction.ConfirmGlobalNav -> phoneControlManager.performGlobalNavigation(pending.action)
+            is PendingSensitiveAction.ConfirmAgentAction -> CommandExecutionResult(
+                succeeded = false,
+                teluguResponse = "Agent action మళ్ళీ confirm చేయాలి బాస్."
+            )
         }
 
         applyControlResult(result)
@@ -481,6 +634,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissPendingAction() {
         val pending = _pendingSensitiveAction.value ?: return
         _pendingSensitiveAction.value = null
+        if (pending is PendingSensitiveAction.ConfirmAgentAction) {
+            stopAgentTask(showMessage = true)
+            return
+        }
         val fromVoice = pendingFromVoiceOrChat
         pendingFromVoiceOrChat = false
 
