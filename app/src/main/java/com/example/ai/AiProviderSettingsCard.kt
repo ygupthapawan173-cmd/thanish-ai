@@ -127,7 +127,7 @@ fun AiProviderSettingsCard() {
                             keyboardOptions = KeyboardOptions(
                                 capitalization = KeyboardCapitalization.None,
                                 keyboardType = KeyboardType.Password,
-                                autoCorrect = false
+                                autoCorrectEnabled = false
                             )
                         )
 
