@@ -724,6 +724,7 @@ fun SettingsCommandTab(
         }
 
         item { OpenRouterSettingsCard() }
+        item { ThanishUpdateCard() }
 
         // Auto-speak + Speech Input Language Card
         item {
