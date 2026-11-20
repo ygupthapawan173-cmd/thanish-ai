@@ -59,6 +59,10 @@ class PanduAiRepository(context: Context) {\n\n    private val openRouterKeyStor
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<AiStreamEvent> = flow {
+        if (openRouterKeyStore.getKey() != null) {
+            openRouterClient.stream(history, userPrompt).collect { emit(it) }
+            return@flow
+        }
         val chatHistory: List<Content> = normalizeChatHistory(history)
 
         val chat = model.startChat(history = chatHistory)
