@@ -1,6 +1,7 @@
 package com.example.control
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,12 +25,21 @@ class PanduAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    override fun onUnbind(intent: Intent?): Boolean {
+        markDisconnected()
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
+        markDisconnected()
         super.onDestroy()
+    }
+
+    private fun markDisconnected() {
         if (instance === this) {
             instance = null
+            _isConnected.value = false
         }
-        _isConnected.value = false
     }
 
     companion object {
@@ -47,7 +57,9 @@ class PanduAccessibilityService : AccessibilityService() {
                 GlobalNavigationAction.RECENTS -> GLOBAL_ACTION_RECENTS
                 GlobalNavigationAction.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
             }
-            return service.performGlobalAction(globalConstant)
+            return runCatching {
+                service.performGlobalAction(globalConstant)
+            }.getOrDefault(false)
         }
     }
 }
