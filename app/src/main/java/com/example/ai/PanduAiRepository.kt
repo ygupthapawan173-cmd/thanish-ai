@@ -19,19 +19,19 @@ private const val MODEL_NAME = "gemini-3.8-flash"
 private const val AI_TIMEOUT_MS = 60_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
-    You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a super smart, funny, friendly, and loyal Telugu AI voice assistant.
-    
+    You are "THANISH AI – Jarvis Edition", a smart, funny, friendly Telugu AI voice assistant.
+
     Personality & Tone:
-    - Imagine Tony Stark's JARVIS combined with a witty, warm, energetic Telugu best friend!
-    - Address the user affectionately and respectfully as "బాస్" (Boss) or "గురూ" (Guru).
-    - Be funny, clever, optimistic, and genuinely helpful—sprinkle light Telugu humor, relatable punchlines, or playful Jarvis-style remarks when natural.
-    
-    Language & Voice Rules (CRITICAL):
-    - ALWAYS reply primarily in natural, everyday spoken Telugu written in Telugu script (తెలుగు లిపి).
-    - Common everyday tech or modern words (like AI, phone, app, code, battery, dinner, joke, cricket, Wi-Fi) can be kept natural in Telugu transliteration or simple English if Telugu speakers use them naturally, e.g., "బాస్, మీ సిస్టమ్ ఫుల్ ఛార్జ్‌లో ఉంది!".
-    - Even if the user writes or speaks in English or Tenglish (Telugu typed in English letters), STILL reply in natural, lively Telugu!
-    - Keep responses concise, punchy, and voice-friendly (2 to 5 sentences for casual questions, structured clearly if asked for a detailed explanation).
-    - Avoid Markdown symbols like **, ##, ``` or long bullet lists because your answers are also read aloud by Telugu Text-to-Speech. Write smooth spoken paragraphs.
+    - Address the user respectfully as "బాస్" or "గురూ".
+    - Be warm, clever, optimistic, and helpful.
+    - Use light Telugu humor when natural.
+
+    Language & Voice Rules:
+    - Reply primarily in natural spoken Telugu using Telugu script.
+    - Common technology words such as AI, phone, app, code, battery, and Wi-Fi may remain in English.
+    - Reply in Telugu even if the user writes in English or Tenglish.
+    - Keep casual replies concise and voice-friendly.
+    - Avoid Markdown symbols and long lists unless the user asks for detail.
 """.trimIndent()
 
 sealed interface AiStreamEvent {
@@ -62,12 +62,39 @@ class PanduAiRepository(context: Context) {
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<AiStreamEvent> = flow {
-        if (openRouterKeyStore.getKey() != null) {
-            openRouterClient.stream(history, userPrompt).collect { emit(it) }
-            return@flow
-        }
-        val chatHistory: List<Content> = normalizeChatHistory(history)
+        var useGeminiFallback = openRouterKeyStore.getKey() == null
 
+        if (!useGeminiFallback) {
+            var openRouterEmittedChunk = false
+            try {
+                openRouterClient.stream(history, userPrompt).collect { event ->
+                    if (event is AiStreamEvent.Chunk) openRouterEmittedChunk = true
+                    emit(event)
+                }
+                return@flow
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: PanduAiException) {
+                val isDailyRateLimit = e.message.orEmpty().contains("OpenRouter error 429")
+                if (isDailyRateLimit && !openRouterEmittedChunk) {
+                    Log.w(TAG, "OpenRouter free-tier limit reached; falling back to Gemini")
+                    useGeminiFallback = true
+                } else {
+                    throw e
+                }
+            }
+        }
+
+        if (useGeminiFallback) {
+            streamGemini(history, userPrompt).collect { emit(it) }
+        }
+    }
+
+    private fun streamGemini(
+        history: List<ChatMessageEntity>,
+        userPrompt: String
+    ): Flow<AiStreamEvent> = flow {
+        val chatHistory: List<Content> = normalizeChatHistory(history)
         val chat = model.startChat(history = chatHistory)
         val accumulated = StringBuilder()
 
@@ -90,16 +117,16 @@ class PanduAiRepository(context: Context) {
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Gemini stream timed out after ${AI_TIMEOUT_MS}ms", e)
             throw PanduAiException(
-                "బాస్, సర్వర్ స్పందించడానికి 60 సెకన్ల కంటే ఎక్కువ టైమ్ పట్టింది. మళ్ళీ ఒకసారి ట్రై చేయండి!",
+                "బాస్, OpenRouter Free limit అయిపోయింది. Gemini కూడా సమయానికి స్పందించలేదు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి!",
                 e
             )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Gemini stream failed", e)
+            Log.e(TAG, "Gemini fallback stream failed", e)
             val detail = e.localizedMessage?.takeIf { it.isNotBlank() } ?: "Unknown AI error"
             throw PanduAiException(
-                "అయ్యో బాస్, జార్విస్ లింక్‌లో చిన్న టెక్నికల్ సమస్య వచ్చింది: $detail",
+                "బాస్, OpenRouter Free limit అయింది; Gemini fallback కూడా పనిచేయలేదు: $detail",
                 e
             )
         }
