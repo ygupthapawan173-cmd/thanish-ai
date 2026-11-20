@@ -119,7 +119,7 @@
     <string name="section_voice_commands">3. TELUGU VOICE COMMANDS</string>
     <string name="section_android_restrictions">4. ANDROID RESTRICTIONS &amp; ACCESSIBILITY</string>
     <string name="accessibility_service_label">Pandu Babu Hands-Free Navigation</string>
-    <string name="accessibility_service_description">Optional user-consented service used only for hands-free Back, Home, Recents, and Notification Shade actions when requested by the user.</string>
+    <string name="accessibility_service_description">User-consented service for Back, Home, Recents and Notification Shade. Visible screen controls are read only during an explicitly started AI Agent task; password fields and supported sensitive apps are excluded. Each phone action requires your confirmation.</string>
     <string name="confirm_action_title">కన్ఫర్మ్ చేయండి బాస్!</string>
     <string name="confirm_action_yes">అవును, కొనసాగు</string>
     <string name="confirm_action_no">వద్దు</string>
