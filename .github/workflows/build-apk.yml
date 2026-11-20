@@ -3,7 +3,7 @@ name: THANISH AI APK Build
 on:
   workflow_dispatch:
   push:
-    branches: [main, pandu-babu-accessibility-gemini]
+    branches: [main, pandu-babu-accessibility-gemini, feat/pandu-babu-speed-keys-accessibility]
 
 jobs:
   build:
