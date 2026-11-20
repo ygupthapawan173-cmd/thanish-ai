@@ -614,7 +614,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 is PhoneControlCommand.PerformGlobalNav -> {
-                    if (phoneControlManager.state.value.isAccessibilityEnabled) {
+                    if (phoneControlManager.state.value.isAccessibilityConnected) {
                         pendingFromVoiceOrChat = true
                         _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmGlobalNav(
                             action = command.action,
