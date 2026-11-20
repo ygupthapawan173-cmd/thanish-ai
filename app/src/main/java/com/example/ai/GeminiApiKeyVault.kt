@@ -52,8 +52,8 @@ class GeminiApiKeyVault(context: Context) {
             val buffer = ByteBuffer.wrap(packed)
             val ivSize = buffer.get().toInt() and 0xff
             require(ivSize in 12..16 && buffer.remaining() > ivSize)
-            val iv = ByteArray(ivSize).also(buffer::get)
-            val encrypted = ByteArray(buffer.remaining()).also(buffer::get)
+            val iv = ByteArray(ivSize).also { buffer.get(it) }
+            val encrypted = ByteArray(buffer.remaining()).also { buffer.get(it) }
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateSecretKey(), GCMParameterSpec(128, iv))
             cipher.doFinal(encrypted).toString(Charsets.UTF_8)
