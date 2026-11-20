@@ -3,11 +3,8 @@ package com.example.ai
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -30,6 +27,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -160,7 +158,12 @@ fun AiProviderSettingsCard() {
                                             modelDrafts = modelDrafts + (provider to model)
                                             keyDrafts = keyDrafts + (provider to "")
                                             messages = messages + (provider to message)
+                                        } catch (e: CancellationException) {
+                                            throw e
                                         } catch (e: Exception) {
+                                            configured = configured + (provider to withContext(Dispatchers.IO) {
+                                                store.hasApiKey(provider)
+                                            })
                                             messages = messages + (provider to (e.localizedMessage ?: "Connection test failed."))
                                         } finally {
                                             busyProvider = null
