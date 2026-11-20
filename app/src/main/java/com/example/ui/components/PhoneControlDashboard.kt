@@ -119,8 +119,8 @@ fun PhoneControlDashboard(
     onGlobalNavAction: (GlobalNavigationAction) -> Unit,
     onRequestAccessibilityConsent: () -> Unit,
     onRunVoiceCommand: (String) -> Unit,
-    onStartAgent: (String) -> Unit,
-    onStopAgent: () -> Unit,
+    onStartAgent: (String) -> Unit = {},
+    onStopAgent: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var agentGoal by remember { mutableStateOf("") }
