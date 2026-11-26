@@ -1,0 +1,54 @@
+name: OMEGA PANDU V15 PRO APK
+on:
+  push:
+    branches: [build/omega-pandu-v15-pro]
+    paths:
+      - OMEGA-PANDU-v15-PRO-READY.zip
+      - .github/workflows/omega-pandu-v15-build.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify and unpack original V15 source ZIP
+        run: |
+          echo "8952cffe6d891cab4d7b39b047e6692d29ebe41279cbcddfdeb9bd03454d7dc6  OMEGA-PANDU-v15-PRO-READY.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile, pathlib
+          with zipfile.ZipFile('OMEGA-PANDU-v15-PRO-READY.zip') as z:
+              assert z.testzip() is None
+              assert all(not pathlib.PurePosixPath(n).is_absolute() and '..' not in pathlib.PurePosixPath(n).parts for n in z.namelist())
+              z.extractall('omega-v15-build')
+          PY
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Compile original V15 project
+        working-directory: omega-v15-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK signature and package
+        run: |
+          mkdir -p out
+          cp omega-v15-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v15-PRO-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/OMEGA-PANDU-v15-PRO-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v15-PRO-TEST.apk | grep -F "name='com.aistudio.pandubabu.omega.v15pro'"
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v15-PRO-TEST
+          path: out/
+          if-no-files-found: error
