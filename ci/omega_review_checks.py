@@ -58,7 +58,11 @@ assert 'OMEGA JARVIS' in strings and 'com.example.omega.OmegaWakeService' in scr
 assert 'override fun onPartialResult(hypothesis: String?)' in wake
 assert 'TextToSpeech.QUEUE_FLUSH' in wake and 'lastWakeAt' in wake
 assert 'RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH' in voice
-assert 'forcePlatform = true' in voice and 'OmegaVoiceMode.HYBRID' in voice
+recovery = read("java/com/example/omega/OmegaRecoveryPolicy.kt")
+assert 'forcePlatform = true' in voice and 'OmegaRecoveryPolicy.platformFallback' in voice
+assert 'mode == OmegaVoiceMode.HYBRID' in recovery and '!alreadyFallback' in recovery
+assert 'mode == OmegaVoiceMode.LOCAL' in voice
+assert 'available &&' in recovery
 assert 'setContinuous' in omega and 'scheduleFollowupIfEnabled' in viewmodel
 assert 'Lifecycle.Event.ON_STOP' in screen and 'viewModel.cancelVoiceListening()' in screen
 permissions = read("java/com/example/ui/components/OmegaPermissionCenter.kt")
