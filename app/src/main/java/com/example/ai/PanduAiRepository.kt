@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -107,9 +108,14 @@ class PanduAiRepository(context: Context) {
                             }
                             break
                         } catch (e: ProviderHttpFailure) {
-                            if (e.status != 503 || attempt == 2 ||
+                            // Do not duplicate text already sent to the user.
+                            val pause = AiRetryPolicy.retryDelayMs(e.status, e.retry, attempt)
+                            if (pause == null || accumulated.isNotEmpty()) throw e
+                            delay(pause)
+                        } catch (e: Exception) {
+                            if (!AiRetryPolicy.isTransientNetwork(e) || attempt == AiRetryPolicy.MAX_RETRIES ||
                                 accumulated.isNotEmpty()) throw e
-                            delay(650L * (attempt + 1))
+                            delay(AiRetryPolicy.backoffMs(attempt))
                         }
                     }
                 }
@@ -117,6 +123,7 @@ class PanduAiRepository(context: Context) {
                 if (finalText.isBlank()) {
                     throw IllegalStateException("${provider.title} returned an empty response.")
                 }
+                lastRoute.value = provider.title + " · " + keyStore.getModel(provider)
                 send(AiStreamEvent.Completed(finalText))
                 return@channelFlow
             } catch (e: TimeoutCancellationException) {
@@ -337,7 +344,8 @@ class PanduAiRepository(context: Context) {
     ): String {
         val contents = JSONArray()
         val turns = mutableListOf<Pair<String, String>>()
-        history.filter { it.text.isNotBlank() }.takeLast(20).forEach { message ->
+        OmegaContext.recent(history.filter { it.text.isNotBlank() }, 20, 12000) { it.text.length }
+            .forEach { message ->
             val role = if (message.role == ChatMessageEntity.ROLE_USER) "user" else "model"
             val text = message.text.trim()
             if (turns.lastOrNull()?.first == role) {
@@ -356,13 +364,14 @@ class PanduAiRepository(context: Context) {
 
         return JSONObject()
             .put("systemInstruction", JSONObject().put(
-                "parts", JSONArray().put(JSONObject().put("text", PANDU_SYSTEM_INSTRUCTION))
+                "parts", JSONArray().put(JSONObject().put("text",
+                    ReplyPreferences.get(appContext).systemWith(PANDU_SYSTEM_INSTRUCTION)))
             ))
             .put("contents", contents)
             .put("generationConfig", JSONObject()
                 .put("temperature", 0.65)
                 .put("topP", 0.9)
-                .put("maxOutputTokens", 700))
+                .put("maxOutputTokens", ReplyPreferences.get(appContext).maxTokens))
             .toString()
     }
 
@@ -372,8 +381,10 @@ class PanduAiRepository(context: Context) {
         model: String
     ): String {
         val messages = JSONArray()
-            .put(JSONObject().put("role", "system").put("content", PANDU_SYSTEM_INSTRUCTION))
-        history.filter { it.text.isNotBlank() }.takeLast(20).forEach { message ->
+            .put(JSONObject().put("role", "system").put("content",
+                ReplyPreferences.get(appContext).systemWith(PANDU_SYSTEM_INSTRUCTION)))
+        OmegaContext.recent(history.filter { it.text.isNotBlank() }, 20, 12000) { it.text.length }
+            .forEach { message ->
             val role = if (message.role == ChatMessageEntity.ROLE_USER) "user" else "assistant"
             messages.put(JSONObject().put("role", role).put("content", message.text.trim()))
         }
@@ -383,7 +394,7 @@ class PanduAiRepository(context: Context) {
             .put("messages", messages)
             .put("stream", true)
             .put("temperature", 0.65)
-            .put("max_tokens", 700)
+            .put("max_tokens", ReplyPreferences.get(appContext).maxTokens)
             .toString()
     }
 
@@ -418,7 +429,8 @@ class PanduAiRepository(context: Context) {
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<AiStreamEvent> = channelFlow {
-        val chatHistory = normalizeChatHistory(history)
+        val chatHistory = normalizeChatHistory(OmegaContext.recent(
+            history.filter { it.text.isNotBlank() }, 20, 12000) { it.text.length })
         val chat = firebaseModel.startChat(history = chatHistory)
         val accumulated = StringBuilder()
         try {
@@ -433,6 +445,7 @@ class PanduAiRepository(context: Context) {
             }
             val result = accumulated.toString().trim()
             if (result.isBlank()) throw IllegalStateException("Gemini returned an empty response.")
+            lastRoute.value = "Firebase AI · successful response"
             send(AiStreamEvent.Completed(result))
         } catch (e: CancellationException) {
             throw e
@@ -447,6 +460,8 @@ class PanduAiRepository(context: Context) {
     }
 
     companion object {
+        /** True only after a real successful response, not from a saved API key. */
+        val lastRoute = MutableStateFlow("No successful AI response in this session")
         internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
             val recent = history.filter { it.text.isNotBlank() }.takeLast(24)
             val alternating = mutableListOf<Pair<String, String>>()
