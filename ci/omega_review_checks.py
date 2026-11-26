@@ -23,8 +23,9 @@ assert 'listOf("Master", "Voice", "Memory", "System")' in omega
 tabs = read("java/com/example/ui/components/CommandCenterTabs.kt")
 orb = read("java/com/example/ui/components/OmegaPlasmaOrb.kt")
 master = read("java/com/example/omega/OmegaMasterDashboard.kt")
-assert "OmegaPlasmaOrb(" in tabs and "Canvas(" in orb
-assert "JarvisStatus.LISTENING" in orb and "amplitude" in orb
+safe_orb = read("java/com/example/ui/components/OmegaSafeSingularityVisual.kt")
+assert "OmegaSafeSingularityVisual(" in tabs and "Canvas(" in safe_orb
+assert "JarvisStatus.LISTENING" in safe_orb and "amplitude" in safe_orb
 assert "OmegaMasterDashboard(" in omega and "EncryptedApiKeyStore" in master
 assert "PanduAccessibilityService.isConnected.collectAsState()" in master
 assert "OmegaWakePhrase.entries" in omega and "setWakePhrase" in omega
@@ -32,7 +33,10 @@ recognizer = read("java/com/example/voice/VoiceInputController.kt")
 assert 'AUTO("te-IN", "TE+EN")' in recognizer and 'locale == SpeechLocaleOption.AUTO' in recognizer
 assert "SpeechLocaleOption.AUTO" in viewmodel
 repository = read("java/com/example/ai/PanduAiRepository.kt")
-assert "e.status != 503" in repository and "accumulated.isNotEmpty()" in repository
+assert "AiRetryPolicy.retryDelayMs" in repository and "accumulated.isNotEmpty()" in repository
+assert "OmegaContext.recent" in repository and "ReplyPreferences.get" in repository
+assert "OmegaWakeEngine.match" in wake and "WakeGate(1600L)" in wake
+assert "lastRoute.collectAsState()" in master
 print("PASS R100 unified UI, locale, wake and AI safeguards")
 assert '"Coding"' not in omega
 assert 'OMEGA(R.string.nav_omega' in nav and "com.example.omega.OmegaCenter(" in screen and "embedded = true" in screen
