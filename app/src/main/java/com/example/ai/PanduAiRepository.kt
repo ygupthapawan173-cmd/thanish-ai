@@ -27,6 +27,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.UnknownHostException
+import java.net.SocketTimeoutException
+import javax.net.ssl.SSLException
+
+class AiConnectionTestException(message: String) : Exception(message)
 
 private const val TAG = "PanduAiRepository"
 private const val AI_TIMEOUT_MS = 60_000L
@@ -187,16 +192,63 @@ class PanduAiRepository(context: Context) {
         }
     }
 
+    /**
+     * Verify a real model response. Never display API keys, raw server responses,
+     * request headers, or exception messages that could contain credentials.
+     */
     suspend fun testProvider(provider: AiProvider, apiKey: String, model: String): String {
-        return withTimeout(35_000L) {
-            providerStream(
-                provider = provider,
-                apiKey = apiKey.trim(),
-                model = model.trim().ifBlank { provider.defaultModel },
-                history = emptyList(),
-                userPrompt = "Reply with only the word OK."
-            ).first().let { "Connection successful. First response received." }
+        val selectedModel = model.trim().ifBlank { provider.defaultModel }
+        if (!OmegaPolicy.modelId(selectedModel)) {
+            throw AiConnectionTestException(
+                "Invalid Model ID. Use the exact API ID (example: gemini-3.6-flash), not a display name."
+            )
         }
+        return try {
+            withTimeout(35_000L) {
+                val firstText = providerStream(
+                    provider = provider,
+                    apiKey = apiKey.trim(),
+                    model = selectedModel,
+                    history = emptyList(),
+                    userPrompt = "Reply with only the word OK."
+                ).first()
+                check(firstText.isNotBlank()) { "Empty streamed reply" }
+                "Connection verified — real model response received."
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw AiConnectionTestException("Connection timed out. Check mobile data/Wi-Fi and try again.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw AiConnectionTestException(safeConnectionFailure(e))
+        }
+    }
+
+    private fun safeConnectionFailure(error: Throwable): String {
+        var cause: Throwable? = error
+        repeat(8) {
+            when (cause) {
+                is ProviderHttpFailure -> {
+                    val status = (cause as ProviderHttpFailure).status
+                    return when (status) {
+                        400 -> "HTTP 400 — Invalid request or model. Check the exact Model ID."
+                        401 -> "HTTP 401 — API key rejected. Check the key in Google AI Studio."
+                        402 -> "HTTP 402 — Billing or prepaid credits issue for this project."
+                        403 -> "HTTP 403 — API access denied. Check API key and project restrictions."
+                        404 -> "HTTP 404 — Model not found or unavailable for this API/project."
+                        429 -> "HTTP 429 — Model request quota/rate limit reached. Check AI Studio limits."
+                        500, 502, 503, 504 -> "HTTP $status — Provider temporarily unavailable. Try again."
+                        else -> "HTTP $status — API request failed. Check model and project access."
+                    }
+                }
+                is UnknownHostException -> return "Network/DNS unavailable. Check Internet and Private DNS."
+                is SocketTimeoutException -> return "Network timeout. Try again on Wi-Fi or mobile data."
+                is SSLException -> return "Secure connection failed. Check device time and network."
+                is IllegalArgumentException -> return "Invalid Model ID or API request."
+            }
+            cause = cause?.cause
+        }
+        return "Request failed without a readable HTTP code. Check Internet, model and key restrictions."
     }
 
     private fun providerStream(
