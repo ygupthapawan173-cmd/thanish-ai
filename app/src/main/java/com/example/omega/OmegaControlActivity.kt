@@ -23,6 +23,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ai.*
 import com.example.ui.theme.PanduBabuTheme
 import kotlinx.coroutines.*
@@ -42,6 +45,8 @@ fun OmegaCenter(
 ) {
     val c = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val alwaysReady by OmegaAlwaysReady.enabled.collectAsState()
     val wakeStatus by OmegaWakeService.status.collectAsState()
     val wakeActive by OmegaWakeService.active.collectAsState()
     val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
@@ -58,6 +63,31 @@ fun OmegaCenter(
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var continuousWake by remember { mutableStateOf(OmegaVoicePreferences.continuousWake(c)) }
+    var strictGrammar by remember { mutableStateOf(OmegaVoicePreferences.strictWakeGrammar(c)) }
+    var bilingualCommand by remember { mutableStateOf(OmegaVoicePreferences.bilingualWakeCommand(c)) }
+    var autoLive by remember { mutableStateOf(OmegaVoicePreferences.liveAfterWake(c)) }
+    var liveModel by remember { mutableStateOf(OmegaVoicePreferences.liveModel(c)) }
+    var liveVoice by remember { mutableStateOf(OmegaVoicePreferences.liveVoice(c)) }
+    var route by remember { mutableStateOf(OmegaVoicePreferences.liveRoute(c)) }
+    var followup by remember { mutableStateOf(OmegaVoicePreferences.followupAfterWake(c)) }
+    var aliases by remember { mutableStateOf(OmegaVoicePreferences.expandedWake(c)) }
+    val liveState by OmegaWakeService.liveTelemetry.collectAsState()
+    val rejectedWakes by OmegaWakeService.rejectedWakeCount.collectAsState()
+    val latency by OmegaWakeService.wakeToCommandMs.collectAsState()
+    val confidence by OmegaWakeService.lastWakeConfidence.collectAsState()
+    val recoveries by OmegaWakeService.recoveryAttempts.collectAsState()
+    val lastCallback by OmegaWakeService.lastCallbackAt.collectAsState()
+    var confidenceMode by remember{mutableStateOf(OmegaVoicePreferences.wakeConfidence(c))}
+    val enrolling by OmegaWakeService.enrollmentActive.collectAsState()
+    val reviewCount by OmegaWakeService.pendingQueueSize.collectAsState()
+    val enrollStatus by OmegaWakeService.enrollmentStatus.collectAsState()
+    LaunchedEffect(tab) { if(tab!=1)OmegaWakeService.cancelEnrollment(c) }
+    val hasSpeaker by OmegaWakeService.enrolledSpeaker.collectAsState()
+    val speakerRejects by OmegaWakeService.speakerRejections.collectAsState()
+    var speakerGate by remember { mutableStateOf(OmegaVoicePreferences.speakerGate(c)) }
+    var enrollConsent by remember { mutableStateOf(false) }
+    val acceptedWakes by OmegaWakeService.acceptedWakeCount.collectAsState()
+    val recognitionStage by OmegaWakeService.recognitionStage.collectAsState()
     var backgroundAi by remember { mutableStateOf(OmegaVoicePreferences.backgroundAi(c)) }
     var memoryContext by remember { mutableStateOf(OmegaVoicePreferences.memoryContext(c)) }
     val micOwner by OmegaAssistantCore.sessions.owner.collectAsState()
@@ -69,7 +99,25 @@ fun OmegaCenter(
     val speechError by com.example.voice.VoiceInputController.lastSpeechError.collectAsState()
     var notice by remember { mutableStateOf("") }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        notice = if (it.values.all { granted -> granted }) "Permissions granted. Tap Start." else "Permission denied; microphone remains stopped."
+        if (OmegaAlwaysReady.missingPermissions(c).isEmpty()) {
+            notice = "Permissions granted. Hey JARVIS standby will start automatically."
+            if (!embedded) OmegaAlwaysReady.tryStart(c, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        } else {
+            OmegaAlwaysReady.setEnabled(c, false)
+            notice = "Permission denied; Always Ready is off."
+        }
+    }
+    DisposableEffect(lifecycle, embedded) {
+        val observer = LifecycleEventObserver { _, event ->
+            if(event==Lifecycle.Event.ON_PAUSE) {OmegaWakeService.cancelEnrollment(c);enrollConsent=false}
+            if (event == Lifecycle.Event.ON_RESUME) {
+                OmegaWakeService.enrolledSpeaker.value=OmegaSpeakerStore(c).exists()
+                OmegaAlwaysReady.refresh(c, allowRetry = true)
+                if (!embedded) OmegaAlwaysReady.tryStart(c, true)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer);OmegaWakeService.cancelEnrollment(c) }
     }
     val notebook = remember { OmegaNotebook(c) }
     var entries by remember { mutableStateOf(emptyList<OmegaEntry>()) }
@@ -120,6 +168,7 @@ fun OmegaCenter(
                         shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
                 }
             }
+            OutlinedButton(onClick = { tab = 4 }, modifier = Modifier.fillMaxWidth().testTag("singularity_hud_open")) { Text("10,000X · Singularity Lab") }
             if (onOpenPermissions != null) {
                 OutlinedButton(
                     onClick = onOpenPermissions,
@@ -129,6 +178,7 @@ fun OmegaCenter(
             if (notice.isNotBlank()) Text(notice, color = MaterialTheme.colorScheme.secondary)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (tab) {
+                    4 -> com.example.ui.components.OmegaSingularityHudScreen()
                     0 -> {
                         OmegaMasterDashboard(
                             noteCount = entries.size,
@@ -158,6 +208,81 @@ fun OmegaCenter(
                         }
                         Text("When enabled, chat listens for one follow-up after finishing a reply while the app is visible. Stop microphone to cancel. This does not bypass Android permissions.")
                         HorizontalDivider()
+                        Text("Always Ready • Hey JARVIS", style = MaterialTheme.typography.titleLarge)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Always Ready Mode", modifier = Modifier.weight(1f))
+                            Switch(checked = alwaysReady, onCheckedChange = { enabled ->
+                                OmegaAlwaysReady.setEnabled(c, enabled)
+                                if (enabled) {
+                                    val missing = OmegaAlwaysReady.missingPermissions(c)
+                                    if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
+                                    else if (!embedded) OmegaAlwaysReady.tryStart(c, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                                }
+                            }, modifier = Modifier.testTag("always_ready_switch"))
+                        }
+                        Text(if (wakeReady) "Ready — say the selected wake phrase" else if (alwaysReady) wakeStatus else "Standby disabled")
+                        Text("Opt in once: wake microphone starts when the app is visible, stays active with a notification, and listens again after a reply. Turn off here or in the notification to stop. Wake audio stays on device.")
+                        if (alwaysReady && !wakeActive && OmegaAlwaysReady.missingPermissions(c).isNotEmpty()) {
+                            OutlinedButton(onClick = { permissions.launch(OmegaAlwaysReady.missingPermissions(c).toTypedArray()) }) { Text("Grant required permissions") }
+                        }
+                        Text("ELITE Live Conversation", style = MaterialTheme.typography.titleLarge)
+                        Text("After Hey JARVIS, optionally stream conversation audio to Gemini using your key. Wake audio stays local. Stop notification ends capture. Live session closes after 45 seconds idle or 10 minutes total. No device actions in Live.")
+                        OutlinedTextField(liveModel,{liveModel=it.take(120);OmegaVoicePreferences.setLiveModel(c,liveModel)},label={Text("Gemini Live model ID")},enabled=!wakeActive,singleLine=true,modifier=Modifier.fillMaxWidth())
+                        OutlinedTextField(liveVoice,{liveVoice=it.take(40);OmegaVoicePreferences.setLiveVoice(c,liveVoice)},label={Text("Live voice name (optional)")},enabled=!wakeActive,singleLine=true,modifier=Modifier.fillMaxWidth())
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Wake → Gemini Live (cloud audio consent)",Modifier.weight(1f))
+                            Switch(checked=autoLive,onCheckedChange={autoLive=it;OmegaVoicePreferences.setLiveAfterWake(c,it)},enabled=!wakeActive && strictGrammar && GeminiLiveDuplexEngine.validModel(liveModel) && mode!=OmegaVoiceMode.LOCAL,modifier=Modifier.testTag("elite_auto_live"))
+                        }
+                        Text("Live state: "+liveState.stateLabel+" · route: "+liveState.routeLabel)
+                        if(liveState.connected)Text("Live microphone frames: "+liveState.frames+" (actual reads)")
+                        if(liveState.connected){Text("Input: "+liveState.inputTranscript);Text("Reply: "+liveState.lastTranscript)}
+                        OmegaLiveRoute.entries.forEach { item -> Row {
+                            RadioButton(selected=route==item,enabled=!wakeActive,onClick={route=item;OmegaVoicePreferences.setLiveRoute(c,item)})
+                            Text(item.label,Modifier.padding(top=14.dp))
+                        }}
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Follow-up listening after spoken AI reply (up to 3)",Modifier.weight(1f))
+                            Switch(checked=followup,onCheckedChange={followup=it;OmegaVoicePreferences.setFollowupAfterWake(c,it)},enabled=!wakeActive,modifier=Modifier.testTag("elite_followup"))
+                        }
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Additional ELITE wake phrases",Modifier.weight(1f))
+                            Switch(checked=aliases,onCheckedChange={aliases=it;OmegaVoicePreferences.setExpandedWake(c,it)},enabled=!wakeActive)
+                        }
+                        Text("Optional local speaker wake filter",style=MaterialTheme.typography.titleLarge)
+                        Text("Experimental convenience filter, not secure authentication or anti-spoofing. Short wake phrases can reject the owner. Only your own voice with explicit consent. No raw audio saved or uploaded; encrypted template can be deleted.")
+                        Row { Checkbox(enrollConsent,{enrollConsent=it;if(!it)OmegaWakeService.cancelEnrollment(c)},enabled=!enrolling);Text("I consent to creating my local voice template") }
+                        Button(enabled=enrollConsent && wakeActive && wakeReady && !enrolling,onClick={if(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))OmegaWakeService.requestEnrollment(c)},modifier=Modifier.testTag("elite_enroll_speaker")){Text("Enroll my voice (3 phrases)")}
+                        if(enrolling)OutlinedButton(onClick={OmegaWakeService.cancelEnrollment(c)}){Text("Cancel enrollment")}
+                        Text(enrollStatus+" · template: "+(if(hasSpeaker)"saved" else "none")+" · rejected: "+speakerRejects)
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Use speaker match before wake (experimental)",Modifier.weight(1f))
+                            Switch(checked=speakerGate,onCheckedChange={speakerGate=it;OmegaVoicePreferences.setSpeakerGate(c,it)},enabled=!wakeActive && (hasSpeaker || speakerGate),modifier=Modifier.testTag("elite_speaker_gate"))
+                        }
+                        OutlinedButton(enabled=!wakeActive && hasSpeaker,onClick={runCatching{OmegaSpeakerStore(c).delete()}.onSuccess{speakerGate=false;OmegaVoicePreferences.setSpeakerGate(c,false);OmegaWakeService.enrolledSpeaker.value=false;enrollConsent=false}.onFailure{notice="Could not delete local voice template"}}){Text("Delete voice template")}
+                        Text("ELITE wake engine • offline Vosk · rejected confidence: "+rejectedWakes)
+                        Text("Wake confidence tuning (experimental, not recovered ELITE thresholds)")
+                        OmegaWakeConfidence.entries.forEach{item->Row{
+                            RadioButton(selected=confidenceMode==item,enabled=!wakeActive,onClick={confidenceMode=item;OmegaVoicePreferences.setWakeConfidence(c,item)},modifier=Modifier.testTag("elite_confidence_"+item.name))
+                            Text(item.label,Modifier.padding(top=14.dp))
+                        }}
+                        Text("Last minimum word confidence: "+if(confidence<0)"Not measured" else String.format(java.util.Locale.US,"%.2f",confidence))
+                        Text("Wake accepted → command/audio ready: "+if(latency<0)"Not measured" else latency.toString()+" ms")
+                        Text("Recorder recovery attempts: "+recoveries+"/2 · last recognition callback: "+if(lastCallback==0L)"None" else java.text.DateFormat.getTimeInstance().format(java.util.Date(lastCallback)))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Strict phrase grammar", modifier = Modifier.weight(1f))
+                            Switch(checked = strictGrammar || speakerGate, enabled = !wakeActive && !speakerGate, onCheckedChange = {
+                                strictGrammar = it; OmegaVoicePreferences.setStrictWakeGrammar(c, it)
+                            }, modifier = Modifier.testTag("elite_strict_grammar"))
+                        }
+                        Text("Strict: complete final phrase and word confidence required. Wait for the acknowledgement or Live connected status. Turn off for legacy combined-phrase mode. Custom phrases depend on model vocabulary.")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Telugu + English AUTO after wake", modifier = Modifier.weight(1f))
+                            Switch(checked = bilingualCommand, enabled = !wakeActive && strictGrammar, onCheckedChange = {
+                                bilingualCommand = it; OmegaVoicePreferences.setBilingualWakeCommand(c, it)
+                            }, modifier = Modifier.testTag("elite_bilingual_command"))
+                        }
+                        Text("Optional Android speech service after offline wake. Platform/hybrid may send command audio online; local-only mode does not. English Vosk fallback if the service fails.")
+                        Text("Engine stage: " + recognitionStage + " · accepted wakes: " + acceptedWakes)
                         Text("Offline wake phrases • on-device Vosk")
                         OmegaWakePhrase.entries.forEach { phrase ->
                             Row {
@@ -188,10 +313,10 @@ fun OmegaCenter(
                             ) { Text("Save custom wake phrase") }
                             Text("Unusual names may not be recognized by the bundled English speech model.")
                         }
-                        Text("Wake sensitivity • Strict recommended")
+                        Text("Wake sensitivity • applies to legacy open-vocabulary mode")
                         WakeSensitivity.entries.forEach { value ->
                             Row {
-                                RadioButton(selected = sensitivity == value, enabled = !wakeActive,
+                                RadioButton(selected = sensitivity == value, enabled = !wakeActive && !strictGrammar,
                                     onClick = { sensitivity = value; OmegaVoicePreferences.setSensitivity(c, value) })
                                 Text(value.label, Modifier.padding(top = 14.dp))
                             }
@@ -224,32 +349,25 @@ fun OmegaCenter(
                         Text("Reply styles apply to direct Gemini/OpenAI-compatible API requests; Firebase fallback retains its existing configuration.")
                         Text(wakeStatus)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Keep wake session active after capture", modifier = Modifier.weight(1f))
-                            Switch(checked = continuousWake, enabled = !wakeActive,
+                            Text("Keep wake session active (Always Ready includes this)", modifier = Modifier.weight(1f))
+                            Switch(checked = alwaysReady || continuousWake, enabled = !wakeActive && !alwaysReady,
                                 onCheckedChange = { continuousWake = it; OmegaVoicePreferences.setContinuousWake(c, it) })
                         }
-                        Text("Opt-in. Review or discard the pending command before another wake. Stop microphone ends the session. English offline model only.")
+                        Text("Strict mode keeps up to 3 commands for review without blocking each new wake. Review queue: "+reviewCount+"/3. Stop microphone ends the session. Legacy mode still waits for review.")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Answer wake questions with AI", modifier = Modifier.weight(1f))
                             Switch(checked = backgroundAi, enabled = !wakeActive, onCheckedChange = {
                                 backgroundAi = it; OmegaVoicePreferences.setBackgroundAi(c, it)
                             }, modifier = Modifier.testTag("unified_background_ai"))
                         }
-                        Text("Opt-in: sends English wake transcript and chat context to your configured AI. Not in on-device-only mode. Phone commands still require review. With continuous wake, resumes after reply; Stop microphone cancels.")
+                        Text("Opt-in: sends captured command transcript and chat context to your configured AI. Not in on-device-only mode. Phone commands still require review. With continuous wake, resumes after reply; Stop microphone cancels.")
                         Text("Assistant: " + backgroundPhase)
                         Text("Microphone owner: " + micOwner.name)
                         Text("Bundled English acoustic model. Selected phrase: " +
                             wakePhrase.label + ". Stop listening before changing the phrase. " +
                             "No wake audio is uploaded. Custom trained phrase models and " +
                             "offline Telugu recognition are not bundled.")
-                        Button(enabled = !wakeActive, modifier = Modifier.fillMaxWidth(), onClick = {
-                            val wanted = buildList { add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }
-                            val missing = wanted.filter { ContextCompat.checkSelfPermission(c, it) != PackageManager.PERMISSION_GRANTED }
-                            if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
-                            else try { OmegaWakeService.start(c) } catch (e: Exception) { notice = "Wake service could not start." }
-                        }) { Text("Start offline listening") }
-                        OutlinedButton(onClick = { OmegaWakeService.stop(c) }, modifier = Modifier.fillMaxWidth()) { Text("STOP microphone") }
-                        Text("Android 16: start listening while the app is visible. The microphone foreground notification must stay active. Background and lock-screen endurance still needs device testing.")
+                        Text("Android 16: Always Ready starts while the app is visible. Background and lock-screen listening depend on device policies. No automatic microphone start after force-stop or reboot.")
                     }
                     2 -> {
                         Text("Encrypted notebook & tasks", style = MaterialTheme.typography.titleLarge)
@@ -296,6 +414,8 @@ fun OmegaCenter(
                         Text("Last wake error: " + wakeError.ifBlank { "None reported" })
                         Text("Foreground microphone service active: " + wakeActive)
                         Text("Offline recognizer started: " + wakeReady)
+                        Text("Accepted wake phrases: " + acceptedWakes)
+                        Text("Recognition stage: " + recognitionStage)
                         Text("Captured commands this session: " + capturedCount)
                         Text("Microphone owner: " + micOwner.name)
                         Text("Background assistant: " + backgroundPhase)

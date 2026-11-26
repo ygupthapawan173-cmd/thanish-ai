@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -65,7 +67,10 @@ fun OmegaR104PremiumHome(
     val context = LocalContext.current
     val listening = uiState.voiceInputState as? VoiceInputState.Listening
     val thinking = uiState.aiGenState is AiGenState.Thinking || uiState.aiGenState is AiGenState.Streaming
-    val amplitude = listening?.amplitude?.coerceIn(0f, 1f) ?: 0f
+    val manualAmplitude = listening?.amplitude?.coerceIn(0f, 1f) ?: 0f
+    val live by OmegaWakeService.liveTelemetry.collectAsState()
+    var horizon by rememberSaveable { mutableStateOf(true) }
+    val amplitude = if(live.connected) maxOf(live.micAmplitude,live.speakerAmplitude).coerceIn(0f,1f) else manualAmplitude
     val wake by OmegaWakeService.active.collectAsState()
     val wakeStatus by OmegaWakeService.status.collectAsState()
     val accessibility by PanduAccessibilityService.isConnected.collectAsState()
@@ -81,11 +86,14 @@ fun OmegaR104PremiumHome(
     val lastAnswer = uiState.messages.lastOrNull { it.role == ChatMessageEntity.ROLE_ASSISTANT }
     val battery = uiState.deviceControlState.battery
     val displayStatus = when {
+        live.connected && live.speakerAmplitude > .025f -> JarvisStatus.SPEAKING
+        live.connected -> JarvisStatus.LISTENING
         backgroundBusy && backgroundPhase.startsWith("Speaking") -> JarvisStatus.SPEAKING
         backgroundBusy -> JarvisStatus.THINKING
         else -> uiState.jarvisStatus
     }
     val stateLabel = when {
+        live.connected -> if(displayStatus==JarvisStatus.SPEAKING) "SPEAKING" else "LIVE LISTENING"
         backgroundBusy && displayStatus == JarvisStatus.SPEAKING -> "SPEAKING"
         backgroundBusy -> "THINKING"
         listening != null -> "LISTENING"
@@ -93,7 +101,7 @@ fun OmegaR104PremiumHome(
         uiState.isSpeaking -> "SPEAKING"
         else -> "READY"
     }
-    val line = Brush.horizontalGradient(listOf(Cyan104, Color(0xFF287DFF), Purple104))
+    val line = Brush.horizontalGradient(listOf(Cyan104.copy(alpha=.8f), Color(0xFF287DFF).copy(alpha=.35f), Purple104.copy(alpha=.7f)))
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag("home_command_tab").background(Void104),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -101,12 +109,13 @@ fun OmegaR104PremiumHome(
     ) {
         item {
             Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = Color.Transparent,
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(26.dp),
+                color = Panel104.copy(alpha=.66f),
+                border = androidx.compose.foundation.BorderStroke(1.dp,line),
+                modifier = Modifier.fillMaxWidth().testTag("horizon_hero")
             ) {
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal=8.dp, vertical=4.dp),
+                    Modifier.fillMaxWidth().padding(horizontal=13.dp, vertical=12.dp),
                     horizontalAlignment=Alignment.CenterHorizontally,
                     verticalArrangement=Arrangement.spacedBy(7.dp)
                 ) {
@@ -116,9 +125,18 @@ fun OmegaR104PremiumHome(
                             color=if(wakeReady) Cyan104 else Muted104,
                             style=MaterialTheme.typography.labelSmall)
                     }
-                    OmegaUnifiedGpuOrb(displayStatus, amplitude, onMicClick, Modifier.testTag("r105_orb"))
+                    Text("H O R I Z O N  /  N E U R A L   C O R E",color=Muted104,fontSize=10.sp,letterSpacing=1.sp)
+                    if(horizon) OmegaHorizonOrb(displayStatus, amplitude, onMicClick, Modifier.testTag("r105_orb"))
+                    else OmegaUnifiedGpuOrb(displayStatus, amplitude, onMicClick, Modifier.testTag("r105_orb"))
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+                        Text(if(live.connected) "GEMINI LIVE" else if(wakeReady) "OFFLINE WAKE READY" else "VOICE STANDBY",color=Cyan104,style=MaterialTheme.typography.labelSmall)
+                        TextButton(onClick={horizon=!horizon},modifier=Modifier.heightIn(min=44.dp).testTag("horizon_renderer_toggle")){
+                            Text(if(horizon)"Native orb" else "Horizon orb",color=Purple104)
+                        }
+                    }
                     Text(
                         text = when {
+                            live.connected -> live.inputTranscript.ifBlank { live.stateLabel }
                             backgroundBusy -> backgroundPhase
                             listening != null -> listening.partialText.ifBlank { "వింటున్నాను బాస్..." }
                             thinking -> "మీ ప్రశ్నను పరిశీలిస్తున్నాను..."
@@ -129,7 +147,7 @@ fun OmegaR104PremiumHome(
                         style=MaterialTheme.typography.titleMedium, maxLines=3,
                         overflow=TextOverflow.Ellipsis
                     )
-                    R104Waveform(amplitude=amplitude, active=listening != null)
+                    R104Waveform(amplitude=amplitude, active=listening != null || live.connected)
                     Row(
                         Modifier.fillMaxWidth().padding(top=6.dp),
                         verticalAlignment=Alignment.CenterVertically,
@@ -154,6 +172,7 @@ fun OmegaR104PremiumHome(
                             }
                         }
                     }
+                    if(live.connected)Text("Audio route: "+live.routeLabel+" · frames: "+live.frames,color=Muted104,style=MaterialTheme.typography.labelSmall)
                     Text(if(micAllowed) "MIC PERMISSION GRANTED" else "MIC PERMISSION REQUIRED",
                         color=if(micAllowed) Muted104 else Color(0xFFFFBD79),
                         style=MaterialTheme.typography.labelSmall)
@@ -232,7 +251,7 @@ fun OmegaR104PremiumHome(
 @Composable
 private fun R104Metric(label: String, value: String, onClick: () -> Unit, modifier: Modifier) {
     Surface(modifier=modifier.heightIn(min=62.dp).clickable(onClick=onClick),
-        color=Panel104, shape=RoundedCornerShape(17.dp),
+        color=Panel104.copy(alpha=.72f), shape=RoundedCornerShape(17.dp),
         border=androidx.compose.foundation.BorderStroke(1.dp, Cyan104.copy(alpha=.25f))) {
         Column(Modifier.padding(horizontal=10.dp, vertical=12.dp),
             verticalArrangement=Arrangement.spacedBy(7.dp)) {

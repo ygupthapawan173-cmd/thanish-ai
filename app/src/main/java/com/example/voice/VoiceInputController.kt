@@ -40,7 +40,8 @@ enum class SpeechLocaleOption(val tag: String, val shortLabel: String) {
 class VoiceInputController(
     private val context: Context,
     private val onFinalResult: (String) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    private val wakeOwned: Boolean = false
 ) {
     companion object {
         val engineStatus = MutableStateFlow("Idle — no speech session")
@@ -64,7 +65,11 @@ class VoiceInputController(
         mainHandler.post {
             if (generation != sessionGeneration) return@post
             if (!forcePlatform) { detectedLanguage.value = "Not reported"; lastSpeechError.value = "None" }
-            if (OmegaWakeService.active.value) {
+            if (wakeOwned && OmegaAssistantCore.sessions.owner.value != MicOwner.WAKE) {
+                onError("Wake session ended")
+                return@post
+            }
+            if (!wakeOwned && OmegaWakeService.active.value) {
                 engineStatus.value = "Wake microphone owns recording"
                 onError("Stop OMEGA offline listening before using chat microphone.")
                 return@post
@@ -89,12 +94,12 @@ class VoiceInputController(
 
             try {
                 destroyRecognizerInternal()
-                if (!OmegaAssistantCore.sessions.acquireMic(MicOwner.MANUAL)) {
+                if (!wakeOwned && !OmegaAssistantCore.sessions.acquireMic(MicOwner.MANUAL)) {
                     engineStatus.value = "Microphone busy"
                     onError("Microphone is in use; stop the other session first.")
                     return@post
                 }
-                ownsMic = true
+                ownsMic = !wakeOwned
 
                 val recognizer = if (local && Build.VERSION.SDK_INT >= 31)
                     SpeechRecognizer.createOnDeviceSpeechRecognizer(context.applicationContext)
@@ -267,11 +272,12 @@ class VoiceInputController(
 
     fun cancel() {
         ++sessionGeneration
-        mainHandler.post {
+        val cleanup = Runnable {
             _state.value = VoiceInputState.Idle
             destroyRecognizerInternal()
             engineStatus.value = "Stopped"
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) cleanup.run() else mainHandler.post(cleanup)
     }
 
     fun release() {

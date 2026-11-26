@@ -24,7 +24,7 @@ object OmegaVoicePreferences {
         if (wakePhrase(c) == OmegaWakePhrase.CUSTOM) {
             listOfNotNull(OmegaWakeEngine.validCustomPhrase(customWake(c)))
                 .ifEmpty { OmegaWakePhrase.HEY_JARVIS.spoken }
-        } else wakePhrase(c).spoken
+        } else wakePhrase(c).spoken + if(wakePhrase(c)==OmegaWakePhrase.HEY_JARVIS && expandedWake(c)) listOf("hi jarvis","hello jarvis","ok jarvis","okay jarvis","wake up jarvis","sun jarvis","suno jarvis","jarvis jarvis") else emptyList()
 
     fun sensitivity(c: Context): WakeSensitivity = runCatching {
         WakeSensitivity.valueOf(prefs(c).getString("wake_sensitivity", WakeSensitivity.STRICT.name)!!)
@@ -60,6 +60,26 @@ object OmegaVoicePreferences {
     fun set(c: Context, m: OmegaVoiceMode) {
         c.getSharedPreferences("omega_voice", 0).edit().putString("mode", m.name).apply()
     }
+    fun strictWakeGrammar(c: Context): Boolean = prefs(c).getBoolean("elite_strict_grammar", true)
+    fun setStrictWakeGrammar(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("elite_strict_grammar", enabled).apply() }
+    fun bilingualWakeCommand(c: Context): Boolean = prefs(c).getBoolean("elite_bilingual_command_opt_in", false)
+    fun setBilingualWakeCommand(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("elite_bilingual_command_opt_in", enabled).apply() }
+    fun wakeConfidence(c:Context)=runCatching{OmegaWakeConfidence.valueOf(prefs(c).getString("elite_wake_confidence","STANDARD")!!)}.getOrDefault(OmegaWakeConfidence.STANDARD)
+    fun setWakeConfidence(c:Context,v:OmegaWakeConfidence){prefs(c).edit().putString("elite_wake_confidence",v.name).apply()}
+    fun speakerGate(c:Context)=prefs(c).getBoolean("elite_speaker_gate",false)
+    fun setSpeakerGate(c:Context,v:Boolean){prefs(c).edit().putBoolean("elite_speaker_gate",v).apply()}
+    fun liveAfterWake(c:Context)=prefs(c).getBoolean("elite_live_after_wake",false)
+    fun setLiveAfterWake(c:Context,v:Boolean){prefs(c).edit().putBoolean("elite_live_after_wake",v).apply()}
+    fun liveModel(c:Context)=prefs(c).getString("elite_live_model","").orEmpty()
+    fun setLiveModel(c:Context,v:String){prefs(c).edit().putString("elite_live_model",v.trim().take(120)).apply()}
+    fun liveVoice(c:Context)=prefs(c).getString("elite_live_voice","").orEmpty()
+    fun setLiveVoice(c:Context,v:String){prefs(c).edit().putString("elite_live_voice",v.trim().take(40)).apply()}
+    fun liveRoute(c:Context)=runCatching{OmegaLiveRoute.valueOf(prefs(c).getString("elite_live_route","SYSTEM")!!)}.getOrDefault(OmegaLiveRoute.SYSTEM)
+    fun setLiveRoute(c:Context,v:OmegaLiveRoute){prefs(c).edit().putString("elite_live_route",v.name).apply()}
+    fun followupAfterWake(c:Context)=prefs(c).getBoolean("elite_followup_after_wake",false)
+    fun setFollowupAfterWake(c:Context,v:Boolean){prefs(c).edit().putBoolean("elite_followup_after_wake",v).apply()}
+    fun expandedWake(c:Context)=prefs(c).getBoolean("elite_expanded_wake",false)
+    fun setExpandedWake(c:Context,v:Boolean){prefs(c).edit().putBoolean("elite_expanded_wake",v).apply()}
     fun backgroundAi(c: Context): Boolean = prefs(c).getBoolean("background_ai_opt_in", false)
     fun setBackgroundAi(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("background_ai_opt_in", enabled).apply() }
     fun memoryContext(c: Context): Boolean = prefs(c).getBoolean("memory_context_opt_in", false)

@@ -336,12 +336,18 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             _aiGenState.value = AiGenState.Idle
         }
         manualStartJob = viewModelScope.launch {
+            com.example.omega.OmegaAlwaysReady.setHandoff(true)
+            try {
             if (OmegaWakeService.active.value || OmegaAssistantCore.sessions.owner.value == MicOwner.WAKE) {
                 OmegaWakeService.stop(getApplication())
                 val released = withTimeoutOrNull(4000L) { OmegaAssistantCore.sessions.owner.first { it != MicOwner.WAKE } } != null
                 if (!released) { _bannerError.value = "Wake microphone did not release; retry."; return@launch }
             }
-            if (foregroundVisible && _hasMicPermission.value) voiceInputController.startListening(_speechLocale.value)
+            if (foregroundVisible && _hasMicPermission.value) {
+                voiceInputController.startListening(_speechLocale.value)
+                delay(300)
+            }
+            } finally { com.example.omega.OmegaAlwaysReady.setHandoff(false) }
         }
     }
 

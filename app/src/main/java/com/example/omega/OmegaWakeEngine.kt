@@ -8,6 +8,15 @@ enum class WakeSensitivity(val label: String) {
 data class WakeMatch(val phrase: String, val tail: String, val distance: Int)
 
 object OmegaWakeEngine {
+    /** Vosk restricted vocabulary: unknown audio has an explicit rejection alternative. */
+    fun grammarPhrases(phrases: List<String>): List<String> =
+        phrases.map { OmegaPolicy.normalize(it) }.filter { it.isNotBlank() && it != "unk" }.distinct() + "[unk]"
+
+    /** Final phrase only: reject unknown markers, embedded phrases and trailing words. */
+    fun strictGrammarMatch(text: String, phrases: List<String>): Boolean =
+        !text.contains("[unk]", ignoreCase = true) &&
+            phrases.any { OmegaPolicy.normalize(it) == OmegaPolicy.normalize(text) && text.isNotBlank() }
+
     private fun editDistance(a: String, b: String): Int {
         if (a == b) return 0
         if (a.isEmpty()) return b.length

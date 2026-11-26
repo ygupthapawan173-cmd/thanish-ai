@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [main, omega-native-master, 'review/omega-r100-single-master-patch', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture']
   push:
-    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture', 'review/omega-r106-recovery', 'review/omega-unified-master']
+    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture', 'review/omega-r106-recovery', 'review/omega-unified-master', 'review/omega-10000x-singularity-v2']
 
 concurrency:
   group: omega-apk-${{ github.head_ref || github.ref_name }}
@@ -89,6 +89,34 @@ jobs:
           print("Model files:", sum(p.is_file() for p in target.rglob("*")))
           PY
 
+      - name: Provision official Vosk speaker model and compare ELITE component hashes
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --max-time 180 \
+            "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip" -o "$RUNNER_TEMP/vosk-spk.zip"
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile, os
+          archive=pathlib.Path(os.environ["RUNNER_TEMP"])/"vosk-spk.zip"
+          target=pathlib.Path("app/src/main/assets/model-spk")
+          target.mkdir(parents=True,exist_ok=True)
+          expected={
+              "transform.mat":"fab14481fb27c41df0f1825afe18530e4f6d128dbb2c239ee86d8d7096e22c33",
+              "final.ext.raw":"d30354474ac719b3cfce58186463302b988cf22ce3afee7237a2da862c4a91d1",
+              "mean.vec":"3bc5dfa9479c3aaacf4f45c155e9bd4772785449112566fac23578c09e93bcd7",
+              "mfcc.conf":"86f4df625b950b81b68864fdefabf26aa65079f84ea20f40e7f9e7ccbb9c456c",
+          }
+          with zipfile.ZipFile(archive) as z:
+              for name,digest in expected.items():
+                  data=z.read("vosk-model-spk-0.4/"+name)
+                  assert hashlib.sha256(data).hexdigest()==digest, "ELITE speaker model mismatch: "+name
+                  (target/name).write_bytes(data)
+              for name in ("README.txt","LICENSE"):
+                  path="vosk-model-spk-0.4/"+name
+                  if path in z.namelist():(target/name).write_bytes(z.read(path))
+          (target/"uuid").write_text(hashlib.sha256(archive.read_bytes()).hexdigest())
+          print("All four acoustic speaker model files match R27.7 ELITE")
+          PY
+
       - name: OMEGA premium review gates
         run: python3 ci/omega_review_checks.py
 
@@ -124,11 +152,19 @@ jobs:
           import sys, zipfile
           with zipfile.ZipFile(sys.argv[1]) as apk:
               for path in ("assets/model-en-us/am/final.mdl", "assets/model-en-us/conf/model.conf",
-                           "assets/model-en-us/graph/phones/word_boundary.int", "assets/model-en-us/uuid"):
+                           "assets/model-en-us/graph/phones/word_boundary.int", "assets/model-en-us/uuid",
+                           "assets/model-spk/final.ext.raw", "assets/model-spk/transform.mat", "assets/model-spk/mean.vec", "assets/model-spk/mfcc.conf", "assets/model-spk/uuid"):
                   assert apk.getinfo(path).file_size > 0, path
               names = apk.namelist()
               assert any(n.startswith("lib/arm64-v8a/") and n.endswith("/libvosk.so") for n in names), "Vosk ARM64 library missing"
               assert any(n.startswith("lib/arm64-v8a/") and n.endswith("/libjnidispatch.so") for n in names), "JNA ARM64 library missing"
+              horizon=[i for i in apk.infolist() if i.filename.startswith("assets/omega_horizon/") and not i.is_dir()]
+              assert any(i.filename.endswith("jarvis-orb.js") for i in horizon)
+              assert any(i.filename.endswith("LICENSE.txt") for i in horizon)
+              assert sum(i.file_size for i in horizon) <= 20_000_000, "Horizon UI assets exceed 20 MB"
+              print("Horizon assets (uncompressed bytes):",sum(i.file_size for i in horizon))
+              print("Horizon assets (compressed bytes):",sum(i.compress_size for i in horizon))
+              print("Total APK bytes:",__import__("os").path.getsize(sys.argv[1]))
               print("Offline model and ARM64 libraries verified")
           PY
           sha256sum "$APK"
@@ -141,13 +177,13 @@ jobs:
           if-no-files-found: error
 
       - name: Enable KVM for Android 16 runtime review
-        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture' || github.ref_name == 'review/omega-r106-recovery' || github.head_ref == 'review/omega-r106-recovery' || github.ref_name == 'review/omega-unified-master' || github.head_ref == 'review/omega-unified-master'
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture' || github.ref_name == 'review/omega-r106-recovery' || github.head_ref == 'review/omega-r106-recovery' || github.ref_name == 'review/omega-unified-master' || github.head_ref == 'review/omega-unified-master' || github.ref_name == 'review/omega-10000x-singularity-v2' || github.head_ref == 'review/omega-10000x-singularity-v2'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Android 16 emulator runtime UI tests
-        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture' || github.ref_name == 'review/omega-r106-recovery' || github.head_ref == 'review/omega-r106-recovery' || github.ref_name == 'review/omega-unified-master' || github.head_ref == 'review/omega-unified-master'
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture' || github.ref_name == 'review/omega-r106-recovery' || github.head_ref == 'review/omega-r106-recovery' || github.ref_name == 'review/omega-unified-master' || github.head_ref == 'review/omega-unified-master' || github.ref_name == 'review/omega-10000x-singularity-v2' || github.head_ref == 'review/omega-10000x-singularity-v2'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36

@@ -106,3 +106,47 @@ assert 'OmegaAssistantCore.sessions.acquireMic' in voice and 'OmegaAssistantCore
 assert 'runBackgroundReply(text)' in wake and 'OmegaAssistantCore.routeWake' in wake
 assert 'promptWithMemory' in viewmodel and 'promptWithMemory' in wake
 print('PASS unified source wiring; functional tests remain separate')
+
+assert 'OmegaSingularityHudScreen()' in omega
+live = read('java/com/example/ai/GeminiLiveDuplexEngine.kt')
+assert 'setupComplete' in live and 'MicOwner.LIVE' in live and 'interrupted' in live
+assert 'REQUEST_INSTALL_PACKAGES' in manifest and '.verifiedupdates' in manifest
+print('PASS Singularity source wiring; live provider and update behavior require runtime checks')
+
+assert 'Recognizer(m, 16000f, grammar)' in wake and 'strictGrammarMatch' in wake
+assert 'wakeOwned = true' in wake and 'SpeechLocaleOption.AUTO' in wake
+assert 'elite_strict_grammar' in omega and 'elite_bilingual_command' in omega
+assert 'old?.cancel()' in wake and 'old?.shutdown()' in wake
+print('PASS ELITE strict grammar and command handoff wiring')
+
+assert 'always_ready_switch' in omega and 'Start offline listening' not in omega
+assert 'OmegaAlwaysReady.tryStart' in screen and 'OmegaAlwaysReady.setEnabled(this, false)' in wake
+print('PASS Always Ready opt-in, automatic foreground startup and notification stop wiring')
+
+assert 'beginWakeLive()' in wake and 'wakeOwned=true' in wake and 'finishWakeLive' in wake
+assert 'AutomaticGainControl' in live and 'checkIdle(id)' in live and 'inputTranscription' in live
+assert 'elite_auto_live' in omega and 'elite_followup' in omega
+assert 'local.setWords(true)' in wake and 'confidenceAccepted' in wake
+print('PASS ELITE live handoff, confidence rejection, bounded recovery and follow-up wiring')
+
+assert 'SpeakerModel' in wake and 'OmegaSpeakerPolicy.match' in wake and 'setSpeakerModel' in wake
+assert 'elite_enroll_speaker' in omega and 'elite_speaker_gate' in omega
+print('PASS optional local speaker enrollment and matching wiring; not biometric authentication')
+
+router=read('java/com/example/ai/OmegaHeadsetRouter.kt')
+assert 'registerAudioDeviceCallback' in router and 'setCommunicationDevice' in router and 'unregisterAudioDeviceCallback' in router
+assert 'checkAudioHealth(id)' in live and 'lastMicFrameMs' in live
+assert 'UtteranceProgressListener' in wake and 'wakeToCommandMs' in wake and 'recoveryDelay' in wake
+assert 'elite_confidence_' in omega
+print('PASS ELITE audio-route recovery, acknowledgement latency, calibration and recorder recovery wiring')
+
+from pathlib import Path
+horizon_assets=root/'assets/omega_horizon'
+horizon_renderer=read('java/com/example/ui/components/OmegaHorizonOrb.kt')
+assert 'OmegaHorizonOrb(' in premium_home and 'horizon_renderer_toggle' in premium_home
+assert 'blockNetworkLoads=true' in horizon_renderer and 'allowFileAccess=false' in horizon_renderer and 'addJavascriptInterface' not in horizon_renderer
+assert 'OmegaUnifiedGpuOrb(' in horizon_renderer and 'setPaused' in horizon_renderer
+assert 'MIT License' in (horizon_assets/'LICENSE.txt').read_text()
+ui_bytes=sum(p.stat().st_size for p in horizon_assets.rglob('*') if p.is_file())+len(horizon_renderer.encode())+len(premium_home.encode())
+assert ui_bytes<=20_000_000, f'Horizon UI source/assets exceeded 20 MB: {ui_bytes}'
+print(f'PASS Horizon UI source and assets: {ui_bytes} bytes; 20 MB maximum; packaged check separate')
