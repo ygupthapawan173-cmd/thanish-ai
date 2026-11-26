@@ -27,6 +27,16 @@ class OmegaEliteConversationTest {
   assertEquals(q,OmegaEliteConversation.removePending(q,"stale"))
   assertEquals(listOf("second","third"),OmegaEliteConversation.removePending(q,"first"))
  }
+ @Test fun recoveryBackoffAndCalibration(){
+  assertEquals(350L,OmegaEliteConversation.recoveryDelay(1))
+  assertEquals(1500L,OmegaEliteConversation.recoveryDelay(2))
+  assertNull(OmegaEliteConversation.recoveryDelay(3))
+  assertFalse(OmegaEliteConversation.resetRecoveryBudget(59000L))
+  assertTrue(OmegaEliteConversation.resetRecoveryBudget(60000L))
+  assertTrue(OmegaEliteConversation.confidenceAccepted(listOf(.6,.7),2,OmegaWakeConfidence.FAST.minimum))
+  assertFalse(OmegaEliteConversation.confidenceAccepted(listOf(.6,.7),2,OmegaWakeConfidence.HIGH.minimum))
+  assertTrue(OmegaEliteConversation.retryLive("Audio pipeline stalled",0))
+ }
  @Test fun stopWordsAreExact(){
   assertTrue(OmegaEliteConversation.isEndPhrase("Stop listening"))
   assertFalse(OmegaEliteConversation.isEndPhrase("please explain stop listening"))

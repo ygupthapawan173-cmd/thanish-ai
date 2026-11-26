@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.*
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
@@ -66,6 +67,10 @@ class OmegaWakeService : Service(), RecognitionListener {
         val recognitionStage = MutableStateFlow("Stopped")
         val liveTelemetry = MutableStateFlow(GeminiLiveDuplexEngine.Telemetry())
         val rejectedWakeCount = MutableStateFlow(0)
+        val wakeToCommandMs=MutableStateFlow(-1L)
+        val lastWakeConfidence=MutableStateFlow(-1.0)
+        val recoveryAttempts=MutableStateFlow(0)
+        val lastCallbackAt=MutableStateFlow(0L)
         fun start(c: Context) {
             ContextCompat.startForegroundService(c, Intent(c, OmegaWakeService::class.java))
         }
@@ -85,6 +90,10 @@ class OmegaWakeService : Service(), RecognitionListener {
     private var ttsReady = false
     // Recovery is bounded and only active while the user-started foreground service remains alive.
     private var recognitionRestarts = 0
+    private var stageStartedAt=0L
+    private var wakeAcceptedAt=0L
+    private var ackSequence=0L
+    private var ackCompletion:CompletableDeferred<Unit>?=null
     private var reconnectPending = false
     private var ownsMic = false
     private var processing = false
@@ -113,18 +122,26 @@ class OmegaWakeService : Service(), RecognitionListener {
             if (!closed && result == TextToSpeech.SUCCESS) {
                 ttsReady = true
                 runCatching { tts?.language = Locale.US }
+                tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
+                    override fun onStart(utteranceId:String?)=Unit
+                    override fun onDone(utteranceId:String?){handler.post{if(utteranceId=="omega_wake_ack_"+ackSequence)ackCompletion?.complete(Unit)}}
+                    @Deprecated("Android callback") override fun onError(utteranceId:String?){onDone(utteranceId)}
+                })
             }
         }
     }
     private fun acknowledgeWake() {
+        ackCompletion?.complete(Unit)
+        val sequence=++ackSequence
+        val done=CompletableDeferred<Unit>();ackCompletion=done
         val style = OmegaVoicePreferences.acknowledgement(this)
         val text = OmegaWakeAck.spokenText(style, OmegaVoicePreferences.customAcknowledgement(this))
         if (style == WakeAckStyle.CHIME) {
             runCatching {
                 val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 65)
                 tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 120)
-                handler.postDelayed({ tone.release() }, 300)
-            }
+                handler.postDelayed({ tone.release();done.complete(Unit) }, 180)
+            }.onFailure{done.complete(Unit)}
         } else if (ttsReady && text != null) {
             runCatching {
                 val wanted = if (OmegaWakeAck.isTelugu(text)) Locale("te", "IN") else Locale.US
@@ -133,10 +150,10 @@ class OmegaWakeService : Service(), RecognitionListener {
                 if (!supported) lastError.value = "Telugu TTS voice unavailable; English acknowledgement used"
                 tts?.language = selected
                 val line = if (supported) text else "Yes, Sir!"
-                val spoken = tts?.speak(line, TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack")
-                if (spoken == TextToSpeech.ERROR) lastError.value = "Wake TTS failed; microphone still active"
-            }
-        }
+                val spoken = tts?.speak(line, TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack_"+sequence)
+                if (spoken != TextToSpeech.SUCCESS){lastError.value = "Wake TTS failed";done.complete(Unit)}
+            }.onFailure{done.complete(Unit)}
+        }else done.complete(Unit)
     }
     /** One gate for BOTH partial recognition and combined wake+command finals. */
     private fun armWake(speakAck: Boolean = true): Boolean {
@@ -178,6 +195,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         capturedCount.value = 0
         acceptedWakeCount.value = 0
         rejectedWakeCount.value=0
+        wakeToCommandMs.value=-1L;lastWakeConfidence.value=-1.0;recoveryAttempts.value=0;lastCallbackAt.value=0L
         ownerGate=OmegaVoicePreferences.speakerGate(this)
         enrolledSpeaker.value=OmegaSpeakerStore(this).exists()
         speakerRejections.value=0
@@ -261,6 +279,8 @@ class OmegaWakeService : Service(), RecognitionListener {
                 override fun onTimeout() { if (epoch == offlineEpoch) this@OmegaWakeService.onTimeout() }
             }
             check(recorder.startListening(listener))
+            stageStartedAt=SystemClock.elapsedRealtime()
+            if(command && !enrollmentActive.value && wakeAcceptedAt>0L){wakeToCommandMs.value=stageStartedAt-wakeAcceptedAt;wakeAcceptedAt=0L}
             recognitionReady.value = true
             recognitionStage.value = if(enrollmentActive.value) "Local speaker enrollment" else if (command) "Vosk English command" else if (strictGrammar) "Vosk strict phrase grammar" else "Vosk legacy open vocabulary"
             status.value = if(enrollmentActive.value) "Speaker enrollment • speak and pause three times" else if (command) "Say one English command" else "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
@@ -343,6 +363,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (closed || commandPhase || !hasReviewRoom() || !wakeGate.allow(SystemClock.elapsedRealtime())) return
         followupTurns=0
         liveRetries=0
+        wakeAcceptedAt=SystemClock.elapsedRealtime();wakeToCommandMs.value=-1L
         acceptedWakeCount.value += 1
         lastWakeAt.value = System.currentTimeMillis()
         lastError.value = ""
@@ -362,11 +383,9 @@ class OmegaWakeService : Service(), RecognitionListener {
         captureJob?.cancel()
         captureJob = sessionScope.launch {
             if(waitForAck) {
-            delay(600)
-            var ticks = 0
-            while (tts?.isSpeaking == true && ticks++ < 20) delay(200)
-            if (tts?.isSpeaking == true) tts?.stop()
-            delay(200)
+                val ack=ackCompletion
+                if(ack!=null && withTimeoutOrNull(4500L){ack.await();true}!=true) runCatching{tts?.stop()}
+                delay(80)
             }
             if (closed || !active.value || !commandPhase) return@launch
             if (OmegaVoicePreferences.bilingualWakeCommand(this@OmegaWakeService)) {
@@ -418,6 +437,7 @@ class OmegaWakeService : Service(), RecognitionListener {
             onTerminal={ reason -> handler.post { if(!closed && epoch==liveGeneration) finishWakeLive(reason) } },
             onReady={
                 if(!closed && epoch==liveGeneration){
+                    if(wakeAcceptedAt>0L){wakeToCommandMs.value=SystemClock.elapsedRealtime()-wakeAcceptedAt;wakeAcceptedAt=0L}
                     recognitionStage.value="Gemini Live conversation"
                     status.value="Live voice connected • speak now"
                     OmegaAssistantCore.backgroundPhase.value="Gemini Live conversation"
@@ -481,9 +501,10 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (closed || !active.value || processing || enrollmentActive.value || (!strictGrammar && !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value))) return
         val partial = runCatching { JSONObject(hypothesis.orEmpty()).optString("partial") }
             .getOrDefault("").trim().take(300)
+        lastCallbackAt.value=System.currentTimeMillis()
+        if(OmegaEliteConversation.resetRecoveryBudget(SystemClock.elapsedRealtime()-stageStartedAt)){recognitionRestarts=0;recoveryAttempts.value=0}
         if (partial.isEmpty()) return
         lastPartial.value = partial
-        recognitionRestarts = 0
         if (strictGrammar) return // Strict mode accepts a complete final phrase, never a partial guess.
         // A partial hypothesis may wake the assistant, but only a final result commits a command.
         if (!armed && OmegaWakeEngine.match(partial, OmegaVoicePreferences.activeWakePhrases(this),
@@ -502,23 +523,22 @@ class OmegaWakeService : Service(), RecognitionListener {
                 return@post
             }
             recognitionRestarts++
+            recoveryAttempts.value=recognitionRestarts
             reconnectPending = true
             recognitionReady.value = false
             status.value = "Reconnecting offline recognition (" + recognitionRestarts + "/2)"
             refresh()
-            if (strictGrammar) closeOfflineStage() else runCatching { speech?.stop() }
+            val resumeCommand=commandPhase
+            closeOfflineStage()
+            val epoch=offlineEpoch
             handler.postDelayed({
-                if (closed || !active.value) return@postDelayed
+                if (closed || !active.value || epoch!=offlineEpoch) {reconnectPending=false;return@postDelayed}
                 reconnectPending = false
-                val resumed = if (strictGrammar) startOfflineStage(commandPhase) else runCatching { speech?.startListening(this) == true }.getOrDefault(false)
-                if (resumed) {
-                    recognitionReady.value = true
-                    if (!strictGrammar) status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
+                if(startOfflineStage(resumeCommand)){
+                    recognitionReady.value=true
                     refresh()
-                } else {
-                    fail("Offline voice engine could not restart")
-                }
-            }, 350L)
+                }else recoverOfflineRecognition("restart failed")
+            }, OmegaEliteConversation.recoveryDelay(recognitionRestarts)?:1500L)
         }
     }
     override fun onTimeout() {
@@ -531,7 +551,8 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (!closed) recoverOfflineRecognition("recognizer error")
     }
     override fun onResult(hypothesis: String?) {
-        if (closed || !active.value || processing) return
+        if (closed || !active.value || processing || reconnectPending) return
+        lastCallbackAt.value=System.currentTimeMillis()
         if(enrollmentActive.value){runCatching{JSONObject(hypothesis.orEmpty())}.getOrNull()?.let{enrollmentResult(it)};return}
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
@@ -540,7 +561,8 @@ class OmegaWakeService : Service(), RecognitionListener {
                 val words=runCatching{JSONObject(hypothesis.orEmpty()).optJSONArray("result")}.getOrNull()
                 val conf=if(words==null) emptyList() else (0 until words.length()).map{words.optJSONObject(it)?.optDouble("conf",Double.NaN)?:Double.NaN}
                 val count=OmegaPolicy.normalize(text).split(" ").size
-                if(OmegaEliteConversation.confidenceAccepted(conf,count)) {
+                lastWakeConfidence.value=conf.filter{it.isFinite()}.minOrNull()?:-1.0
+                if(OmegaEliteConversation.confidenceAccepted(conf,count,OmegaVoicePreferences.wakeConfidence(this).minimum)) {
                     if(ownerGate){
                         val vector=runCatching{OmegaSpeakerPolicy.fromResult(JSONObject(hypothesis.orEmpty()),50)}.getOrNull()
                         if(vector==null || ownerTemplate?.let{OmegaSpeakerPolicy.match(it,vector)}!=true){
@@ -678,6 +700,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (wasProcessing) OmegaAssistantCore.sessions.endBackground()
         OmegaAssistantCore.backgroundPhase.value = "Idle"
         handler.removeCallbacksAndMessages(null)
+        ackCompletion?.complete(Unit);ackCompletion=null
         runCatching { tts?.stop(); tts?.shutdown() }
         tts = null
         ttsReady = false

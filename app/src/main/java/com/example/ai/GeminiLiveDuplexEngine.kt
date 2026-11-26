@@ -29,7 +29,7 @@ import kotlin.math.sqrt
 class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned:Boolean=false,
     private val onTerminal:(String)->Unit={}, private val onReady:()->Unit={}) {
     data class Telemetry(val connected:Boolean=false,val stateLabel:String="Standby",
-        val micAmplitude:Float=0f,val speakerAmplitude:Float=0f,val lastTranscript:String="",val inputTranscript:String="")
+        val micAmplitude:Float=0f,val speakerAmplitude:Float=0f,val lastTranscript:String="",val inputTranscript:String="",val routeLabel:String="System",val lastMicFrameMs:Long=0L,val frames:Long=0L)
     private val _telemetry=MutableStateFlow(Telemetry())
     val telemetry=_telemetry.asStateFlow()
     private val handler=Handler(Looper.getMainLooper())
@@ -45,7 +45,9 @@ class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned
     private var ns:NoiseSuppressor?=null
     private var agc:AutomaticGainControl?=null
     private var previousMode:Int?=null
-    private var selectedRoute=false
+    private var headsetRouter:OmegaHeadsetRouter?=null
+    @Volatile private var lastFrame=0L
+    @Volatile private var frameCount=0L
     private var attemptActive=false
     private var audioRoute=OmegaLiveRoute.SYSTEM
     private var lastActivity=0L
@@ -104,6 +106,14 @@ class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned
         handler.postDelayed({if(id==generation) disconnect("Session time limit reached; start again if needed")},600000)
         if(wakeOwned) checkIdle(id)
     }
+    private fun checkAudioHealth(id:Long) {
+        handler.postDelayed({
+            if(id==generation && attemptActive && _telemetry.value.connected){
+                if(SystemClock.elapsedRealtime()-lastFrame>8000L)disconnect("Audio pipeline stalled")
+                else checkAudioHealth(id)
+            }
+        },2000L)
+    }
     private fun checkIdle(id:Long) {
         handler.postDelayed({
             if(id==generation && attemptActive) {
@@ -124,9 +134,10 @@ class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned
             }
             previousMode=manager.mode
             manager.mode=AudioManager.MODE_IN_COMMUNICATION
-            if(android.os.Build.VERSION.SDK_INT>=31 && audioRoute==OmegaLiveRoute.SPEAKER) {
-                selectedRoute=manager.availableCommunicationDevices.firstOrNull{it.type==AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}?.let{manager.setCommunicationDevice(it)}==true
+            headsetRouter=OmegaHeadsetRouter(manager,handler,audioRoute){label->
+                if(id==generation)_telemetry.value=_telemetry.value.copy(routeLabel=label)
             }
+            headsetRouter?.start()
             val rb=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
             val tb=AudioTrack.getMinBufferSize(24000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT)
             check(rb>0 && tb>0)
@@ -144,25 +155,33 @@ class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned
             val queue=Channel<ByteArray>(32);audioQueue=queue
             val socket=ws?:error("Socket lost")
             lastActivity=SystemClock.elapsedRealtime()
-            _telemetry.value=Telemetry(true,"Live • AEC "+(aec?.enabled==true)+" • NS "+(ns?.enabled==true)+" • AGC "+(agc?.enabled==true))
+            lastFrame=lastActivity;frameCount=0L
+            _telemetry.value=_telemetry.value.copy(connected=true,stateLabel="Live • AEC "+(aec?.enabled==true)+" • NS "+(ns?.enabled==true)+" • AGC "+(agc?.enabled==true))
+            checkAudioHealth(id)
             onReady()
             session.launch {
                 val buf=ByteArray(1600)
                 while(isActive) {
                     val n=mic.read(buf,0,buf.size)
                     if(n<=0) { handler.post{if(id==generation) disconnect("Microphone read failed")};break }
+                    lastFrame=SystemClock.elapsedRealtime();frameCount++
                     val amp=pcmRms(buf,n)
                     val data=Base64.encodeToString(buf,0,n,Base64.NO_WRAP)
                     val msg=JSONObject().put("realtimeInput",JSONObject().put("audio",JSONObject().put("mimeType","audio/pcm;rate=16000").put("data",data)))
                     if(socket.queueSize()>256000 || !socket.send(msg.toString())) { handler.post{if(id==generation) disconnect("Network too slow")};break }
-                    handler.post { if(id==generation) _telemetry.value=_telemetry.value.copy(micAmplitude=amp) }
+                    handler.post { if(id==generation) _telemetry.value=_telemetry.value.copy(micAmplitude=amp,lastMicFrameMs=lastFrame,frames=frameCount) }
                 }
             }
             session.launch {
                 for(pcm in queue) {
                     if(!isActive) break
-                    val n=speaker.write(pcm,0,pcm.size)
-                    if(n<0) { handler.post{if(id==generation) disconnect("Playback failed")};break }
+                    var offset=0
+                    while(isActive && offset<pcm.size){
+                        val n=speaker.write(pcm,offset,pcm.size-offset)
+                        if(n<=0)break
+                        offset+=n
+                    }
+                    if(isActive && offset<pcm.size) { handler.post{if(id==generation) disconnect("Playback failed")};break }
                     handler.post { if(id==generation) _telemetry.value=_telemetry.value.copy(speakerAmplitude=pcmRms(pcm,pcm.size)) }
                 }
             }
@@ -229,8 +248,7 @@ class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned
         runCatching{record?.release()};record=null;runCatching{track?.release()};track=null
         if(android.os.Build.VERSION.SDK_INT>=26) focus?.let{runCatching{manager.abandonAudioFocusRequest(it)}}
         focus=null
-        if(android.os.Build.VERSION.SDK_INT>=31 && selectedRoute) runCatching{manager.clearCommunicationDevice()}
-        selectedRoute=false
+        headsetRouter?.stop();headsetRouter=null
         previousMode?.let{runCatching{manager.mode=it}};previousMode=null
         if(lease){lease=false;OmegaAssistantCore.sessions.releaseMic(MicOwner.LIVE)}
         _telemetry.value=Telemetry(stateLabel=label)

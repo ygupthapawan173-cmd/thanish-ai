@@ -132,3 +132,10 @@ print('PASS ELITE live handoff, confidence rejection, bounded recovery and follo
 assert 'SpeakerModel' in wake and 'OmegaSpeakerPolicy.match' in wake and 'setSpeakerModel' in wake
 assert 'elite_enroll_speaker' in omega and 'elite_speaker_gate' in omega
 print('PASS optional local speaker enrollment and matching wiring; not biometric authentication')
+
+router=read('java/com/example/ai/OmegaHeadsetRouter.kt')
+assert 'registerAudioDeviceCallback' in router and 'setCommunicationDevice' in router and 'unregisterAudioDeviceCallback' in router
+assert 'checkAudioHealth(id)' in live and 'lastMicFrameMs' in live
+assert 'UtteranceProgressListener' in wake and 'wakeToCommandMs' in wake and 'recoveryDelay' in wake
+assert 'elite_confidence_' in omega
+print('PASS ELITE audio-route recovery, acknowledgement latency, calibration and recorder recovery wiring')

@@ -73,6 +73,11 @@ fun OmegaCenter(
     var aliases by remember { mutableStateOf(OmegaVoicePreferences.expandedWake(c)) }
     val liveState by OmegaWakeService.liveTelemetry.collectAsState()
     val rejectedWakes by OmegaWakeService.rejectedWakeCount.collectAsState()
+    val latency by OmegaWakeService.wakeToCommandMs.collectAsState()
+    val confidence by OmegaWakeService.lastWakeConfidence.collectAsState()
+    val recoveries by OmegaWakeService.recoveryAttempts.collectAsState()
+    val lastCallback by OmegaWakeService.lastCallbackAt.collectAsState()
+    var confidenceMode by remember{mutableStateOf(OmegaVoicePreferences.wakeConfidence(c))}
     val enrolling by OmegaWakeService.enrollmentActive.collectAsState()
     val reviewCount by OmegaWakeService.pendingQueueSize.collectAsState()
     val enrollStatus by OmegaWakeService.enrollmentStatus.collectAsState()
@@ -228,7 +233,8 @@ fun OmegaCenter(
                             Text("Wake → Gemini Live (cloud audio consent)",Modifier.weight(1f))
                             Switch(checked=autoLive,onCheckedChange={autoLive=it;OmegaVoicePreferences.setLiveAfterWake(c,it)},enabled=!wakeActive && strictGrammar && GeminiLiveDuplexEngine.validModel(liveModel) && mode!=OmegaVoiceMode.LOCAL,modifier=Modifier.testTag("elite_auto_live"))
                         }
-                        Text("Live state: "+liveState.stateLabel)
+                        Text("Live state: "+liveState.stateLabel+" · route: "+liveState.routeLabel)
+                        if(liveState.connected)Text("Live microphone frames: "+liveState.frames+" (actual reads)")
                         if(liveState.connected){Text("Input: "+liveState.inputTranscript);Text("Reply: "+liveState.lastTranscript)}
                         OmegaLiveRoute.entries.forEach { item -> Row {
                             RadioButton(selected=route==item,enabled=!wakeActive,onClick={route=item;OmegaVoicePreferences.setLiveRoute(c,item)})
@@ -254,6 +260,14 @@ fun OmegaCenter(
                         }
                         OutlinedButton(enabled=!wakeActive && hasSpeaker,onClick={runCatching{OmegaSpeakerStore(c).delete()}.onSuccess{speakerGate=false;OmegaVoicePreferences.setSpeakerGate(c,false);OmegaWakeService.enrolledSpeaker.value=false;enrollConsent=false}.onFailure{notice="Could not delete local voice template"}}){Text("Delete voice template")}
                         Text("ELITE wake engine • offline Vosk · rejected confidence: "+rejectedWakes)
+                        Text("Wake confidence tuning (experimental, not recovered ELITE thresholds)")
+                        OmegaWakeConfidence.entries.forEach{item->Row{
+                            RadioButton(selected=confidenceMode==item,enabled=!wakeActive,onClick={confidenceMode=item;OmegaVoicePreferences.setWakeConfidence(c,item)},modifier=Modifier.testTag("elite_confidence_"+item.name))
+                            Text(item.label,Modifier.padding(top=14.dp))
+                        }}
+                        Text("Last minimum word confidence: "+if(confidence<0)"Not measured" else String.format(java.util.Locale.US,"%.2f",confidence))
+                        Text("Wake accepted → command/audio ready: "+if(latency<0)"Not measured" else latency.toString()+" ms")
+                        Text("Recorder recovery attempts: "+recoveries+"/2 · last recognition callback: "+if(lastCallback==0L)"None" else java.text.DateFormat.getTimeInstance().format(java.util.Date(lastCallback)))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Strict phrase grammar", modifier = Modifier.weight(1f))
                             Switch(checked = strictGrammar || speakerGate, enabled = !wakeActive && !speakerGate, onCheckedChange = {
