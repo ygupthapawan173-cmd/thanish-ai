@@ -8,26 +8,32 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
- // The English model AAR shares org.vosk namespace with the engine AAR.
- // Resolve it as a data archive, not an Android library; package only model assets.
-val omegaModelArchive = configurations.create("omegaModelArchive") {
-  isCanBeConsumed = false
-  isCanBeResolved = true
-  isTransitive = false
-}
-val omegaGeneratedAssets = layout.buildDirectory.dir("generated/omegaVoskAssets")
-val extractOmegaVoskModel by tasks.registering(Sync::class) {
-  inputs.files(omegaModelArchive)
-  from({ zipTree(omegaModelArchive.singleFile) }) {
-    include("assets/**")
-    eachFile {
-      path = path.removePrefix("assets/")
+// Register generated Vosk assets through the AGP Variant Sources API.
+abstract class ExtractOmegaModel : DefaultTask() {
+  @get:InputFiles
+  @get:PathSensitive(PathSensitivity.NONE)
+  abstract val archive: ConfigurableFileCollection
+
+  @get:OutputDirectory
+  abstract val outputDirectory: DirectoryProperty
+
+  @get:javax.inject.Inject
+  abstract val archiveOperations: org.gradle.api.file.ArchiveOperations
+
+  @get:javax.inject.Inject
+  abstract val fileSystemOperations: org.gradle.api.file.FileSystemOperations
+
+  @TaskAction
+  fun extract() {
+    fileSystemOperations.sync {
+      from(archiveOperations.zipTree(archive.singleFile)) {
+        include("assets/**")
+        eachFile { path = path.removePrefix("assets/") }
+        includeEmptyDirs = false
+      }
+      into(outputDirectory.get().asFile)
     }
-    includeEmptyDirs = false
-  }
-  into(omegaGeneratedAssets)
-  doLast {
-    val model = omegaGeneratedAssets.get().dir("model-en-us").asFile
+    val model = outputDirectory.get().dir("model-en-us").asFile
     check(model.resolve("am/final.mdl").isFile) {
       "Vosk English model archive missing model-en-us/am/final.mdl"
     }
@@ -36,11 +42,25 @@ val extractOmegaVoskModel by tasks.registering(Sync::class) {
     }
   }
 }
-tasks.named("preBuild").configure { dependsOn(extractOmegaVoskModel) }
+val omegaModelArchive = configurations.create("omegaModelArchive") {
+  isCanBeConsumed = false
+  isCanBeResolved = true
+  isTransitive = false
+}
+androidComponents {
+  onVariants(selector().all()) { variant ->
+    val extractModel = tasks.register<ExtractOmegaModel>(
+      "extract" + variant.name.replaceFirstChar { it.uppercaseChar() } + "OmegaVoskModel"
+    ) {
+      archive.from(omegaModelArchive)
+      outputDirectory.set(layout.buildDirectory.dir("generated/omegaVoskAssets/" + variant.name))
+    }
+    variant.sources.assets?.addGeneratedSourceDirectory(extractModel, ExtractOmegaModel::outputDirectory)
+  }
+}
 
 android {
   namespace = "com.example"
-  sourceSets.getByName("main").assets.srcDir(omegaGeneratedAssets)
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
