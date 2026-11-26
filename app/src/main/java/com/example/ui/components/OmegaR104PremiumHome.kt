@@ -109,7 +109,7 @@ fun OmegaR104PremiumHome(
                             color=if(wakeReady) Cyan104 else Muted104,
                             style=MaterialTheme.typography.labelSmall)
                     }
-                    OmegaSafeSingularityVisual(uiState.jarvisStatus, amplitude, Modifier.clickable(onClick = onMicClick).testTag("r105_orb"))
+                    OmegaUnifiedGpuOrb(uiState.jarvisStatus, amplitude, onMicClick, Modifier.testTag("r105_orb"))
                     Text(
                         text = when {
                             listening != null -> listening.partialText.ifBlank { "వింటున్నాను బాస్..." }

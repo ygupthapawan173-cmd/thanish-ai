@@ -325,7 +325,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                 OmegaAssistantCore.backgroundPhase.value = "AI failed; review command"
             } finally {
                 assistantTts?.release(); assistantTts = null
-                OmegaAssistantCore.sessions.endBackground()
+                if (!closed) OmegaAssistantCore.sessions.endBackground()
                 processing = false
                 if (!closed) {
                     if (!OmegaVoicePreferences.continuousWake(this@OmegaWakeService)) stopSelf()
@@ -342,7 +342,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         closed = true
         sessionScope.cancel()
         assistantTts?.release(); assistantTts = null
-        OmegaAssistantCore.sessions.endBackground()
+        if (processing) OmegaAssistantCore.sessions.endBackground()
         OmegaAssistantCore.backgroundPhase.value = "Idle"
         handler.removeCallbacksAndMessages(null)
         runCatching { tts?.stop(); tts?.shutdown() }

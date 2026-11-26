@@ -25,7 +25,9 @@ orb = read("java/com/example/ui/components/OmegaPlasmaOrb.kt")
 master = read("java/com/example/omega/OmegaMasterDashboard.kt")
 safe_orb = read("java/com/example/ui/components/OmegaSafeSingularityVisual.kt")
 premium_home = read("java/com/example/ui/components/OmegaR104PremiumHome.kt")
-assert "OmegaSafeSingularityVisual(" in premium_home and "Canvas(" in safe_orb
+assert "OmegaUnifiedGpuOrb(" in premium_home and "Canvas(" in safe_orb
+renderer = read("java/com/example/ui/components/OmegaUnifiedGpuOrb.kt")
+assert "glEnable(GL_DEPTH_TEST)" in renderer and "GL_TRIANGLES" in renderer and "OmegaSafeSingularityVisual(" in renderer
 assert "JarvisStatus.LISTENING" in safe_orb and "amplitude" in safe_orb
 assert "OmegaMasterDashboard(" in omega and "EncryptedApiKeyStore" in master
 assert "PanduAccessibilityService.isConnected.collectAsState()" in master

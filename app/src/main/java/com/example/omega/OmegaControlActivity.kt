@@ -19,6 +19,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ai.*
@@ -104,7 +106,7 @@ fun OmegaCenter(
         Column(Modifier.fillMaxSize().padding(insets).padding(horizontal = 14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
-                    Text("OMEGA / CONTROL CENTER", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("OMEGA / UNIFIED CORE", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF69F5FF))
                     Text(if (wakeActive) wakeStatus else "Voice • memory • system")
                 }
                 if (!embedded) TextButton(onClick = close) { Text("Close") }
@@ -112,10 +114,10 @@ fun OmegaCenter(
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 listOf("Master", "Voice", "Memory", "System").forEachIndexed { i, label ->
-                    if (tab == i) Button(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp),
-                        contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
-                    else OutlinedButton(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp),
-                        contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
+                    if (tab == i) Button(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp).testTag("unified_omega_" + label.lowercase()),
+                        shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
+                    else OutlinedButton(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp).testTag("unified_omega_" + label.lowercase()),
+                        shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
                 }
             }
             if (onOpenPermissions != null) {

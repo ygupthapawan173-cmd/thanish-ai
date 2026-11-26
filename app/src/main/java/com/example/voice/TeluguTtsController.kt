@@ -3,6 +3,9 @@ package com.example.voice
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.AudioFocusRequest
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -41,6 +44,36 @@ class TeluguTtsController(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val utteranceCounter = AtomicLong(0L)
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private var focusRequest: AudioFocusRequest? = null
+    private var hasFocus = false
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+            mainHandler.post { stop() }
+    }
+    @Suppress("DEPRECATION")
+    private fun requestFocus(): Boolean {
+        if (hasFocus) return true
+        val result = if (Build.VERSION.SDK_INT >= 26) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .setOnAudioFocusChangeListener(focusListener, mainHandler).build()
+            focusRequest = request
+            audioManager.requestAudioFocus(request)
+        } else audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC,
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        return hasFocus
+    }
+    @Suppress("DEPRECATION")
+    private fun releaseFocus() {
+        if (!hasFocus) return
+        hasFocus = false
+        if (Build.VERSION.SDK_INT >= 26) focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        else audioManager.abandonAudioFocus(focusListener)
+        focusRequest = null
+    }
 
     private var tts: TextToSpeech? = null
     private var initialized = false
@@ -192,6 +225,7 @@ class TeluguTtsController(private val context: Context) {
                     activeGroupPrefix = null
                     activeFinalUtteranceId = null
                     activeMessageId = null
+                    mainHandler.post { if (activeGroupPrefix == null) releaseFocus() }
                 }
             }
 
@@ -204,6 +238,7 @@ class TeluguTtsController(private val context: Context) {
                     activeGroupPrefix = null
                     activeFinalUtteranceId = null
                     activeMessageId = null
+                    mainHandler.post { if (activeGroupPrefix == null) releaseFocus() }
                 }
             }
 
@@ -216,6 +251,7 @@ class TeluguTtsController(private val context: Context) {
                     activeGroupPrefix = null
                     activeFinalUtteranceId = null
                     activeMessageId = null
+                    mainHandler.post { if (activeGroupPrefix == null) releaseFocus() }
                 }
             }
         })
@@ -266,10 +302,18 @@ class TeluguTtsController(private val context: Context) {
         if (formatted.isBlank()) return false
 
         applyConfigInternal(engine, currentConfig)
+        val wanted = if (formatted.any { it in '\u0C00'..'\u0C7F' }) "te-IN" else "en-IN"
+        if (engine.isLanguageAvailable(Locale.forLanguageTag(wanted)) >= 0) {
+            engine.language = Locale.forLanguageTag(wanted)
+            if (wanted == "te-IN") applyConfigInternal(engine, currentConfig)
+            engine.setPitch(currentConfig.pitch.coerceIn(0.75f, 1.35f))
+            engine.setSpeechRate(currentConfig.speechRate.coerceIn(0.75f, 1.40f))
+        }
 
         val maxLen = TextToSpeech.getMaxSpeechInputLength().coerceIn(500, 3800)
         val chunks = splitForSpeech(formatted, maxLen)
         if (chunks.isEmpty()) return false
+        if (!runCatching { requestFocus() }.getOrDefault(false)) { Log.w(TAG, "Audio focus denied"); return false }
 
         val groupPrefix = "grp_${utteranceCounter.incrementAndGet()}_"
         activeGroupPrefix = groupPrefix
@@ -290,6 +334,8 @@ class TeluguTtsController(private val context: Context) {
                 activeGroupPrefix = null
                 activeFinalUtteranceId = null
                 activeMessageId = null
+                engine.stop()
+                releaseFocus()
                 return false
             }
         }
@@ -328,6 +374,7 @@ class TeluguTtsController(private val context: Context) {
         } finally {
             _isSpeaking.value = false
             _speakingMessageId.value = null
+            releaseFocus()
         }
     }
 
