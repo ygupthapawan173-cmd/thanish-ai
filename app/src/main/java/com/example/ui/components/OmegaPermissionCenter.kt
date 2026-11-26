@@ -1,7 +1,6 @@
 package com.example.ui.components
 
 import android.Manifest
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -28,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,7 +35,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -123,21 +122,22 @@ fun OmegaPermissionCenter(
     }
     LaunchedEffect(Unit) { onRefreshDeviceState() }
 
-    // updateCount is deliberately read so the UI checks permissions again
-    // when the user returns from Settings or completes the runtime dialog.
-    val refreshToken = updateCount
-    val micAllowed = ContextCompat.checkSelfPermission(
-        context, Manifest.permission.RECORD_AUDIO
-    ) == PackageManager.PERMISSION_GRANTED
-    val notificationsAllowed = (Build.VERSION.SDK_INT < 33 ||
-        ContextCompat.checkSelfPermission(
-            context, Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED) &&
-        NotificationManagerCompat.from(context).areNotificationsEnabled()
-    val brightnessAllowed = Settings.System.canWrite(context)
-    val batteryManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    val batteryUnrestricted = Build.VERSION.SDK_INT < 23 ||
-        batteryManager.isIgnoringBatteryOptimizations(context.packageName)
+    // Re-query operating system after callbacks or returning from Android Settings.
+    val micAllowed = remember(updateCount) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+    val notificationsAllowed = remember(updateCount) {
+        (Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED) &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+    val brightnessAllowed = remember(updateCount) { Settings.System.canWrite(context) }
+    val batteryUnrestricted = remember(updateCount) {
+        val manager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        manager.isIgnoringBatteryOptimizations(context.packageName)
+    }
     val accessibilityStatus = when {
         controlState.isAccessibilityConnected -> "Connected to running app"
         controlState.isAccessibilityEnabled -> "Enabled in Android, not connected"
@@ -158,7 +158,7 @@ fun OmegaPermissionCenter(
                 style = MaterialTheme.typography.titleMedium, color = ElectricCyan)
             Text("Actual Android permission status. Choose what to allow; no access is granted automatically.",
                 style = MaterialTheme.typography.bodySmall, color = SlateCyan)
-            Text("Status refreshed on return from Android Settings ($refreshToken)",
+            Text("Permission status updates when you return from Android Settings.",
                 style = MaterialTheme.typography.labelSmall, color = SlateCyan)
 
             PermissionStatusRow(
