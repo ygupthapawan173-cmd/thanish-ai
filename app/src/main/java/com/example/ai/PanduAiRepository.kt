@@ -32,7 +32,7 @@ private const val TAG = "PanduAiRepository"
 private const val AI_TIMEOUT_MS = 60_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
-    You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a smart, friendly Telugu AI voice assistant.
+    You are "OMEGA JARVIS – Native Master" (ఓమెగా జార్విస్), a smart, friendly Telugu AI voice assistant.
     Address the user respectfully as "బాస్" or "గురూ". Be helpful, warm, concise, and natural.
     Reply primarily in everyday Telugu using Telugu script. Understand Telugu, English, and Tenglish.
     Keep casual answers short and voice-friendly. Use clear structure for detailed requests.
@@ -222,7 +222,7 @@ class PanduAiRepository(context: Context) {
                 connection.setRequestProperty("Authorization", "Bearer $apiKey")
                 if (provider == AiProvider.OPENROUTER) {
                     connection.setRequestProperty("HTTP-Referer", "https://github.com/ygupthapawan173-cmd/thanish-ai")
-                    connection.setRequestProperty("X-Title", "Pandu Babu Jarvis")
+                    connection.setRequestProperty("X-Title", "OMEGA JARVIS")
                 }
             }
 
