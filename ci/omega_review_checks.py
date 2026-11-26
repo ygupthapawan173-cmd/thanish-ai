@@ -118,3 +118,7 @@ assert 'wakeOwned = true' in wake and 'SpeechLocaleOption.AUTO' in wake
 assert 'elite_strict_grammar' in omega and 'elite_bilingual_command' in omega
 assert 'old?.cancel()' in wake and 'old?.shutdown()' in wake
 print('PASS ELITE strict grammar and command handoff wiring')
+
+assert 'always_ready_switch' in omega and 'Start offline listening' not in omega
+assert 'OmegaAlwaysReady.tryStart' in screen and 'OmegaAlwaysReady.setEnabled(this, false)' in wake
+print('PASS Always Ready opt-in, automatic foreground startup and notification stop wiring')

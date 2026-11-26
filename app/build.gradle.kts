@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.pandubabu.kxmpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 12
-    versionName = "3.2-omega-elite-wake-review"
+    versionCode = 13
+    versionName = "3.3-omega-always-ready-review"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

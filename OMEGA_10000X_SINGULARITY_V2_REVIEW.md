@@ -12,3 +12,6 @@ Added foreground CameraX preview with opt-in 1 FPS upload, observable state chec
 
 ## ELITE wake integration (3.2)
 Actual Vosk restricted grammar with [unk] rejection, final phrase acceptance, separate open-vocabulary English command stage, optional Android AUTO Telugu/English command stage under wake mic lease with offline English fallback, acknowledged wake count and recorder cleanup. Retains legacy mode, existing FGS, continuous and AI opt-ins. ELITE original service exact model/version not available; adapted its documented pattern instead of copying smali. Android recognition service, lockscreen reliability and physical audio remain unverified.
+
+## Always Ready 3.3
+Removed manual Start offline listening button. Persistent explicit opt-in enables automatic standby from the resumed dashboard with permission checks and bounded failure suppression. Notification Stop disables preference. Always Ready keeps wake sessions after capture/reply; pending commands still require review, cloud and bilingual settings remain separate. Manual and Live handoff use existing mic lease. No boot/force-stop microphone bypass. Physical wake and service lifecycle pending.

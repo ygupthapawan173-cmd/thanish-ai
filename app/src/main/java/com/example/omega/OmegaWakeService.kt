@@ -131,12 +131,16 @@ class OmegaWakeService : Service(), RecognitionListener {
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        OmegaAlwaysReady.onServiceStarted()
         if (intent?.action == STOP) {
+            OmegaAlwaysReady.setEnabled(this, false)
             status.value = "Stopped"
             stopSelf()
             return START_NOT_STICKY
         }
         if (active.value || loading || speech != null) return START_NOT_STICKY
+        OmegaAlwaysReady.refresh(this)
+        if (!OmegaAlwaysReady.enabled.value) { stopSelf(); return START_NOT_STICKY }
         lastError.value = ""
         lastPartial.value = ""
         capturedCount.value = 0
@@ -290,6 +294,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (!closed) runCatching { getSystemService(NotificationManager::class.java).notify(MIC, notification(status.value, true)) }
     }
     private fun fail(message: String) {
+        OmegaAlwaysReady.onFailure()
         lastError.value = message
         recognitionReady.value = false
         status.value = message
@@ -387,7 +392,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         lastPartial.value = ""
         status.value = "Command captured; review in JARVIS"
         runCatching { getSystemService(NotificationManager::class.java).notify(RESULT, notification("Command captured. Tap to review.", false)) }
-        if (OmegaRecoveryPolicy.keepListeningAfterCapture(OmegaVoicePreferences.continuousWake(this))) {
+        if (OmegaRecoveryPolicy.keepListeningAfterCapture(OmegaAlwaysReady.enabled.value || OmegaVoicePreferences.continuousWake(this))) {
             if (strictGrammar && !startOfflineStage(false)) { fail("Wake restart failed"); return }
             status.value = "Wake session active; review command before next wake"
             refresh()
@@ -449,7 +454,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                 if (!closed) OmegaAssistantCore.sessions.endBackground()
                 processing = false
                 if (!closed) {
-                    if (!OmegaVoicePreferences.continuousWake(this@OmegaWakeService)) stopSelf()
+                    if (!OmegaAlwaysReady.enabled.value && !OmegaVoicePreferences.continuousWake(this@OmegaWakeService)) stopSelf()
                     else if (if (strictGrammar) startOfflineStage(false) else runCatching { speech?.startListening(this@OmegaWakeService) == true }.getOrDefault(false)) {
                         recognitionReady.value = true
                         status.value = if (pendingCommand.value.isBlank()) "Listening for " + OmegaVoicePreferences.wakePhrase(this@OmegaWakeService).label else "Review captured command before next wake"
@@ -475,6 +480,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         runCatching { model?.close() }; model = null
         if (ownsMic) { ownsMic = false; OmegaAssistantCore.sessions.releaseMic(MicOwner.WAKE) }
         active.value = false
+        OmegaAlwaysReady.onServiceStopped()
         recognitionReady.value = false
         recognitionStage.value = "Stopped"
         reconnectPending = false

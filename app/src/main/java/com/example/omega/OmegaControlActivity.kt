@@ -23,6 +23,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ai.*
 import com.example.ui.theme.PanduBabuTheme
 import kotlinx.coroutines.*
@@ -42,6 +45,8 @@ fun OmegaCenter(
 ) {
     val c = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val alwaysReady by OmegaAlwaysReady.enabled.collectAsState()
     val wakeStatus by OmegaWakeService.status.collectAsState()
     val wakeActive by OmegaWakeService.active.collectAsState()
     val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
@@ -73,7 +78,23 @@ fun OmegaCenter(
     val speechError by com.example.voice.VoiceInputController.lastSpeechError.collectAsState()
     var notice by remember { mutableStateOf("") }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        notice = if (it.values.all { granted -> granted }) "Permissions granted. Tap Start." else "Permission denied; microphone remains stopped."
+        if (OmegaAlwaysReady.missingPermissions(c).isEmpty()) {
+            notice = "Permissions granted. Hey JARVIS standby will start automatically."
+            if (!embedded) OmegaAlwaysReady.tryStart(c, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        } else {
+            OmegaAlwaysReady.setEnabled(c, false)
+            notice = "Permission denied; Always Ready is off."
+        }
+    }
+    DisposableEffect(lifecycle, embedded) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                OmegaAlwaysReady.refresh(c, allowRetry = true)
+                if (!embedded) OmegaAlwaysReady.tryStart(c, true)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
     val notebook = remember { OmegaNotebook(c) }
     var entries by remember { mutableStateOf(emptyList<OmegaEntry>()) }
@@ -164,6 +185,23 @@ fun OmegaCenter(
                         }
                         Text("When enabled, chat listens for one follow-up after finishing a reply while the app is visible. Stop microphone to cancel. This does not bypass Android permissions.")
                         HorizontalDivider()
+                        Text("Always Ready • Hey JARVIS", style = MaterialTheme.typography.titleLarge)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Always Ready Mode", modifier = Modifier.weight(1f))
+                            Switch(checked = alwaysReady, onCheckedChange = { enabled ->
+                                OmegaAlwaysReady.setEnabled(c, enabled)
+                                if (enabled) {
+                                    val missing = OmegaAlwaysReady.missingPermissions(c)
+                                    if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
+                                    else if (!embedded) OmegaAlwaysReady.tryStart(c, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                                }
+                            }, modifier = Modifier.testTag("always_ready_switch"))
+                        }
+                        Text(if (wakeReady) "Ready — say the selected wake phrase" else if (alwaysReady) wakeStatus else "Standby disabled")
+                        Text("Opt in once: wake microphone starts when the app is visible, stays active with a notification, and listens again after a reply. Turn off here or in the notification to stop. Wake audio stays on device.")
+                        if (alwaysReady && !wakeActive && OmegaAlwaysReady.missingPermissions(c).isNotEmpty()) {
+                            OutlinedButton(onClick = { permissions.launch(OmegaAlwaysReady.missingPermissions(c).toTypedArray()) }) { Text("Grant required permissions") }
+                        }
                         Text("ELITE wake engine • offline Vosk")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Strict phrase grammar", modifier = Modifier.weight(1f))
@@ -246,8 +284,8 @@ fun OmegaCenter(
                         Text("Reply styles apply to direct Gemini/OpenAI-compatible API requests; Firebase fallback retains its existing configuration.")
                         Text(wakeStatus)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Keep wake session active after capture", modifier = Modifier.weight(1f))
-                            Switch(checked = continuousWake, enabled = !wakeActive,
+                            Text("Keep wake session active (Always Ready includes this)", modifier = Modifier.weight(1f))
+                            Switch(checked = alwaysReady || continuousWake, enabled = !wakeActive && !alwaysReady,
                                 onCheckedChange = { continuousWake = it; OmegaVoicePreferences.setContinuousWake(c, it) })
                         }
                         Text("Opt-in. Review or discard pending commands before another wake. Stop microphone ends the session. Offline wake uses the English model.")
@@ -264,14 +302,7 @@ fun OmegaCenter(
                             wakePhrase.label + ". Stop listening before changing the phrase. " +
                             "No wake audio is uploaded. Custom trained phrase models and " +
                             "offline Telugu recognition are not bundled.")
-                        Button(enabled = !wakeActive, modifier = Modifier.fillMaxWidth(), onClick = {
-                            val wanted = buildList { add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }
-                            val missing = wanted.filter { ContextCompat.checkSelfPermission(c, it) != PackageManager.PERMISSION_GRANTED }
-                            if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
-                            else try { OmegaWakeService.start(c) } catch (e: Exception) { notice = "Wake service could not start." }
-                        }) { Text("Start offline listening") }
-                        OutlinedButton(onClick = { OmegaWakeService.stop(c) }, modifier = Modifier.fillMaxWidth()) { Text("STOP microphone") }
-                        Text("Android 16: start listening while the app is visible. The microphone foreground notification must stay active. Background and lock-screen endurance still needs device testing.")
+                        Text("Android 16: Always Ready starts while the app is visible. Background and lock-screen listening depend on device policies. No automatic microphone start after force-stop or reboot.")
                     }
                     2 -> {
                         Text("Encrypted notebook & tasks", style = MaterialTheme.typography.titleLarge)

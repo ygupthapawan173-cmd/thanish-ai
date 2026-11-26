@@ -126,6 +126,12 @@ fun PanduDashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val omegaCommand by com.example.omega.OmegaWakeService.pendingCommand.collectAsStateWithLifecycle()
+    val alwaysReady by com.example.omega.OmegaAlwaysReady.enabled.collectAsStateWithLifecycle()
+    val wakeActive by com.example.omega.OmegaWakeService.active.collectAsStateWithLifecycle()
+    val micOwner by com.example.omega.OmegaAssistantCore.sessions.owner.collectAsStateWithLifecycle()
+    val handoff by com.example.omega.OmegaAlwaysReady.handoff.collectAsStateWithLifecycle()
+    val retryBlocked by com.example.omega.OmegaAlwaysReady.retryBlocked.collectAsStateWithLifecycle()
+    var resumed by remember { mutableStateOf(false) }
 
     var selectedTab by rememberSaveable { mutableStateOf(CyberpunkTab.HOME) }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -160,6 +166,8 @@ fun PanduDashboardScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
+                    resumed = true
+                    com.example.omega.OmegaAlwaysReady.refresh(context, allowRetry = true)
                     viewModel.setForegroundVisible(true)
                     val granted = ContextCompat.checkSelfPermission(
                         context,
@@ -169,6 +177,7 @@ fun PanduDashboardScreen(
                     viewModel.refreshTtsVoices()
                     viewModel.refreshDeviceControls()
                 }
+                Lifecycle.Event.ON_PAUSE -> { resumed = false }
                 Lifecycle.Event.ON_STOP -> {
                     viewModel.setForegroundVisible(false)
                     viewModel.cancelVoiceListening()
@@ -182,6 +191,14 @@ fun PanduDashboardScreen(
         }
     }
 
+    val assistantIdle = uiState.voiceInputState is VoiceInputState.Idle && !uiState.isSpeaking &&
+        uiState.aiGenState !is AiGenState.Thinking && uiState.aiGenState !is AiGenState.Streaming && uiState.pendingSensitiveAction == null
+    LaunchedEffect(alwaysReady, resumed, wakeActive, micOwner, handoff, retryBlocked, assistantIdle, uiState.hasMicPermission) {
+        if (alwaysReady && resumed && !wakeActive && assistantIdle && !handoff && !retryBlocked && micOwner == com.example.omega.MicOwner.NONE) {
+            kotlinx.coroutines.delay(1200)
+            com.example.omega.OmegaAlwaysReady.tryStart(context, lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED), assistantIdle)
+        }
+    }
     val isListening = uiState.voiceInputState is VoiceInputState.Listening
 
     val onMicAction: () -> Unit = {

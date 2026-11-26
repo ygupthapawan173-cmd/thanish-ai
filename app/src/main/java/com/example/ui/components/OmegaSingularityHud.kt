@@ -36,6 +36,7 @@ import com.example.control.*
 import com.example.omega.*
 import com.example.ui.JarvisStatus
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import java.io.ByteArrayOutputStream
 import kotlin.math.*
 
@@ -146,8 +147,18 @@ fun OmegaSingularityHudScreen() {
             Row{Checkbox(consent,{consent=it;if(!it)engine.disconnect()});Text("I agree to send microphone audio to Gemini during this foreground session. Charges may apply.")}
             Button(onClick={
                 if(ContextCompat.checkSelfPermission(c,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)permission.launch(Manifest.permission.RECORD_AUDIO)
-                else engine.connect(model.trim())
-            },enabled=consent && owner==MicOwner.NONE && model.isNotBlank(),modifier=Modifier.testTag("singularity_connect")){Text("Connect Live")}
+                else scope.launch {
+                    OmegaAlwaysReady.setHandoff(true)
+                    try {
+                        if (OmegaWakeService.active.value || OmegaAssistantCore.sessions.owner.value==MicOwner.WAKE) {
+                            OmegaWakeService.stop(c)
+                            val released=withTimeoutOrNull(4000L){OmegaAssistantCore.sessions.owner.first { it==MicOwner.NONE }}
+                            if(released==null){status="Wake microphone did not release";return@launch}
+                        }
+                        if(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && consent) engine.connect(model.trim())
+                    }finally{OmegaAlwaysReady.setHandoff(false)}
+                }
+            },enabled=consent && (owner==MicOwner.NONE || owner==MicOwner.WAKE) && model.isNotBlank(),modifier=Modifier.testTag("singularity_connect")){Text("Connect Live")}
             OutlinedButton(onClick={cameraOn=false;cameraConsent=false;engine.disconnect()}){Text("Stop Live")}
             OutlinedTextField(prompt,{prompt=it},label={Text("Live text prompt")},modifier=Modifier.fillMaxWidth())
             Button(onClick={engine.sendTextTurn(prompt);prompt=""},enabled=telemetry.connected && prompt.isNotBlank()){Text("Send text")}
