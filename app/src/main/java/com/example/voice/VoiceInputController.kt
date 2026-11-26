@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import com.example.omega.OmegaRecoveryPolicy
+import com.example.omega.OmegaAssistantCore
+import com.example.omega.MicOwner
 import com.example.omega.OmegaVoiceMode
 import com.example.omega.OmegaVoicePreferences
 import com.example.omega.OmegaWakeService
@@ -47,6 +49,8 @@ class VoiceInputController(
     }
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speechRecognizer: SpeechRecognizer? = null
+    private var ownsMic = false
+    private var sessionGeneration = 0L
 
     private val _state = MutableStateFlow<VoiceInputState>(VoiceInputState.Idle)
     val state: StateFlow<VoiceInputState> = _state.asStateFlow()
@@ -56,7 +60,9 @@ class VoiceInputController(
             (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context))
 
     fun startListening(locale: SpeechLocaleOption = SpeechLocaleOption.TELUGU, forcePlatform: Boolean = false) {
+        val generation = if (forcePlatform) sessionGeneration else ++sessionGeneration
         mainHandler.post {
+            if (generation != sessionGeneration) return@post
             if (!forcePlatform) { detectedLanguage.value = "Not reported"; lastSpeechError.value = "None" }
             if (OmegaWakeService.active.value) {
                 engineStatus.value = "Wake microphone owns recording"
@@ -83,6 +89,12 @@ class VoiceInputController(
 
             try {
                 destroyRecognizerInternal()
+                if (!OmegaAssistantCore.sessions.acquireMic(MicOwner.MANUAL)) {
+                    engineStatus.value = "Microphone busy"
+                    onError("Microphone is in use; stop the other session first.")
+                    return@post
+                }
+                ownsMic = true
 
                 val recognizer = if (local && Build.VERSION.SDK_INT >= 31)
                     SpeechRecognizer.createOnDeviceSpeechRecognizer(context.applicationContext)
@@ -254,6 +266,7 @@ class VoiceInputController(
     }
 
     fun cancel() {
+        ++sessionGeneration
         mainHandler.post {
             _state.value = VoiceInputState.Idle
             destroyRecognizerInternal()
@@ -275,6 +288,7 @@ class VoiceInputController(
             Log.w(TAG, "Error destroying SpeechRecognizer", e)
         } finally {
             speechRecognizer = null
+            if (ownsMic) { ownsMic = false; OmegaAssistantCore.sessions.releaseMic(MicOwner.MANUAL) }
         }
     }
 

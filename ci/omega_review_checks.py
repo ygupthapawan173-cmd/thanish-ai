@@ -25,7 +25,9 @@ orb = read("java/com/example/ui/components/OmegaPlasmaOrb.kt")
 master = read("java/com/example/omega/OmegaMasterDashboard.kt")
 safe_orb = read("java/com/example/ui/components/OmegaSafeSingularityVisual.kt")
 premium_home = read("java/com/example/ui/components/OmegaR104PremiumHome.kt")
-assert "OmegaSafeSingularityVisual(" in premium_home and "Canvas(" in safe_orb
+assert "OmegaUnifiedGpuOrb(" in premium_home and "Canvas(" in safe_orb
+renderer = read("java/com/example/ui/components/OmegaUnifiedGpuOrb.kt")
+assert "glEnable(GL_DEPTH_TEST)" in renderer and "GL_TRIANGLES" in renderer and "OmegaSafeSingularityVisual(" in renderer
 assert "JarvisStatus.LISTENING" in safe_orb and "amplitude" in safe_orb
 assert "OmegaMasterDashboard(" in omega and "EncryptedApiKeyStore" in master
 assert "PanduAccessibilityService.isConnected.collectAsState()" in master
@@ -88,7 +90,7 @@ assert 'onOpenPermissions = { selectedTab = CyberpunkTab.SETTINGS }' in screen
 print("PASS OMEGA permission center wiring + Android manifest checks")
 print("PASS OMEGA review UI/slots/branding/voice/privacy regression checks")
 
-assert 'R106 · NEURAL COMMAND' in premium_chrome
+assert 'UNIFIED · NEURAL COMMAND' in premium_chrome
 assert 'r105_orb' in premium_home and 'requestState.collectAsState()' in premium_home
 assert 'recognitionReady' in wake and 'reconnectPending' in wake
 assert 'animateScrollToItem(destination)' in tabs
@@ -99,3 +101,8 @@ assert 'OmegaRecoveryPolicy.keepListeningAfterCapture' in wake
 print('PASS R106 recovery wiring; physical wake still unverified')
 
 assert 'bindingDiagnostic(context)' in premium_chrome
+
+assert 'OmegaAssistantCore.sessions.acquireMic' in voice and 'OmegaAssistantCore.sessions.acquireMic' in wake
+assert 'runBackgroundReply(text)' in wake and 'OmegaAssistantCore.routeWake' in wake
+assert 'promptWithMemory' in viewmodel and 'promptWithMemory' in wake
+print('PASS unified source wiring; functional tests remain separate')

@@ -160,6 +160,7 @@ fun PanduDashboardScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
+                    viewModel.setForegroundVisible(true)
                     val granted = ContextCompat.checkSelfPermission(
                         context,
                         Manifest.permission.RECORD_AUDIO
@@ -169,6 +170,7 @@ fun PanduDashboardScreen(
                     viewModel.refreshDeviceControls()
                 }
                 Lifecycle.Event.ON_STOP -> {
+                    viewModel.setForegroundVisible(false)
                     viewModel.cancelVoiceListening()
                 }
                 else -> Unit
@@ -185,10 +187,6 @@ fun PanduDashboardScreen(
     val onMicAction: () -> Unit = {
         if (isListening) {
             viewModel.stopVoiceListening()
-        } else if (com.example.omega.OmegaWakeService.active.value) {
-            // Never start a competing recorder; user can stop the wake session in Voice.
-            selectedTab = CyberpunkTab.OMEGA
-            coroutineScope.launch { snackbarHostState.showSnackbar("Stop offline wake listening in Voice before manual speech.") }
         } else {
             val granted = ContextCompat.checkSelfPermission(
                 context,

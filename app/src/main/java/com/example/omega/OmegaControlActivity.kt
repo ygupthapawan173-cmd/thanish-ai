@@ -18,6 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ai.*
@@ -55,6 +58,11 @@ fun OmegaCenter(
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var continuousWake by remember { mutableStateOf(OmegaVoicePreferences.continuousWake(c)) }
+    var backgroundAi by remember { mutableStateOf(OmegaVoicePreferences.backgroundAi(c)) }
+    var memoryContext by remember { mutableStateOf(OmegaVoicePreferences.memoryContext(c)) }
+    val micOwner by OmegaAssistantCore.sessions.owner.collectAsState()
+    val backgroundPhase by OmegaAssistantCore.backgroundPhase.collectAsState()
+    val memoryState by OmegaAssistantCore.memoryState.collectAsState()
     val capturedCount by OmegaWakeService.capturedCount.collectAsState()
     val voiceEngine by com.example.voice.VoiceInputController.engineStatus.collectAsState()
     val voiceLanguage by com.example.voice.VoiceInputController.detectedLanguage.collectAsState()
@@ -98,7 +106,7 @@ fun OmegaCenter(
         Column(Modifier.fillMaxSize().padding(insets).padding(horizontal = 14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
-                    Text("OMEGA / CONTROL CENTER", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("OMEGA / UNIFIED CORE", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF69F5FF))
                     Text(if (wakeActive) wakeStatus else "Voice • memory • system")
                 }
                 if (!embedded) TextButton(onClick = close) { Text("Close") }
@@ -106,10 +114,10 @@ fun OmegaCenter(
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 listOf("Master", "Voice", "Memory", "System").forEachIndexed { i, label ->
-                    if (tab == i) Button(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp),
-                        contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
-                    else OutlinedButton(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp),
-                        contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
+                    if (tab == i) Button(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp).testTag("unified_omega_" + label.lowercase()),
+                        shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
+                    else OutlinedButton(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp).testTag("unified_omega_" + label.lowercase()),
+                        shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
                 }
             }
             if (onOpenPermissions != null) {
@@ -221,6 +229,15 @@ fun OmegaCenter(
                                 onCheckedChange = { continuousWake = it; OmegaVoicePreferences.setContinuousWake(c, it) })
                         }
                         Text("Opt-in. Review or discard the pending command before another wake. Stop microphone ends the session. English offline model only.")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Answer wake questions with AI", modifier = Modifier.weight(1f))
+                            Switch(checked = backgroundAi, enabled = !wakeActive, onCheckedChange = {
+                                backgroundAi = it; OmegaVoicePreferences.setBackgroundAi(c, it)
+                            }, modifier = Modifier.testTag("unified_background_ai"))
+                        }
+                        Text("Opt-in: sends English wake transcript and chat context to your configured AI. Not in on-device-only mode. Phone commands still require review. With continuous wake, resumes after reply; Stop microphone cancels.")
+                        Text("Assistant: " + backgroundPhase)
+                        Text("Microphone owner: " + micOwner.name)
                         Text("Bundled English acoustic model. Selected phrase: " +
                             wakePhrase.label + ". Stop listening before changing the phrase. " +
                             "No wake audio is uploaded. Custom trained phrase models and " +
@@ -237,6 +254,14 @@ fun OmegaCenter(
                     2 -> {
                         Text("Encrypted notebook & tasks", style = MaterialTheme.typography.titleLarge)
                         Text("Local, opt-in memory; separate from chat history. Maximum 80 entries.")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Use relevant saved notes in AI replies", modifier = Modifier.weight(1f))
+                            Switch(checked = memoryContext, onCheckedChange = {
+                                memoryContext = it; OmegaVoicePreferences.setMemoryContext(c, it)
+                            }, modifier = Modifier.testTag("unified_memory_context"))
+                        }
+                        Text("Opt-in: up to three matching notes are shared with your selected AI provider; tasks excluded.")
+                        Text(memoryState)
                         OutlinedTextField(note, { note = it.take(1000) }, label = { Text("Note / task") }, modifier = Modifier.fillMaxWidth())
                         if (editId == null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(enabled = ready && !busy && note.isNotBlank(), onClick = { val value = note; operate { notebook.add(value, false) }; note = "" }) { Text("Save note") }
@@ -272,6 +297,8 @@ fun OmegaCenter(
                         Text("Foreground microphone service active: " + wakeActive)
                         Text("Offline recognizer started: " + wakeReady)
                         Text("Captured commands this session: " + capturedCount)
+                        Text("Microphone owner: " + micOwner.name)
+                        Text("Background assistant: " + backgroundPhase)
                         Text("Speech engine: " + voiceEngine)
                         Text("Detected language: " + voiceLanguage)
                         Text("Speech error: " + speechError)

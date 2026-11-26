@@ -60,6 +60,10 @@ object OmegaVoicePreferences {
     fun set(c: Context, m: OmegaVoiceMode) {
         c.getSharedPreferences("omega_voice", 0).edit().putString("mode", m.name).apply()
     }
+    fun backgroundAi(c: Context): Boolean = prefs(c).getBoolean("background_ai_opt_in", false)
+    fun setBackgroundAi(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("background_ai_opt_in", enabled).apply() }
+    fun memoryContext(c: Context): Boolean = prefs(c).getBoolean("memory_context_opt_in", false)
+    fun setMemoryContext(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("memory_context_opt_in", enabled).apply() }
     fun continuousWake(c: Context): Boolean = prefs(c).getBoolean("continuous_wake_opt_in", false)
     fun setContinuousWake(c: Context, enabled: Boolean) {
         prefs(c).edit().putBoolean("continuous_wake_opt_in", enabled).apply()
