@@ -17,7 +17,61 @@ object OmegaVoicePreferences {
     }.getOrDefault(OmegaWakePhrase.HEY_JARVIS)
     fun setWakePhrase(c: Context, phrase: OmegaWakePhrase) {
         c.getSharedPreferences("omega_voice", 0).edit()
-            .putString("wake_phrase", phrase.name).apply()
+            .putString("wake_phrase", phrase.name)
+            .putBoolean("custom_wake_enabled", false)
+            .apply()
+    }
+
+    fun sensitivity(c: Context): WakeSensitivity = runCatching {
+        WakeSensitivity.valueOf(c.getSharedPreferences("omega_voice", 0)
+            .getString("wake_sensitivity", WakeSensitivity.STRICT.name)!!)
+    }.getOrDefault(WakeSensitivity.STRICT)
+
+    fun setSensitivity(c: Context, value: WakeSensitivity) {
+        c.getSharedPreferences("omega_voice", 0).edit()
+            .putString("wake_sensitivity", value.name).apply()
+    }
+
+    fun customWakePhrase(c: Context): String? =
+        c.getSharedPreferences("omega_voice", 0).getString("custom_wake_phrase", null)
+            ?.let(OmegaWakeEngine::validCustomPhrase)
+
+    fun customWakeEnabled(c: Context): Boolean =
+        c.getSharedPreferences("omega_voice", 0).getBoolean("custom_wake_enabled", false) &&
+            customWakePhrase(c) != null
+
+    fun setCustomWakePhrase(c: Context, raw: String): Boolean {
+        val valid = OmegaWakeEngine.validCustomPhrase(raw) ?: return false
+        return c.getSharedPreferences("omega_voice", 0).edit()
+            .putString("custom_wake_phrase", valid)
+            .putBoolean("custom_wake_enabled", true).commit()
+    }
+
+    fun activeWakePhrases(c: Context): List<String> =
+        if (customWakeEnabled(c)) listOfNotNull(customWakePhrase(c))
+        else wakePhrase(c).spoken
+
+    fun activeWakeLabel(c: Context): String =
+        if (customWakeEnabled(c)) customWakePhrase(c).orEmpty()
+        else wakePhrase(c).label
+
+    fun ackStyle(c: Context): WakeAckStyle = runCatching {
+        WakeAckStyle.valueOf(c.getSharedPreferences("omega_voice", 0)
+            .getString("wake_ack", WakeAckStyle.YES_SIR.name)!!)
+    }.getOrDefault(WakeAckStyle.YES_SIR)
+
+    fun setAckStyle(c: Context, value: WakeAckStyle) {
+        c.getSharedPreferences("omega_voice", 0).edit()
+            .putString("wake_ack", value.name).apply()
+    }
+
+    fun customAck(c: Context): String =
+        c.getSharedPreferences("omega_voice", 0)
+            .getString("wake_custom_ack", "").orEmpty()
+
+    fun setCustomAck(c: Context, value: String) {
+        c.getSharedPreferences("omega_voice", 0).edit()
+            .putString("wake_custom_ack", OmegaWakeAck.sanitizeCustom(value)).apply()
     }
 
     fun get(c: Context): OmegaVoiceMode = runCatching {
