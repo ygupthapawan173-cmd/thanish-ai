@@ -69,6 +69,7 @@ fun OmegaPermissionCenter(
     var updateCount by remember { mutableIntStateOf(0) }
     var showAccessibilityConsent by remember { mutableStateOf(false) }
     var notificationHint by remember { mutableStateOf("") }
+    var micHint by remember { mutableStateOf("") }
     val wakeActive by OmegaWakeService.active.collectAsState()
 
     fun openSystemSettings(intent: Intent) {
@@ -99,6 +100,8 @@ fun OmegaPermissionCenter(
     val micRequest = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        micHint = if (granted) "" else
+            "Microphone denied. If Android no longer shows the permission dialog, open App Info."
         onMicPermissionChanged(granted)
         updateCount++
     }
@@ -172,6 +175,12 @@ fun OmegaPermissionCenter(
                     else micRequest.launch(Manifest.permission.RECORD_AUDIO)
                 }
             )
+            if (micHint.isNotBlank()) {
+                Text(micHint, style = MaterialTheme.typography.bodySmall, color = SlateCyan)
+                OutlinedButton(onClick = { openSystemSettings(appSettingsIntent()) }) {
+                    Text("Open app permissions")
+                }
+            }
             PermissionStatusRow(
                 title = "Notifications",
                 detail = "Required for background listening controls on Android 13+.",
