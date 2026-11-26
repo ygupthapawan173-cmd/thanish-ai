@@ -17,10 +17,13 @@ object SelfEvolutionCompilerLoop {
         require(validPath(path) && source.isNotBlank() && source.length<=24000 && request.length in 1..2000)
         val prompt="Create a reviewable Kotlin change proposal for "+path+
             ". Return a concise explanation and code patch. No credentials or autonomous execution. Existing source:\n"+source+"\nRequested change:\n"+request
-        var answer=""
-        PanduAiRepository(context).streamReply(emptyList(),prompt).collect { if(it is AiStreamEvent.Completed) answer=it.fullText }
-        check(answer.isNotBlank())
-        return answer
+        val token=com.example.omega.OmegaAssistantCore.sessions.beginForeground() ?: error("Another assistant session is active")
+        try {
+            var answer=""
+            PanduAiRepository(context).streamReply(emptyList(),prompt).collect { if(it is AiStreamEvent.Completed) answer=it.fullText }
+            check(answer.isNotBlank())
+            return answer
+        } finally { com.example.omega.OmegaAssistantCore.sessions.endForeground(token) }
     }
     fun validPath(path:String)=path.startsWith("app/src/main/java/com/example/") && path.endsWith(".kt") &&
         !path.contains("..") && path.matches(Regex("[A-Za-z0-9_./-]{1,180}"))

@@ -51,6 +51,7 @@ fun OmegaSingularityHudScreen() {
     var consent by remember{mutableStateOf(false)}
     var model by remember{mutableStateOf("")}
     var prompt by remember{mutableStateOf("")}
+    var selectedImage by remember{mutableStateOf<ByteArray?>(null)}
     var chain by remember{mutableStateOf("")}
     var path by remember{mutableStateOf("app/src/main/java/com/example/")}
     var source by remember{mutableStateOf("")}
@@ -65,7 +66,7 @@ fun OmegaSingularityHudScreen() {
         status=if(granted) "Permission granted. Tap Connect again." else "Microphone denied"
     }
     val imagePicker=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->
-        if(uri!=null && telemetry.connected) scope.launch {
+        if(uri!=null) scope.launch {
             status=try {
                 val bytes=withContext(Dispatchers.IO){
                     val options=BitmapFactory.Options().apply{inJustDecodeBounds=true}
@@ -76,7 +77,9 @@ fun OmegaSingularityHudScreen() {
                     val bitmap=c.contentResolver.openInputStream(uri)?.use{BitmapFactory.decodeStream(it,null,BitmapFactory.Options().apply{inSampleSize=sample})}?:error("Image unavailable")
                     try{ByteArrayOutputStream().use{out->check(bitmap.compress(Bitmap.CompressFormat.JPEG,70,out));out.toByteArray()}}finally{bitmap.recycle()}
                 }
-                if(engine.sendVisionFrame(bytes)) "Selected image sent" else "Image not sent"
+                require(bytes.size in 1..500000)
+                selectedImage=bytes
+                "Image prepared locally; reconnect and explicitly send it."
             }catch(e:CancellationException){throw e}catch(_:Exception){"Image could not be sent"}
         }
     }
@@ -92,7 +95,8 @@ fun OmegaSingularityHudScreen() {
         lifecycle.addObserver(observer)
         onDispose{lifecycle.removeObserver(observer);engine.release();manager.release()}
     }
-    DisposableEffect(Unit){onDispose{verified?.file?.delete()}}
+    val currentVerified by rememberUpdatedState(verified)
+    DisposableEffect(Unit){onDispose{currentVerified?.file?.delete()}}
     LaunchedEffect(Unit){
         while(true){
             val m=ActivityManager.MemoryInfo().also{c.getSystemService(ActivityManager::class.java).getMemoryInfo(it)}
@@ -130,23 +134,28 @@ fun OmegaSingularityHudScreen() {
             OutlinedButton(onClick={engine.disconnect()}){Text("Stop Live")}
             OutlinedTextField(prompt,{prompt=it},label={Text("Live text prompt")},modifier=Modifier.fillMaxWidth())
             Button(onClick={engine.sendTextTurn(prompt);prompt=""},enabled=telemetry.connected && prompt.isNotBlank()){Text("Send text")}
-            OutlinedButton(onClick={imagePicker.launch("image/*")},enabled=telemetry.connected){Text("Choose image to send to Gemini")}
-            Text("No screen recording. Image picker sends only the selected image. Live stops when the app loses focus.")
+            OutlinedButton(onClick={engine.disconnect();consent=false;selectedImage=null;imagePicker.launch("image/*")}){Text("Choose image (stored temporarily)")}
+            selectedImage?.let{bytes->
+                Text("Selected JPEG: "+bytes.size/1024+" KB · not sent")
+                Button(onClick={if(engine.sendVisionFrame(bytes)){selectedImage=null;status="Selected image sent"}else status="Image send failed"},enabled=telemetry.connected){Text("Send selected image to Gemini")}
+                OutlinedButton(onClick={selectedImage=null}){Text("Discard selected image")}
+            }
+            Text("No screen recording. Image selection stops Live; reconnect and explicitly send the selected image. Live stops when app loses focus.")
         }
         1->{
             Text("Reviewed phone workflow")
-            OutlinedTextField(chain,{chain=it},label={Text("Commands separated by ->")},modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(chain,{chain=it},label={Text("Commands separated by ->")},modifier=Modifier.fillMaxWidth().testTag("singularity_react_input"))
             Text("Example: check battery -> increase volume -> open settings. Unsupported commands rejected; every step needs approval.")
-            Button(onClick={react.prepare(chain)},enabled=chain.isNotBlank()){Text("Review chain")}
-            Text(trace.status)
+            Button(onClick={react.prepare(chain)},enabled=chain.isNotBlank(),modifier=Modifier.testTag("singularity_review_chain")){Text("Review chain")}
+            Text(trace.status,modifier=Modifier.testTag("singularity_react_status"))
             trace.steps.getOrNull(trace.index)?.let{Text("Next: "+it)}
-            Button(onClick={react.approveNext()},enabled=trace.status.startsWith("Awaiting")){Text("Approve next step")}
+            Button(onClick={react.approveNext()},enabled=trace.status.startsWith("Awaiting"),modifier=Modifier.testTag("singularity_approve_step")){Text("Approve next step")}
             OutlinedButton(onClick={react.cancel()}){Text("Cancel chain")}
             trace.logs.forEach{Text(it,style=MaterialTheme.typography.bodySmall)}
             Text("For screen-node actions use the existing consent-based Phone Agent under Apps. No automatic gestures.")
         }
         2->{
-            Text("AI code proposal • review only")
+            Text("AI code proposal • review only",modifier=Modifier.testTag("singularity_evolution"))
             OutlinedTextField(path,{path=it},label={Text("Kotlin path")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(source,{source=it.take(24000)},label={Text("Paste current source (remove secrets)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(change,{change=it.take(2000)},label={Text("Requested change")},modifier=Modifier.fillMaxWidth())
