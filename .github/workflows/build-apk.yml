@@ -92,8 +92,21 @@ jobs:
       - name: OMEGA premium review gates
         run: python3 ci/omega_review_checks.py
 
+      - name: Provision pinned Robolectric API 35 and 36 runtime jars
+        run: bash ci/prepare-robolectric-runtime.sh
+
       - name: Run unit tests
         run: bash ci/omega-gradle-retry.sh testDebugUnitTest
+
+      - name: Upload unit test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-UNIT-TEST-EVIDENCE
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
 
       - name: Compile runtime UI tests
         run: bash ci/omega-gradle-retry.sh assembleDebugAndroidTest
