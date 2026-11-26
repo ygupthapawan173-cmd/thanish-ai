@@ -1,0 +1,60 @@
+name: JARVIS Pastel V10.1 Voice Recovery
+on:
+  push:
+    branches: [build/pastel-v3-icon-test]
+    paths: [pastel-v10.1-voice-recovery-build-ready.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Unpack V10.1
+        run: |
+          python3 - <<'PY'
+          import zipfile,pathlib
+          with zipfile.ZipFile('pastel-v10.1-voice-recovery-build-ready.zip') as z:
+              assert z.testzip() is None
+              assert all(not pathlib.PurePosixPath(n).is_absolute() and '..' not in pathlib.PurePosixPath(n).parts for n in z.namelist())
+              z.extractall('pastel-v10-build')
+          PY
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Provision pinned offline Vosk model
+        working-directory: pastel-v10-build
+        run: bash ci/provision-vosk.sh
+      - name: Build signed debug APK
+        working-directory: pastel-v10-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify package, signature, icon and model
+        run: |
+          mkdir -p out
+          cp pastel-v10-build/app/build/outputs/apk/debug/app-debug.apk out/JARVIS-PASTEL-V10.1-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-PASTEL-V10.1-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-PASTEL-V10.1-TEST.apk | grep -F "name='com.example.aiassistant'"
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('out/JARVIS-PASTEL-V10.1-TEST.apk') as z:
+              assert z.getinfo('assets/model-en-us/am/final.mdl').file_size>0
+              assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libvosk.so') for n in z.namelist())
+          PY
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-PASTEL-V10.1-TEST
+          path: out/
+          if-no-files-found: error
