@@ -46,6 +46,10 @@ fun OmegaCenter(
     val lastWakeTime by OmegaWakeService.lastWakeAt.collectAsState()
     var tab by remember { mutableStateOf(0) }
     var wakePhrase by remember { mutableStateOf(OmegaVoicePreferences.wakePhrase(c)) }
+    var sensitivity by remember { mutableStateOf(OmegaVoicePreferences.sensitivity(c)) }
+    var customWake by remember { mutableStateOf(OmegaVoicePreferences.customWakePhrase(c).orEmpty()) }
+    var wakeAck by remember { mutableStateOf(OmegaVoicePreferences.ackStyle(c)) }
+    var customAck by remember { mutableStateOf(OmegaVoicePreferences.customAck(c)) }
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var notice by remember { mutableStateOf("") }
@@ -149,11 +153,74 @@ fun OmegaCenter(
                                 Text(phrase.label, modifier = Modifier.padding(top = 14.dp))
                             }
                         }
+                        Text("Wake sensitivity", style = MaterialTheme.typography.titleSmall)
+                        WakeSensitivity.entries.forEach { value ->
+                            Row {
+                                RadioButton(
+                                    selected = sensitivity == value,
+                                    enabled = !wakeActive,
+                                    onClick = {
+                                        sensitivity = value
+                                        OmegaVoicePreferences.setSensitivity(c, value)
+                                    }
+                                )
+                                Text(value.label, Modifier.padding(top = 14.dp))
+                            }
+                        }
+                        Text("STRICT is the safest default; sensitive matching may misfire.",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            value = customWake,
+                            onValueChange = { customWake = it.take(40) },
+                            label = { Text("Custom English wake phrase · 2-4 words") },
+                            enabled = !wakeActive,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedButton(
+                            enabled = !wakeActive,
+                            onClick = {
+                                notice = if (OmegaVoicePreferences.setCustomWakePhrase(c, customWake)) {
+                                    "Custom phrase selected. Test recognition with the English Vosk model."
+                                } else "Invalid phrase. Use 2-4 clear words (7-30 characters)."
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Activate Custom Wake Phrase") }
+                        Text("Wake acknowledgement", style = MaterialTheme.typography.titleSmall)
+                        WakeAckStyle.entries.forEach { value ->
+                            Row {
+                                RadioButton(
+                                    selected = wakeAck == value,
+                                    enabled = !wakeActive,
+                                    onClick = {
+                                        wakeAck = value
+                                        OmegaVoicePreferences.setAckStyle(c, value)
+                                    }
+                                )
+                                Text(value.label, Modifier.padding(top = 14.dp))
+                            }
+                        }
+                        if (wakeAck == WakeAckStyle.CUSTOM) {
+                            OutlinedTextField(
+                                value = customAck,
+                                onValueChange = { customAck = it.take(OmegaWakeAck.MAX_CUSTOM) },
+                                label = { Text("Custom wake reply · 40 characters") },
+                                enabled = !wakeActive,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedButton(
+                                enabled = !wakeActive,
+                                onClick = {
+                                    OmegaVoicePreferences.setCustomAck(c, customAck)
+                                    notice = "Custom acknowledgement saved for next wake."
+                                }
+                            ) { Text("Save wake reply") }
+                        }
                         Text(wakeStatus)
-                        Text("Bundled English acoustic model. Selected phrase: " +
-                            wakePhrase.label + ". Stop listening before changing the phrase. " +
-                            "No wake audio is uploaded. Custom trained phrase models and " +
-                            "offline Telugu recognition are not bundled.")
+                        Text("Bundled English acoustic model. Active phrase: " +
+                            OmegaVoicePreferences.activeWakeLabel(c) +
+                            ". Stop listening before editing wake settings. No wake audio is " +
+                            "uploaded. Custom recognition accuracy depends on the model; " +
+                            "offline Telugu is not bundled.")
                         Button(enabled = !wakeActive, modifier = Modifier.fillMaxWidth(), onClick = {
                             val wanted = buildList { add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }
                             val missing = wanted.filter { ContextCompat.checkSelfPermission(c, it) != PackageManager.PERMISSION_GRANTED }
