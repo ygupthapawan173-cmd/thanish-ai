@@ -1,5 +1,3 @@
-import java.util.zip.ZipFile
-import java.security.MessageDigest
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
@@ -10,82 +8,6 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
-// Register generated Vosk assets through the AGP Variant Sources API.
-abstract class ExtractOmegaModel : DefaultTask() {
-  @get:InputFiles
-  @get:PathSensitive(PathSensitivity.NONE)
-  abstract val archive: ConfigurableFileCollection
-
-  @get:OutputDirectory
-  abstract val outputDirectory: DirectoryProperty
-
-  @get:javax.inject.Inject
-  abstract val archiveOperations: org.gradle.api.file.ArchiveOperations
-
-  @get:javax.inject.Inject
-  abstract val fileSystemOperations: org.gradle.api.file.FileSystemOperations
-
-  @TaskAction
-  fun extract() {
-    val aar = archive.singleFile
-    val dest = outputDirectory.get().asFile
-    fileSystemOperations.delete { delete(dest) }
-    val model = dest.resolve("model-en-us")
-    check(model.mkdirs() || model.isDirectory)
-    ZipFile(aar).use { zip ->
-      val files = zip.entries().asSequence().filterNot { it.isDirectory }.toList()
-      val candidates = files.filter { it.name.endsWith("/am/final.mdl") }
-      val acoustic = if (candidates.isNotEmpty()) candidates.single()
-        else files.singleOrNull { it.name.endsWith("/final.mdl") }
-          ?: error("No acoustic model in Vosk AAR. Archive entries: " +
-            files.take(40).joinToString { it.name })
-      val suffix = if (acoustic.name.endsWith("/am/final.mdl")) "am/final.mdl" else "final.mdl"
-      val prefix = acoustic.name.removeSuffix(suffix)
-      check(prefix.isNotEmpty() && prefix.startsWith("assets/")) {
-        "Unexpected Vosk model location: " + acoustic.name
-      }
-      logger.lifecycle("Extracting Vosk model from " + prefix)
-      for (entry in files.filter { it.name.startsWith(prefix) }) {
-        val relative = entry.name.removePrefix(prefix)
-        val out = model.resolve(relative).canonicalFile
-        check(out.toPath().startsWith(model.canonicalFile.toPath())) { "Unsafe archive entry" }
-        out.parentFile.mkdirs()
-        zip.getInputStream(entry).use { input -> out.outputStream().use { input.copyTo(it) } }
-      }
-      check(model.resolve(suffix).length() > 0L)
-    }
-    val uuid = model.resolve("uuid")
-    if (!uuid.isFile || uuid.length() == 0L) {
-      val digest = MessageDigest.getInstance("SHA-256")
-      aar.inputStream().use { input ->
-        val buffer = ByteArray(65536)
-        while (true) {
-          val count = input.read(buffer)
-          if (count < 0) break
-          digest.update(buffer, 0, count)
-        }
-      }
-      uuid.writeText(digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) })
-    }
-    logger.lifecycle("Packaged Vosk model files: " + model.walkTopDown().count { it.isFile })
-  }
-}
-val omegaModelArchive = configurations.create("omegaModelArchive") {
-  isCanBeConsumed = false
-  isCanBeResolved = true
-  isTransitive = false
-}
-androidComponents {
-  onVariants(selector().all()) { variant ->
-    val extractModel = tasks.register<ExtractOmegaModel>(
-      "extract" + variant.name.replaceFirstChar { it.uppercaseChar() } + "OmegaVoskModel"
-    ) {
-      archive.from(omegaModelArchive)
-      outputDirectory.set(layout.buildDirectory.dir("generated/omegaVoskAssets/" + variant.name))
-    }
-    variant.sources.assets?.addGeneratedSourceDirectory(extractModel, ExtractOmegaModel::outputDirectory)
-  }
-}
 
 android {
   namespace = "com.example"
@@ -164,7 +86,6 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 dependencies {
   implementation("net.java.dev.jna:jna:5.18.1@aar")
   implementation("com.alphacephei:vosk-android:0.3.75@aar")
-  add(omegaModelArchive.name, "com.alphacephei:vosk-model-en:0.3.75@aar")
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

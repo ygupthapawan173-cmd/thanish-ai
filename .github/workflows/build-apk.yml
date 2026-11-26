@@ -51,6 +51,39 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US" \
             -keyalg RSA -keysize 2048 -validity 10000
 
+      - name: Provision official offline Vosk English model
+        run: |
+          set -euo pipefail
+          MODEL=vosk-model-small-en-us-0.15
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --max-time 180 \
+            "https://alphacephei.com/vosk/models/${MODEL}.zip" -o "$RUNNER_TEMP/vosk-model.zip"
+          unzip -tq "$RUNNER_TEMP/vosk-model.zip"
+          python3 - <<'PY'
+          import hashlib, pathlib, zipfile, shutil
+          import os
+          archive = pathlib.Path(os.environ["RUNNER_TEMP"]) / "vosk-model.zip"
+          target = pathlib.Path("app/src/main/assets/model-en-us")
+          target.mkdir(parents=True, exist_ok=True)
+          root = "vosk-model-small-en-us-0.15/"
+          with zipfile.ZipFile(archive) as z:
+              for entry in z.infolist():
+                  if not entry.filename.startswith(root) or entry.is_dir():
+                      continue
+                  relative = pathlib.PurePosixPath(entry.filename[len(root):])
+                  if relative.is_absolute() or ".." in relative.parts:
+                      raise ValueError("Unsafe model archive path")
+                  out = target.joinpath(*relative.parts)
+                  out.parent.mkdir(parents=True, exist_ok=True)
+                  with z.open(entry) as src, out.open("wb") as dst:
+                      shutil.copyfileobj(src, dst)
+          for file in ("am/final.mdl", "conf/model.conf", "graph/phones/word_boundary.int"):
+              assert (target / file).stat().st_size > 0, file
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (target / "uuid").write_text(digest, encoding="ascii")
+          print("Official model archive SHA256 (observed):", digest)
+          print("Model files:", sum(p.is_file() for p in target.rglob("*")))
+          PY
+
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
 
