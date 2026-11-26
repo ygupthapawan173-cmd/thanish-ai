@@ -106,7 +106,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private lateinit var voiceInputController: VoiceInputController
 
     private val _aiGenState = MutableStateFlow<AiGenState>(AiGenState.Idle)
-    private val _speechLocale = MutableStateFlow(SpeechLocaleOption.TELUGU)
+    private val _speechLocale = MutableStateFlow(SpeechLocaleOption.AUTO)
     private val _hasMicPermission = MutableStateFlow(false)
     private val _showPermissionRationale = MutableStateFlow(false)
     private val _permissionPermanentlyDenied = MutableStateFlow(false)
@@ -338,10 +338,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleSpeechLocale() {
         _speechLocale.update { current ->
-            if (current == SpeechLocaleOption.TELUGU) {
-                SpeechLocaleOption.ENGLISH_INDIA
-            } else {
-                SpeechLocaleOption.TELUGU
+            when (current) {
+                SpeechLocaleOption.AUTO -> SpeechLocaleOption.TELUGU
+                SpeechLocaleOption.TELUGU -> SpeechLocaleOption.ENGLISH_INDIA
+                SpeechLocaleOption.ENGLISH_INDIA -> SpeechLocaleOption.AUTO
             }
         }
     }

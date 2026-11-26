@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -92,12 +93,25 @@ class PanduAiRepository(context: Context) {
             val accumulated = StringBuilder()
             try {
                 withTimeout(AI_TIMEOUT_MS) {
-                    providerStream(provider, apiKey, keyStore.getModel(provider), history, userPrompt)
-                        .collect { piece ->
-                            require(accumulated.length + piece.length <= 64000) { "Response limit exceeded" }
-                            accumulated.append(piece)
-                            send(AiStreamEvent.Chunk(accumulated.toString()))
+                    // Transient Gemini/provider 503: at most two retries, only if
+                    // no visible text has streamed. Never duplicate a partial reply.
+                    for (attempt in 0..2) {
+                        try {
+                            providerStream(provider, apiKey, keyStore.getModel(provider),
+                                history, userPrompt).collect { piece ->
+                                require(accumulated.length + piece.length <= 64000) {
+                                    "Response limit exceeded"
+                                }
+                                accumulated.append(piece)
+                                send(AiStreamEvent.Chunk(accumulated.toString()))
+                            }
+                            break
+                        } catch (e: ProviderHttpFailure) {
+                            if (e.status != 503 || attempt == 2 ||
+                                accumulated.isNotEmpty()) throw e
+                            delay(650L * (attempt + 1))
                         }
+                    }
                 }
                 val finalText = accumulated.toString().trim()
                 if (finalText.isBlank()) {

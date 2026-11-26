@@ -29,6 +29,7 @@ sealed interface VoiceInputState {
 }
 
 enum class SpeechLocaleOption(val tag: String, val shortLabel: String) {
+    AUTO("te-IN", "TE+EN"),
     TELUGU("te-IN", "తెలుగు"),
     ENGLISH_INDIA("en-IN", "ENG")
 }
@@ -173,7 +174,7 @@ class VoiceInputController(
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, local)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-                    if (Build.VERSION.SDK_INT >= 34) {
+                    if (Build.VERSION.SDK_INT >= 34 && locale == SpeechLocaleOption.AUTO) {
                         val supported = arrayListOf("te-IN", "en-IN")
                         putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
                         putStringArrayListExtra(

@@ -5,7 +5,21 @@ enum class OmegaVoiceMode(val label: String) {
     LOCAL("On-device only (never uploads voice)"),
     HYBRID("Hybrid: offline first, online if unavailable")
 }
+enum class OmegaWakePhrase(val label: String, val spoken: List<String>) {
+    HEY_JARVIS("Hey JARVIS", listOf("hey jarvis", "hey jervis", "hey jar vis", "hey jar vice")),
+    HEY_OMEGA("Hey OMEGA", listOf("hey omega")),
+    OMEGA("OMEGA", listOf("omega"))
+}
 object OmegaVoicePreferences {
+    fun wakePhrase(c: Context): OmegaWakePhrase = runCatching {
+        OmegaWakePhrase.valueOf(c.getSharedPreferences("omega_voice", 0)
+            .getString("wake_phrase", OmegaWakePhrase.HEY_JARVIS.name)!!)
+    }.getOrDefault(OmegaWakePhrase.HEY_JARVIS)
+    fun setWakePhrase(c: Context, phrase: OmegaWakePhrase) {
+        c.getSharedPreferences("omega_voice", 0).edit()
+            .putString("wake_phrase", phrase.name).apply()
+    }
+
     fun get(c: Context): OmegaVoiceMode = runCatching {
         OmegaVoiceMode.valueOf(c.getSharedPreferences("omega_voice", 0)
             .getString("mode", OmegaVoiceMode.PLATFORM.name)!!)

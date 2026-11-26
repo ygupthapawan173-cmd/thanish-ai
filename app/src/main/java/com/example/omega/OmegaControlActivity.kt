@@ -45,6 +45,7 @@ fun OmegaCenter(
     val wakeError by OmegaWakeService.lastError.collectAsState()
     val lastWakeTime by OmegaWakeService.lastWakeAt.collectAsState()
     var tab by remember { mutableStateOf(0) }
+    var wakePhrase by remember { mutableStateOf(OmegaVoicePreferences.wakePhrase(c)) }
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var notice by remember { mutableStateOf("") }
@@ -92,7 +93,7 @@ fun OmegaCenter(
                 if (!embedded) TextButton(onClick = close) { Text("Close") }
             }
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
-                listOf("Voice", "Memory", "System").forEachIndexed { i, label ->
+                listOf("Master", "Voice", "Memory", "System").forEachIndexed { i, label ->
                     Tab(selected = i == tab, onClick = { tab = i }, text = { Text(label) })
                 }
             }
@@ -106,6 +107,15 @@ fun OmegaCenter(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (tab) {
                     0 -> {
+                        OmegaMasterDashboard(
+                            noteCount = entries.size,
+                            onVoice = { tab = 1 },
+                            onMemory = { tab = 2 },
+                            onSystem = { tab = 3 },
+                            onSettings = onOpenPermissions
+                        )
+                    }
+                    1 -> {
                         Text("OMEGA • Wake & Voice", style = MaterialTheme.typography.titleLarge)
                         Text("Android speech language packs depend on your phone. Hybrid may use the online speech service if local language recognition is unsupported. Offline-only never switches to online.")
                         OmegaVoiceMode.entries.forEach { item -> Row {
@@ -125,9 +135,25 @@ fun OmegaCenter(
                         }
                         Text("When enabled, chat listens for one follow-up after finishing a reply while the app is visible. Stop microphone to cancel. This does not bypass Android permissions.")
                         HorizontalDivider()
-                        Text("Offline Hey JARVIS • on-device Vosk")
+                        Text("Offline wake phrases • on-device Vosk")
+                        OmegaWakePhrase.entries.forEach { phrase ->
+                            Row {
+                                RadioButton(
+                                    selected = phrase == wakePhrase,
+                                    enabled = !wakeActive,
+                                    onClick = {
+                                        wakePhrase = phrase
+                                        OmegaVoicePreferences.setWakePhrase(c, phrase)
+                                    }
+                                )
+                                Text(phrase.label, modifier = Modifier.padding(top = 14.dp))
+                            }
+                        }
                         Text(wakeStatus)
-                        Text("Bundled English model. Say Hey JARVIS then one English command. Tap the notification and review the transcript. No wake audio is uploaded.")
+                        Text("Bundled English acoustic model. Selected phrase: " +
+                            wakePhrase.label + ". Stop listening before changing the phrase. " +
+                            "No wake audio is uploaded. Custom trained phrase models and " +
+                            "offline Telugu recognition are not bundled.")
                         Button(enabled = !wakeActive, modifier = Modifier.fillMaxWidth(), onClick = {
                             val wanted = buildList { add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) }
                             val missing = wanted.filter { ContextCompat.checkSelfPermission(c, it) != PackageManager.PERMISSION_GRANTED }
@@ -137,7 +163,7 @@ fun OmegaCenter(
                         OutlinedButton(onClick = { OmegaWakeService.stop(c) }, modifier = Modifier.fillMaxWidth()) { Text("STOP microphone") }
                         Text("Android 16: start listening while the app is visible. The microphone foreground notification must stay active. Background and lock-screen endurance still needs device testing.")
                     }
-                    1 -> {
+                    2 -> {
                         Text("Encrypted notebook & tasks", style = MaterialTheme.typography.titleLarge)
                         Text("Local, opt-in memory; separate from chat history. Maximum 80 entries.")
                         OutlinedTextField(note, { note = it.take(1000) }, label = { Text("Note / task") }, modifier = Modifier.fillMaxWidth())
@@ -166,7 +192,7 @@ fun OmegaCenter(
                             c.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share decrypted notes"))
                         }) { Text("Share decrypted notes") }
                     }
-                    2 -> {
+                    3 -> {
                         Text("OMEGA • System diagnostics", style = MaterialTheme.typography.titleLarge)
                         Text(diagnostic)
                         Text("Wake last detected: " + (if (lastWakeTime == 0L) "Never" else java.text.DateFormat.getTimeInstance().format(java.util.Date(lastWakeTime))))

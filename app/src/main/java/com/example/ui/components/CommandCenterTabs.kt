@@ -141,7 +141,7 @@ fun HomeCommandTab(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    HolographicJarvisCore(
+                    OmegaPlasmaOrb(
                         status = uiState.jarvisStatus,
                         amplitude = amplitude
                     )
@@ -796,10 +796,10 @@ fun SettingsCommandTab(
                             border = BorderStroke(1.dp, CyberOrange.copy(alpha = 0.8f))
                         ) {
                             Text(
-                                text = if (uiState.speechLocale == SpeechLocaleOption.TELUGU) {
-                                    "తెలుగు (te-IN)"
-                                } else {
-                                    "English (en-IN)"
+                                text = when (uiState.speechLocale) {
+                                    SpeechLocaleOption.AUTO -> "AUTO · తెలుగు + English"
+                                    SpeechLocaleOption.TELUGU -> "తెలుగు (te-IN)"
+                                    SpeechLocaleOption.ENGLISH_INDIA -> "English (en-IN)"
                                 },
                                 color = ElectricCyan,
                                 style = MaterialTheme.typography.labelLarge
@@ -810,7 +810,17 @@ fun SettingsCommandTab(
             }
         }
 
-        // Four configurable AI providers; API keys stay encrypted on-device.
+        item {
+            Text(
+                "AUTO: Android 14+ requests Telugu/English detection and switching " +
+                    "if the phone's speech service supports both languages. " +
+                    "Older devices stay Telugu-first. Local mode needs offline language packs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SlateCyan
+            )
+        }
+
+        // One secure AI connection panel with encrypted provider keys.
         item { AiProviderSettingsCard() }
 
         // Telugu TTS Personality & Calibration Card

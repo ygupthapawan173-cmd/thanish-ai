@@ -19,7 +19,21 @@ key_store = read("java/com/example/ai/EncryptedApiKeyStore.kt")
 assert "4 API SLOTS" not in ai and "AiProvider.values().forEach" not in ai
 assert "OMEGA • AI CONNECTION" in ai and "EncryptedApiKeyStore" in ai
 assert all(k in key_store for k in ["saveApiKey", "getApiKey", "getActiveProvider"])
-assert 'listOf("Voice", "Memory", "System")' in omega
+assert 'listOf("Master", "Voice", "Memory", "System")' in omega
+tabs = read("java/com/example/ui/components/CommandCenterTabs.kt")
+orb = read("java/com/example/ui/components/OmegaPlasmaOrb.kt")
+master = read("java/com/example/omega/OmegaMasterDashboard.kt")
+assert "OmegaPlasmaOrb(" in tabs and "Canvas(" in orb
+assert "JarvisStatus.LISTENING" in orb and "amplitude" in orb
+assert "OmegaMasterDashboard(" in omega and "EncryptedApiKeyStore" in master
+assert "PanduAccessibilityService.isConnected.collectAsState()" in master
+assert "OmegaWakePhrase.entries" in omega and "setWakePhrase" in omega
+recognizer = read("java/com/example/voice/VoiceInputController.kt")
+assert 'AUTO("te-IN", "TE+EN")' in recognizer and 'locale == SpeechLocaleOption.AUTO' in recognizer
+assert "SpeechLocaleOption.AUTO" in viewmodel
+repository = read("java/com/example/ai/PanduAiRepository.kt")
+assert "e.status != 503" in repository and "accumulated.isNotEmpty()" in repository
+print("PASS R100 unified UI, locale, wake and AI safeguards")
 assert '"Coding"' not in omega
 assert 'OMEGA(R.string.nav_omega' in nav and "com.example.omega.OmegaCenter(" in screen and "embedded = true" in screen
 assert 'OMEGA JARVIS' in strings and 'com.example.omega.OmegaWakeService' in screen

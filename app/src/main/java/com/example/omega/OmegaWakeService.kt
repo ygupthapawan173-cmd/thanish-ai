@@ -78,7 +78,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     private val expiry = Runnable {
         armed = false
         if (!closed && active.value) {
-            status.value = "Listening for Hey JARVIS"
+            status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
             refresh()
         }
     }
@@ -114,7 +114,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                         recognizer = local
                         speech = SpeechService(local, 16000f)
                         check(speech?.startListening(this) == true)
-                        status.value = "Listening for Hey JARVIS"
+                        status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
                         refresh()
                     } catch (e: Exception) { fail("Offline microphone could not start") }
                     catch (e: LinkageError) { fail("Native library unavailable") }
@@ -152,7 +152,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (partial.isEmpty()) return
         lastPartial.value = partial
         // A partial hypothesis may wake the assistant, but only a final result commits a command.
-        if (!armed && OmegaPolicy.wakeTail(partial) != null) armWake()
+        if (!armed && OmegaPolicy.wakeTail(partial, OmegaVoicePreferences.wakePhrase(this).spoken) != null) armWake()
     }
     override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
     override fun onTimeout() { if (!closed) fail("Offline recognition timed out; start listening again") }
@@ -164,7 +164,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
         if (armed && OmegaPolicy.normalize(text) == "yes sir") return
-        val tail = OmegaPolicy.wakeTail(text)
+        val tail = OmegaPolicy.wakeTail(text, OmegaVoicePreferences.wakePhrase(this).spoken)
         if (tail != null) {
             if (tail.isNotEmpty()) {
                 lastWakeAt.value = System.currentTimeMillis()

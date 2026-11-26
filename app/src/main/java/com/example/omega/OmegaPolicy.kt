@@ -5,9 +5,12 @@ import java.util.Locale
 object OmegaPolicy {
     fun normalize(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFC)
         .lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{M}\\p{N}]+"), " ").trim()
-    fun wakeTail(text: String): String? {
+    fun wakeTail(
+        text: String,
+        phrases: List<String> = listOf("hey jarvis", "hey jervis", "hey jar vis", "hey jar vice")
+    ): String? {
         val normalized = normalize(text)
-        for (phrase in listOf("hey jarvis", "hey jervis", "hey jar vis", "hey jar vice")) {
+        for (phrase in phrases) {
             if (normalized == phrase) return ""
             if (normalized.startsWith(phrase + " ")) return normalized.removePrefix(phrase + " ").take(300)
         }
