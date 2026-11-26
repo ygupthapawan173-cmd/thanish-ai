@@ -699,6 +699,8 @@ fun SettingsCommandTab(
     onInstallTeluguData: () -> Unit,
     onOpenHelp: () -> Unit,
     onRequestClearChat: () -> Unit,
+    onMicPermissionChanged: (Boolean) -> Unit,
+    onRefreshDeviceState: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -721,6 +723,15 @@ fun SettingsCommandTab(
                     color = SlateCyan
                 )
             }
+        }
+
+        // One real permission setup center; Android handles every grant.
+        item {
+            OmegaPermissionCenter(
+                controlState = uiState.deviceControlState,
+                onMicPermissionChanged = onMicPermissionChanged,
+                onRefreshDeviceState = onRefreshDeviceState
+            )
         }
 
         // Auto-speak + Speech Input Language Card
