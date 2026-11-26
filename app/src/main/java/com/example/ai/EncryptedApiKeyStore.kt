@@ -17,7 +17,7 @@ enum class AiProvider(
     val endpoint: String,
     val isGemini: Boolean = false
 ) {
-    GEMINI("Google Gemini", "Google AI Studio API", "gemini-3.8-flash",
+    GEMINI("Google Gemini", "Google AI Studio API", "gemini-3.5-flash-lite",
         "https://generativelanguage.googleapis.com/v1beta/models", true),
     GROQ("Groq", "Fast hosted open models", "openai/gpt-oss-20b",
         "https://api.groq.com/openai/v1/chat/completions"),

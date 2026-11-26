@@ -7,6 +7,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.*
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.speech.tts.TextToSpeech
+import java.util.Locale
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +31,9 @@ class OmegaWakeService : Service(), RecognitionListener {
         val status = MutableStateFlow("Stopped")
         val active = MutableStateFlow(false)
         val pendingCommand = MutableStateFlow("")
+        val lastPartial = MutableStateFlow("")
+        val lastError = MutableStateFlow("")
+        val lastWakeAt = MutableStateFlow(0L)
         fun start(c: Context) {
             ContextCompat.startForegroundService(c, Intent(c, OmegaWakeService::class.java))
         }
@@ -41,10 +48,71 @@ class OmegaWakeService : Service(), RecognitionListener {
     private var loading = false
     private var closed = false
     private var armed = false
+    private val wakeGate = WakeGate(1600L)
+    private var delivering = false
+    private var lastAck: String? = null
+    private var tone: ToneGenerator? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    override fun onCreate() {
+        super.onCreate()
+        tts = TextToSpeech(applicationContext) { result ->
+            if (!closed && result == TextToSpeech.SUCCESS) {
+                ttsReady = true
+                runCatching { tts?.language = Locale.US }
+            }
+        }
+    }
+    private fun matchWake(text: String): WakeMatch? =
+        OmegaWakeEngine.match(
+            text, OmegaVoicePreferences.activeWakePhrases(this),
+            OmegaVoicePreferences.sensitivity(this)
+        )
+
+    private fun acknowledgeWake() {
+        val style = OmegaVoicePreferences.ackStyle(this)
+        val text = OmegaWakeAck.spokenText(style, OmegaVoicePreferences.customAck(this))
+        lastAck = text
+        if (style == WakeAckStyle.CHIME) {
+            runCatching {
+                tone?.release()
+                val chime = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 65)
+                tone = chime
+                chime.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+                handler.postDelayed({
+                    if (tone === chime) tone = null
+                    chime.release()
+                }, 200L)
+            }
+        } else if (ttsReady && !text.isNullOrBlank()) {
+            runCatching {
+                val locale = if (OmegaWakeAck.isTelugu(text)) Locale.forLanguageTag("te-IN")
+                    else Locale.US
+                val available = tts?.setLanguage(locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                if (available >= TextToSpeech.LANG_AVAILABLE) {
+                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack")
+                }
+            }
+        }
+    }
+
+    private fun armWake() {
+        if (closed || armed || delivering) return
+        val now = SystemClock.elapsedRealtime()
+        if (!wakeGate.allow(now)) return
+        lastWakeAt.value = System.currentTimeMillis()
+        armed = true
+        lastError.value = ""
+        status.value = "Wake detected — say one English command"
+        refresh()
+        acknowledgeWake()
+        handler.removeCallbacks(expiry)
+        handler.postDelayed(expiry, 15000)
+    }
     private val expiry = Runnable {
         armed = false
         if (!closed && active.value) {
-            status.value = "Listening for Hey JARVIS"
+            status.value = "Listening for " + OmegaVoicePreferences.activeWakeLabel(this)
             refresh()
         }
     }
@@ -56,6 +124,8 @@ class OmegaWakeService : Service(), RecognitionListener {
             return START_NOT_STICKY
         }
         if (loading || speech != null) return START_NOT_STICKY
+        lastError.value = ""
+        lastPartial.value = ""
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
             fail("Microphone and notification permissions required")
@@ -78,7 +148,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                         recognizer = local
                         speech = SpeechService(local, 16000f)
                         check(speech?.startListening(this) == true)
-                        status.value = "Listening for Hey JARVIS"
+                        status.value = "Listening for " + OmegaVoicePreferences.activeWakeLabel(this)
                         refresh()
                     } catch (e: Exception) { fail("Offline microphone could not start") }
                     catch (e: LinkageError) { fail("Native library unavailable") }
@@ -104,28 +174,46 @@ class OmegaWakeService : Service(), RecognitionListener {
     private fun refresh() {
         if (!closed) runCatching { getSystemService(NotificationManager::class.java).notify(MIC, notification(status.value, true)) }
     }
-    private fun fail(message: String) { status.value = message; stopSelf() }
-    override fun onPartialResult(hypothesis: String?) = Unit
-    override fun onFinalResult(hypothesis: String?) = Unit
-    override fun onTimeout() { if (!closed) fail("Listening session ended") }
-    override fun onError(exception: Exception?) { if (!closed) fail("Recognition stopped; check microphone") }
+    private fun fail(message: String) {
+        lastError.value = message
+        status.value = message
+        stopSelf()
+    }
+    override fun onPartialResult(hypothesis: String?) {
+        if (closed || !active.value) return
+        val partial = runCatching { JSONObject(hypothesis.orEmpty()).optString("partial") }
+            .getOrDefault("").trim().take(300)
+        if (partial.isEmpty()) return
+        lastPartial.value = partial
+        // A partial hypothesis may wake the assistant, but only a final result commits a command.
+        if (!armed && matchWake(partial) != null) armWake()
+    }
+    override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
+    override fun onTimeout() { if (!closed) fail("Offline recognition timed out; start listening again") }
+    override fun onError(exception: Exception?) {
+        if (!closed) fail("Offline recognition stopped; check microphone permission and model")
+    }
     override fun onResult(hypothesis: String?) {
         if (closed || !active.value) return
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
-        val tail = OmegaPolicy.wakeTail(text)
-        if (tail != null) {
-            if (tail.isNotEmpty()) deliver(tail) else {
-                armed = true
-                status.value = "Wake detected — say one English command"
-                refresh()
-                handler.removeCallbacks(expiry)
-                handler.postDelayed(expiry, 15000)
-            }
+        if (delivering || (armed && OmegaWakeAck.isEcho(text, lastAck))) return
+        val matched = matchWake(text)
+        if (matched != null) {
+            if (matched.tail.isNotEmpty()) {
+                // Partial-triggered wake already holds the gate for this utterance.
+                // For an unsignalled final wake+command, take the gate once.
+                if (!armed && !wakeGate.allow(SystemClock.elapsedRealtime())) return
+                lastWakeAt.value = System.currentTimeMillis()
+                deliver(matched.tail)
+            } else if (!armed) armWake()
         } else if (armed) deliver(text.take(300))
     }
     private fun deliver(text: String) {
+        if (closed || delivering || text.isBlank()) return
+        delivering = true
         armed = false
+        lastAck = null
         handler.removeCallbacks(expiry)
         pendingCommand.value = text
         status.value = "Command captured; review in JARVIS"
@@ -135,6 +223,11 @@ class OmegaWakeService : Service(), RecognitionListener {
     override fun onDestroy() {
         closed = true
         handler.removeCallbacksAndMessages(null)
+        runCatching { tts?.stop(); tts?.shutdown() }
+        runCatching { tone?.release() }
+        tone = null
+        tts = null
+        ttsReady = false
         runCatching { speech?.stop() }
         runCatching { speech?.shutdown() }
         speech = null

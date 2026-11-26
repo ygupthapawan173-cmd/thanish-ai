@@ -23,16 +23,22 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.UnknownHostException
+import java.net.SocketTimeoutException
+import javax.net.ssl.SSLException
+
+class AiConnectionTestException(message: String) : Exception(message)
 
 private const val TAG = "PanduAiRepository"
 private const val AI_TIMEOUT_MS = 60_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
-    You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a smart, friendly Telugu AI voice assistant.
+    You are "OMEGA JARVIS – Native Master" (ఓమెగా జార్విస్), a smart, friendly Telugu AI voice assistant.
     Address the user respectfully as "బాస్" or "గురూ". Be helpful, warm, concise, and natural.
     Reply primarily in everyday Telugu using Telugu script. Understand Telugu, English, and Tenglish.
     Keep casual answers short and voice-friendly. Use clear structure for detailed requests.
@@ -68,9 +74,11 @@ class PanduAiRepository(context: Context) {
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<AiStreamEvent> = channelFlow {
+        val style = AiReplyPreferences.get(appContext)
+        val safeHistory = OmegaContext.recent(history, 20, 12_000) { it.text.length }
         val configured = AiProvider.values().filter { keyStore.hasApiKey(it) }
         if (configured.isEmpty()) {
-            firebaseFallback(history, userPrompt).collect { send(it) }
+            firebaseFallback(safeHistory, userPrompt, style).collect { send(it) }
             return@channelFlow
         }
 
@@ -87,12 +95,32 @@ class PanduAiRepository(context: Context) {
             val accumulated = StringBuilder()
             try {
                 withTimeout(AI_TIMEOUT_MS) {
-                    providerStream(provider, apiKey, keyStore.getModel(provider), history, userPrompt)
-                        .collect { piece ->
-                            require(accumulated.length + piece.length <= 64000) { "Response limit exceeded" }
-                            accumulated.append(piece)
-                            send(AiStreamEvent.Chunk(accumulated.toString()))
+                    // Retry only before visible streaming starts; avoid concatenating two
+                    // different answers and always preserve coroutine cancellation.
+                    for (attempt in 0..AiRetryPolicy.MAX_RETRIES) {
+                        try {
+                            providerStream(provider, apiKey, keyStore.getModel(provider),
+                                safeHistory, userPrompt, style).collect { piece ->
+                                require(accumulated.length + piece.length <= 64000) {
+                                    "Response limit exceeded"
+                                }
+                                accumulated.append(piece)
+                                send(AiStreamEvent.Chunk(accumulated.toString()))
+                            }
+                            break
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: ProviderHttpFailure) {
+                            val delayMs = AiRetryPolicy.retryDelayMs(e.status, e.retry, attempt)
+                            if (accumulated.isNotEmpty() || delayMs == null) throw e
+                            delay(delayMs)
+                        } catch (e: Exception) {
+                            if (accumulated.isNotEmpty() ||
+                                attempt >= AiRetryPolicy.MAX_RETRIES ||
+                                !AiRetryPolicy.isTransientNetwork(e)) throw e
+                            delay(AiRetryPolicy.backoffMs(attempt))
                         }
+                    }
                 }
                 val finalText = accumulated.toString().trim()
                 if (finalText.isBlank()) {
@@ -187,16 +215,63 @@ class PanduAiRepository(context: Context) {
         }
     }
 
+    /**
+     * Verify a real model response. Never display API keys, raw server responses,
+     * request headers, or exception messages that could contain credentials.
+     */
     suspend fun testProvider(provider: AiProvider, apiKey: String, model: String): String {
-        return withTimeout(35_000L) {
-            providerStream(
-                provider = provider,
-                apiKey = apiKey.trim(),
-                model = model.trim().ifBlank { provider.defaultModel },
-                history = emptyList(),
-                userPrompt = "Reply with only the word OK."
-            ).first().let { "Connection successful. First response received." }
+        val selectedModel = model.trim().ifBlank { provider.defaultModel }
+        if (!OmegaPolicy.modelId(selectedModel)) {
+            throw AiConnectionTestException(
+                "Invalid Model ID. Use the exact API ID (example: gemini-3.6-flash), not a display name."
+            )
         }
+        return try {
+            withTimeout(35_000L) {
+                val firstText = providerStream(
+                    provider = provider,
+                    apiKey = apiKey.trim(),
+                    model = selectedModel,
+                    history = emptyList(),
+                    userPrompt = "Reply with only the word OK."
+                ).first()
+                check(firstText.isNotBlank()) { "Empty streamed reply" }
+                "Connection verified — real model response received."
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw AiConnectionTestException("Connection timed out. Check mobile data/Wi-Fi and try again.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw AiConnectionTestException(safeConnectionFailure(e))
+        }
+    }
+
+    private fun safeConnectionFailure(error: Throwable): String {
+        var cause: Throwable? = error
+        repeat(8) {
+            when (cause) {
+                is ProviderHttpFailure -> {
+                    val status = (cause as ProviderHttpFailure).status
+                    return when (status) {
+                        400 -> "HTTP 400 — Invalid request or model. Check the exact Model ID."
+                        401 -> "HTTP 401 — API key rejected. Check the key in Google AI Studio."
+                        402 -> "HTTP 402 — Billing or prepaid credits issue for this project."
+                        403 -> "HTTP 403 — API access denied. Check API key and project restrictions."
+                        404 -> "HTTP 404 — Model not found or unavailable for this API/project."
+                        429 -> "HTTP 429 — Model request quota/rate limit reached. Check AI Studio limits."
+                        500, 502, 503, 504 -> "HTTP $status — Provider temporarily unavailable. Try again."
+                        else -> "HTTP $status — API request failed. Check model and project access."
+                    }
+                }
+                is UnknownHostException -> return "Network/DNS unavailable. Check Internet and Private DNS."
+                is SocketTimeoutException -> return "Network timeout. Try again on Wi-Fi or mobile data."
+                is SSLException -> return "Secure connection failed. Check device time and network."
+                is IllegalArgumentException -> return "Invalid Model ID or API request."
+            }
+            cause = cause?.cause
+        }
+        return "Request failed without a readable HTTP code. Check Internet, model and key restrictions."
     }
 
     private fun providerStream(
@@ -204,7 +279,8 @@ class PanduAiRepository(context: Context) {
         apiKey: String,
         model: String,
         history: List<ChatMessageEntity>,
-        userPrompt: String
+        userPrompt: String,
+        style: ReplyStyle = ReplyStyle.BALANCED
     ): Flow<String> = channelFlow {
         require(OmegaPolicy.modelId(model.ifBlank { provider.defaultModel })) { "Invalid model identifier" }
         val connection = (URL(buildEndpoint(provider, model)).openConnection() as HttpURLConnection)
@@ -222,14 +298,14 @@ class PanduAiRepository(context: Context) {
                 connection.setRequestProperty("Authorization", "Bearer $apiKey")
                 if (provider == AiProvider.OPENROUTER) {
                     connection.setRequestProperty("HTTP-Referer", "https://github.com/ygupthapawan173-cmd/thanish-ai")
-                    connection.setRequestProperty("X-Title", "Pandu Babu Jarvis")
+                    connection.setRequestProperty("X-Title", "OMEGA JARVIS")
                 }
             }
 
             val requestBody = if (provider.isGemini) {
-                buildGeminiRequest(history, userPrompt)
+                buildGeminiRequest(history, userPrompt, style)
             } else {
-                buildOpenAiCompatibleRequest(history, userPrompt, model)
+                buildOpenAiCompatibleRequest(history, userPrompt, model, style)
             }
             withContext(Dispatchers.IO) {
                 connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
@@ -267,7 +343,8 @@ class PanduAiRepository(context: Context) {
 
     private fun buildGeminiRequest(
         history: List<ChatMessageEntity>,
-        userPrompt: String
+        userPrompt: String,
+        style: ReplyStyle
     ): String {
         val contents = JSONArray()
         val turns = mutableListOf<Pair<String, String>>()
@@ -290,23 +367,24 @@ class PanduAiRepository(context: Context) {
 
         return JSONObject()
             .put("systemInstruction", JSONObject().put(
-                "parts", JSONArray().put(JSONObject().put("text", PANDU_SYSTEM_INSTRUCTION))
+                "parts", JSONArray().put(JSONObject().put("text", style.systemWith(PANDU_SYSTEM_INSTRUCTION)))
             ))
             .put("contents", contents)
             .put("generationConfig", JSONObject()
                 .put("temperature", 0.65)
                 .put("topP", 0.9)
-                .put("maxOutputTokens", 700))
+                .put("maxOutputTokens", style.maxTokens))
             .toString()
     }
 
     private fun buildOpenAiCompatibleRequest(
         history: List<ChatMessageEntity>,
         userPrompt: String,
-        model: String
+        model: String,
+        style: ReplyStyle
     ): String {
         val messages = JSONArray()
-            .put(JSONObject().put("role", "system").put("content", PANDU_SYSTEM_INSTRUCTION))
+            .put(JSONObject() .put("role", "system").put("content", style.systemWith(PANDU_SYSTEM_INSTRUCTION)))
         history.filter { it.text.isNotBlank() }.takeLast(20).forEach { message ->
             val role = if (message.role == ChatMessageEntity.ROLE_USER) "user" else "assistant"
             messages.put(JSONObject().put("role", role).put("content", message.text.trim()))
@@ -317,7 +395,7 @@ class PanduAiRepository(context: Context) {
             .put("messages", messages)
             .put("stream", true)
             .put("temperature", 0.65)
-            .put("max_tokens", 700)
+            .put("max_tokens", style.maxTokens)
             .toString()
     }
 
@@ -350,14 +428,19 @@ class PanduAiRepository(context: Context) {
 
     private fun firebaseFallback(
         history: List<ChatMessageEntity>,
-        userPrompt: String
+        userPrompt: String,
+        style: ReplyStyle
     ): Flow<AiStreamEvent> = channelFlow {
         val chatHistory = normalizeChatHistory(history)
         val chat = firebaseModel.startChat(history = chatHistory)
         val accumulated = StringBuilder()
         try {
             withTimeout(AI_TIMEOUT_MS) {
-                chat.sendMessageStream(userPrompt).collect { chunk ->
+                // Firebase model has a fixed base system prompt; apply style to
+                // this request only, without changing saved user text in history.
+                val styledPrompt = if (style == ReplyStyle.BALANCED) userPrompt
+                    else style.instruction + "\n\n" + userPrompt
+                chat.sendMessageStream(styledPrompt).collect { chunk ->
                     val text = chunk.text.orEmpty()
                     if (text.isNotEmpty()) {
                         accumulated.append(text)
