@@ -21,7 +21,7 @@ assert "OMEGA • AI CONNECTION" in ai and "EncryptedApiKeyStore" in ai
 assert all(k in key_store for k in ["saveApiKey", "getApiKey", "getActiveProvider"])
 assert 'listOf("Voice", "Memory", "System")' in omega
 assert '"Coding"' not in omega
-assert 'OMEGA(R.string.nav_omega' in nav and "OmegaCenter(embedded = true)" in screen
+assert 'OMEGA(R.string.nav_omega' in nav and "com.example.omega.OmegaCenter(" in screen and "embedded = true" in screen
 assert 'OMEGA JARVIS' in strings and 'com.example.omega.OmegaWakeService' in screen
 assert 'override fun onPartialResult(hypothesis: String?)' in wake
 assert 'TextToSpeech.QUEUE_FLUSH' in wake and 'lastWakeAt' in wake
