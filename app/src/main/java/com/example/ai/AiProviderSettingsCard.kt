@@ -8,12 +8,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,34 +22,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * One AI connection configuration surface, not a grid of provider slots.
+ * Existing encrypted keys/models and provider fallback logic remain unchanged.
+ */
 @Composable
 fun AiProviderSettingsCard() {
     val context = LocalContext.current.applicationContext
     val store = remember(context) { EncryptedApiKeyStore(context) }
     val scope = rememberCoroutineScope()
-    var activeProvider by remember { mutableStateOf(store.getActiveProvider()) }
-    var configured by remember {
-        mutableStateOf(AiProvider.values().associateWith { store.hasApiKey(it) })
-    }
-    var keyDrafts by remember {
-        mutableStateOf(AiProvider.values().associateWith { "" })
-    }
-    var modelDrafts by remember {
-        mutableStateOf(AiProvider.values().associateWith { store.getModel(it) })
-    }
-    var messages by remember { mutableStateOf(emptyMap<AiProvider, String>()) }
-    var busyProvider by remember { mutableStateOf<AiProvider?>(null) }
+    var provider by remember { mutableStateOf(store.getActiveProvider()) }
+    var active by remember { mutableStateOf(store.getActiveProvider()) }
+    var expanded by remember { mutableStateOf(false) }
+    var hasKey by remember { mutableStateOf(store.hasApiKey(provider)) }
+    var model by remember { mutableStateOf(store.getModel(provider)) }
+    var keyInput by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -57,181 +58,153 @@ fun AiProviderSettingsCard() {
         tonalElevation = 2.dp
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Text("OMEGA • AI CONNECTION", style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary)
             Text(
-                text = "AI INTELLIGENCE • 4 API SLOTS",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = "Add keys, choose a model, test each connection, and select the active AI. Keys are encrypted on this phone using Android Keystore.",
+                "One secure connection panel. Previously saved keys remain encrypted on this device. " +
+                    "Only your chosen AI connection is shown here.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            AiProvider.values().forEach { provider ->
-                val isConfigured = configured[provider] == true
-                val isActive = activeProvider == provider
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            Column {
+                OutlinedButton(
+                    onClick = { expanded = true },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = provider.title,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = provider.subtitle,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                    Text("AI service: ${provider.title}  ▾")
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    AiProvider.entries.forEach { choice ->
+                        DropdownMenuItem(
+                            text = { Text(choice.title) },
+                            onClick = {
+                                provider = choice
+                                hasKey = store.hasApiKey(choice)
+                                model = store.getModel(choice)
+                                keyInput = ""
+                                status = ""
+                                expanded = false
                             }
-                            Text(
-                                text = if (isActive) "ACTIVE" else if (isConfigured) "SAVED" else "EMPTY",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isActive) Color(0xFF00CFA5) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = modelDrafts[provider].orEmpty(),
-                            onValueChange = { modelDrafts = modelDrafts + (provider to it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Model ID") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.None,
-                                keyboardType = KeyboardType.Ascii
-                            )
                         )
-
-                        OutlinedTextField(
-                            value = keyDrafts[provider].orEmpty(),
-                            onValueChange = { keyDrafts = keyDrafts + (provider to it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("API key") },
-                            placeholder = { Text(if (isConfigured) "Saved key hidden — leave blank to reuse" else "Paste API key") },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.None,
-                                keyboardType = KeyboardType.Password,
-                                autoCorrectEnabled = false
-                            )
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    val draft = keyDrafts[provider].orEmpty().trim()
-                                    val model = modelDrafts[provider].orEmpty().trim().ifBlank { provider.defaultModel }
-                                    scope.launch {
-                                        busyProvider = provider
-                                        messages = messages - provider
-                                        try {
-                                            val message = withContext(Dispatchers.IO) {
-                                                val key = if (draft.isNotBlank()) {
-                                                    check(store.saveApiKey(provider, draft)) { "Could not securely save this key." }
-                                                    draft
-                                                } else {
-                                                    store.getApiKey(provider)
-                                                        ?: error("Enter an API key first.")
-                                                }
-                                                store.setModel(provider, model)
-                                                PanduAiRepository(context).testProvider(provider, key, model)
-                                            }
-                                            configured = configured + (provider to true)
-                                            modelDrafts = modelDrafts + (provider to model)
-                                            keyDrafts = keyDrafts + (provider to "")
-                                            messages = messages + (provider to message)
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            configured = configured + (provider to withContext(Dispatchers.IO) {
-                                                store.hasApiKey(provider)
-                                            })
-                                            messages = messages + (provider to (e.localizedMessage ?: "Connection test failed."))
-                                        } finally {
-                                            busyProvider = null
-                                        }
-                                    }
-                                },
-                                enabled = busyProvider == null,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors()
-                            ) {
-                                Text(if (busyProvider == provider) "Testing…" else "Save & Test")
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    if (isConfigured) {
-                                        store.setActiveProvider(provider)
-                                        activeProvider = provider
-                                        messages = messages + (provider to "Active provider changed.")
-                                    }
-                                },
-                                enabled = isConfigured && busyProvider == null,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(if (isActive) "Selected" else "Use This")
-                            }
-                        }
-
-                        if (isConfigured) {
-                            OutlinedButton(
-                                onClick = {
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) { store.deleteApiKey(provider) }
-                                        configured = configured + (provider to false)
-                                        if (activeProvider == provider) {
-                                            val next = AiProvider.values().firstOrNull {
-                                                it != provider && configured[it] == true
-                                            } ?: AiProvider.GEMINI
-                                            store.setActiveProvider(next)
-                                            activeProvider = next
-                                        }
-                                        messages = messages + (provider to "Saved key removed from this phone.")
-                                    }
-                                },
-                                enabled = busyProvider == null,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Remove saved key")
-                            }
-                        }
-
-                        messages[provider]?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (it.contains("successful", true) || it.contains("Active")) {
-                                    Color(0xFF00CFA5)
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                }
-                            )
-                        }
                     }
                 }
             }
-
             Text(
-                text = "Fallback order: selected provider first, then other saved providers if the first one fails before producing a reply. API usage and charges depend on your provider account and selected model.",
+                if (hasKey) "Encrypted key stored • " +
+                    (if (active == provider) "Active" else "Not active")
+                else "No key saved for this service",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (hasKey) Color(0xFF27D1AC) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = model,
+                onValueChange = { model = it.take(160) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Model ID") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
+                    keyboardType = KeyboardType.Ascii)
+            )
+            OutlinedTextField(
+                value = keyInput,
+                onValueChange = { keyInput = it.take(1000) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("API key") },
+                placeholder = {
+                    Text(if (hasKey) "Stored securely — leave blank to reuse" else "Enter API key")
+                },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    keyboardType = KeyboardType.Password,
+                    autoCorrectEnabled = false
+                )
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy && (hasKey || keyInput.isNotBlank()),
+                onClick = {
+                    val candidate = provider
+                    val secret = keyInput.trim()
+                    val newModel = model.trim().ifBlank { candidate.defaultModel }
+                    busy = true
+                    status = "Checking live connection…"
+                    scope.launch {
+                        try {
+                            val result = withContext(Dispatchers.IO) {
+                                val key = if (secret.isNotBlank()) {
+                                    check(store.saveApiKey(candidate, secret)) { "Secure save failed" }
+                                    secret
+                                } else store.getApiKey(candidate)
+                                    ?: error("Enter a key to connect")
+                                store.setModel(candidate, newModel)
+                                PanduAiRepository(context).testProvider(candidate, key, newModel)
+                            }
+                            if (provider == candidate) {
+                                hasKey = true
+                                keyInput = ""
+                                model = newModel
+                                status = result
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            if (provider == candidate) {
+                                hasKey = store.hasApiKey(candidate)
+                                status = "Connection test failed. Check key, model and network."
+                            }
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) { Text(if (busy) "Testing…" else "Save & Test Connection") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    enabled = hasKey && !busy,
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        store.setActiveProvider(provider)
+                        active = provider
+                        status = "AI service selected."
+                    }
+                ) { Text(if (active == provider) "Selected" else "Use AI") }
+                OutlinedButton(
+                    enabled = hasKey && !busy,
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        val toDelete = provider
+                        scope.launch {
+                            withContext(Dispatchers.IO) { store.deleteApiKey(toDelete) }
+                            if (provider == toDelete) {
+                                hasKey = false
+                                keyInput = ""
+                                status = "Saved key deleted from this phone."
+                                if (active == toDelete) {
+                                    val fallback = AiProvider.entries.firstOrNull { store.hasApiKey(it) }
+                                        ?: AiProvider.GEMINI
+                                    store.setActiveProvider(fallback)
+                                    active = fallback
+                                }
+                            }
+                        }
+                    }
+                ) { Text("Remove Key") }
+            }
+            if (status.isNotEmpty()) {
+                Text(status, style = MaterialTheme.typography.bodySmall)
+            }
+            Text(
+                "If a saved connection fails before replying, other saved providers may be tried. " +
+                    "Cloud requests can use data and incur API charges.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
