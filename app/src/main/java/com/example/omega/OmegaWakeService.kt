@@ -136,7 +136,7 @@ class OmegaWakeService : Service(), RecognitionListener {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (loading || speech != null) return START_NOT_STICKY
+        if (active.value || loading || speech != null) return START_NOT_STICKY
         lastError.value = ""
         lastPartial.value = ""
         capturedCount.value = 0
@@ -240,7 +240,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         commandPhase = true
         closeOfflineStage()
         recognitionStage.value = "Wake confirmed • microphone paused"
-        status.value = "Hey JARVIS detected — preparing command"
+        status.value = OmegaVoicePreferences.wakePhrase(this).label + " detected — preparing command"
         refresh()
         acknowledgeWake()
         captureJob = sessionScope.launch {
@@ -260,6 +260,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                         if (!closed && commandPhase) {
                             platformCommand?.release(); platformCommand = null
                             lastError.value = message + " — English offline fallback"
+                            handler.removeCallbacks(commandExpiry)
                             if (!startOfflineStage(true)) restoreWake()
                             else handler.postDelayed(commandExpiry, 15000L)
                         }

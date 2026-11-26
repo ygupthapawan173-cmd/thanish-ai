@@ -38,6 +38,15 @@ class OmegaR105RuntimeTest {
         compose.onNodeWithTag("singularity_tab_2").performScrollTo().performClick()
         compose.onNodeWithTag("singularity_evolution").performScrollTo().assertIsDisplayed()
     }
+    @Test fun eliteWakeControlsAreIntegrated() {
+        compose.onNodeWithTag("nav_omega").performClick()
+        compose.onNodeWithTag("unified_omega_voice").performClick()
+        compose.onNodeWithTag("elite_strict_grammar").performScrollTo().assertIsOn()
+        compose.onNodeWithTag("elite_bilingual_command").performScrollTo().assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag("elite_bilingual_command").performClick().assertIsOff()
+        compose.onNodeWithTag("elite_strict_grammar").performScrollTo().performClick().assertIsOff()
+        compose.onNodeWithTag("elite_strict_grammar").performClick().assertIsOn()
+    }
     @Test fun optInMemoryAndWakeControlsReachRealPreferenceRoutes() {
         compose.onNodeWithTag("nav_omega").performClick()
         compose.onNodeWithTag("unified_omega_voice").performClick()

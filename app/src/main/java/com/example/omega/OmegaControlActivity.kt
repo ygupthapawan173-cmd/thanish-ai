@@ -171,7 +171,7 @@ fun OmegaCenter(
                                 strictGrammar = it; OmegaVoicePreferences.setStrictWakeGrammar(c, it)
                             }, modifier = Modifier.testTag("elite_strict_grammar"))
                         }
-                        Text("Strict: say the complete wake phrase, wait for the acknowledgement, then speak a separate command. Turn off for the older combined phrase mode.")
+                        Text("Strict: say the complete wake phrase, wait for the acknowledgement, then speak a separate command. Turn off for the older combined phrase mode. Custom phrases depend on the English model vocabulary.")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Telugu + English AUTO after wake", modifier = Modifier.weight(1f))
                             Switch(checked = bilingualCommand, enabled = !wakeActive && strictGrammar, onCheckedChange = {
