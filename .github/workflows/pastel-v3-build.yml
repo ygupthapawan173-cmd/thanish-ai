@@ -1,0 +1,48 @@
+name: Pastel V3 Original Icon Test APK
+on:
+  push:
+    branches: [build/pastel-v3-icon-test]
+    paths: [pastel-v3-build-ready.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Unpack standalone source
+        run: |
+          test -s pastel-v3-build-ready.zip
+          python3 - <<'PY'
+          import zipfile,pathlib
+          with zipfile.ZipFile('pastel-v3-build-ready.zip') as z:
+              assert z.testzip() is None
+              assert all(not pathlib.PurePosixPath(n).is_absolute() and '..' not in pathlib.PurePosixPath(n).parts for n in z.namelist())
+              z.extractall('pastel-build')
+          PY
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build signed debug APK
+        working-directory: pastel-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK
+        run: |
+          mkdir -p out
+          cp pastel-build/app/build/outputs/apk/debug/app-debug.apk out/JARVIS-PASTEL-V3-ICON-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-PASTEL-V3-ICON-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-PASTEL-V3-ICON-TEST.apk | grep -F "name='com.example.aiassistant'"
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-PASTEL-V3-ICON-TEST
+          path: out/
+          if-no-files-found: error
