@@ -21,7 +21,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** Animated layered 2D plasma visualization; not a 3D engine or a fake microphone meter. */
+/** Perspective-projected spherical lattice and shaded core, rendered in Compose Canvas. */
 @Composable
 fun OmegaSafeSingularityVisual(
     status: JarvisStatus,
@@ -40,10 +40,10 @@ fun OmegaSafeSingularityVisual(
     val breathe by motion.animateFloat(.93f, 1.065f,
         infiniteRepeatable(tween(2200, easing=FastOutSlowInEasing),RepeatMode.Reverse),
         label="plasma_breathe")
-    Box(modifier=modifier.size(236.dp),contentAlignment=Alignment.Center) {
-        Canvas(Modifier.size(230.dp)) {
+    Box(modifier=modifier.size(216.dp),contentAlignment=Alignment.Center) {
+        Canvas(Modifier.size(216.dp)) {
             val c=Offset(size.width*.5f,size.height*.5f)
-            val baseRadius=size.minDimension*.265f*breathe+level*13.dp.toPx()
+            val baseRadius=size.minDimension*.285f*breathe+level*7.dp.toPx()
             val haloRadius=baseRadius*1.65f
 
             drawCircle(brush=Brush.radialGradient(
@@ -73,7 +73,38 @@ fun OmegaSafeSingularityVisual(
                 center=Offset(c.x-baseRadius*.38f,c.y-baseRadius*.4f),
                 radius=baseRadius*.5f)
 
-            // Contra-rotating orbital segmented arcs with gentle depth illusion.
+            // Project actual rotating 3D unit-sphere coordinates onto the Canvas.
+            val rotation=outerRotation*PI/180.0
+            val tilt=.38
+            fun point(lat: Double, lon: Double): Pair<Offset, Double> {
+                val x=cos(lat)*cos(lon+rotation)
+                val y=sin(lat)
+                val z=cos(lat)*sin(lon+rotation)
+                val yy=y*cos(tilt)-z*sin(tilt)
+                val zz=y*sin(tilt)+z*cos(tilt)
+                val perspective=3.5/(3.5-zz)
+                return Offset(c.x+(x*perspective*baseRadius*.88).toFloat(),
+                    c.y+(yy*perspective*baseRadius*.88).toFloat()) to zz
+            }
+            for (ring in -3..3) {
+                val lat=ring*PI/9.0
+                for (segment in 0 until 32) {
+                    val a=point(lat,segment*PI/16.0)
+                    val b=point(lat,(segment+1)*PI/16.0)
+                    if (a.second>=0 && b.second>=0) drawLine(
+                        cyan.copy(alpha=(.24+.46*a.second).toFloat()),
+                        a.first,b.first,strokeWidth=.85.dp.toPx())
+                }
+            }
+            for (meridian in 0 until 12) {
+                for (segment in 0 until 18) {
+                    val a=point(-PI/2+segment*PI/18,meridian*PI/6)
+                    val b=point(-PI/2+(segment+1)*PI/18,meridian*PI/6)
+                    if (a.second>=0 && b.second>=0) drawLine(
+                        violet.copy(alpha=.38f),a.first,b.first,strokeWidth=.75.dp.toPx())
+                }
+            }
+            // Contra-rotating orbital segments.
             for(i in 0 until 12) {
                 val a=outerRotation+i*30f
                 val r=baseRadius*1.32f
@@ -108,7 +139,7 @@ fun OmegaSafeSingularityVisual(
             // Discrete moving light particles; pure visual, never a network/AI status.
             for(i in 0 until 16) {
                 val rad=(i*22.5+counterRotation*.8)*PI/180.0
-                val pr=baseRadius*(if(i%2==0) 1.87f else 1.76f)
+                val pr=baseRadius*(if(i%2==0) 1.60f else 1.54f)
                 val pc=Offset(c.x+(pr*cos(rad)).toFloat(),
                     c.y+(pr*sin(rad)).toFloat())
                 drawCircle(color=if(i%4==0) violet else cyan,
@@ -116,7 +147,6 @@ fun OmegaSafeSingularityVisual(
                     center=pc,alpha=if(i%3==0) .8f else .44f)
             }
         }
-        Text("Ω",color=Color(0xFFCBFAFF),
-            style=MaterialTheme.typography.displayMedium)
+
     }
 }

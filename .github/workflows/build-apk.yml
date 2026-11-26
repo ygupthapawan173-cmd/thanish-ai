@@ -3,9 +3,9 @@ name: THANISH AI APK Build
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, omega-native-master, 'review/omega-r100-single-master-patch', 'review/omega-r103-safe-integrated-build']
+    branches: [main, omega-native-master, 'review/omega-r100-single-master-patch', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master']
   push:
-    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master']
+    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture']
 
 concurrency:
   group: omega-apk-${{ github.head_ref || github.ref_name }}
@@ -92,8 +92,24 @@ jobs:
       - name: OMEGA premium review gates
         run: python3 ci/omega_review_checks.py
 
+      - name: Provision pinned Robolectric API 35 and 36 runtime jars
+        run: bash ci/prepare-robolectric-runtime.sh
+
       - name: Run unit tests
         run: bash ci/omega-gradle-retry.sh testDebugUnitTest
+
+      - name: Upload unit test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-UNIT-TEST-EVIDENCE
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+
+      - name: Compile runtime UI tests
+        run: bash ci/omega-gradle-retry.sh assembleDebugAndroidTest
 
       - name: Build APK
         run: bash ci/omega-gradle-retry.sh assembleDebug
@@ -123,6 +139,22 @@ jobs:
           name: OMEGA-PREMIUM-REVIEW-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Enable KVM for Android 16 runtime review
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 16 emulator runtime UI tests
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ci/omega-gradle-retry.sh connectedDebugAndroidTest
 
       # Isolated package: safer than uninstalling an existing debug-signed OMEGA.
       # Firebase App Check is not registered for this package; direct Gemini key

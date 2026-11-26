@@ -83,3 +83,9 @@ assert 'onMicPermissionChanged' in tabs
 assert 'onOpenPermissions = { selectedTab = CyberpunkTab.SETTINGS }' in screen
 print("PASS OMEGA permission center wiring + Android manifest checks")
 print("PASS OMEGA review UI/slots/branding/voice/privacy regression checks")
+
+assert 'R105 · NEURAL COMMAND' in premium_chrome
+assert 'r105_orb' in premium_home and 'requestState.collectAsState()' in premium_home
+assert 'recognitionReady' in wake and 'reconnectPending' in wake
+assert 'animateScrollToItem(destination)' in tabs
+print('PASS R105 source wiring; runtime and visual verification are separate')

@@ -177,6 +177,7 @@ class PanduAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         _isConnected.value = true
+        connectionEvent.value = "Connected"
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -208,6 +209,7 @@ class PanduAccessibilityService : AccessibilityService() {
             agentNodeLabels = emptyList()
             agentScreenCaptureGranted = false
             _isConnected.value = false
+            connectionEvent.value = "Disconnected — check Android accessibility settings"
         }
     }
 
@@ -249,6 +251,7 @@ class PanduAccessibilityService : AccessibilityService() {
 
         private val _isConnected = MutableStateFlow(false)
         val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+        val connectionEvent = MutableStateFlow("Not connected in this process")
 
         fun performGlobalNav(action: GlobalNavigationAction): Boolean {
             val service = instance ?: return false

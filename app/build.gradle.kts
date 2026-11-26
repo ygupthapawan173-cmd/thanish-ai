@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.pandubabu.kxmpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 7
-    versionName = "2.2-omega-r104-premium-ui-review"
+    versionCode = 8
+    versionName = "2.3-omega-r105-architecture-review"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -64,7 +64,25 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all {
+        it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+        it.systemProperty("robolectric.dependency.repo.id", "central")
+        System.getenv("OMEGA_ROBOLECTRIC_JARS")?.takeIf { path -> path.isNotBlank() }?.let { path ->
+          it.systemProperty("robolectric.offline", "true")
+          it.systemProperty("robolectric.dependency.dir", path)
+        }
+        it.testLogging {
+          events("failed", "skipped")
+          exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+          showCauses = true
+          showStackTraces = true
+        }
+      }
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
