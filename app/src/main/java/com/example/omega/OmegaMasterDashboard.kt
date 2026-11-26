@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ai.EncryptedApiKeyStore
+import com.example.ai.PanduAiRepository
 import com.example.control.PanduAccessibilityService
 
 /** Live OS and app data only; stored API key is never presented as ONLINE. */
@@ -41,6 +42,7 @@ fun OmegaMasterDashboard(
     val c = LocalContext.current
     var revision by remember { mutableIntStateOf(0) }
     val awake by OmegaWakeService.active.collectAsState()
+    val successfulRoute by PanduAiRepository.lastRoute.collectAsState()
     val wakeState by OmegaWakeService.status.collectAsState()
     val a11y by PanduAccessibilityService.isConnected.collectAsState()
     val vault = remember(c) { EncryptedApiKeyStore(c) }
@@ -68,6 +70,8 @@ fun OmegaMasterDashboard(
         MasterMetric("AI Intelligence", selected.title + " · " + model,
             if (hasKey) "Encrypted key configured · connection not tested here"
             else "API key not configured")
+        MasterMetric("Last successful AI route", successfulRoute,
+            "Updated only when a provider returns a real completed response")
         MasterMetric("Neural Voice / Wake",
             if (awake) "Mic foreground service running" else "Wake mic stopped", wakeState)
         MasterMetric("Device & Memory",

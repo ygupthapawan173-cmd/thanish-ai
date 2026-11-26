@@ -8,9 +8,42 @@ enum class OmegaVoiceMode(val label: String) {
 enum class OmegaWakePhrase(val label: String, val spoken: List<String>) {
     HEY_JARVIS("Hey JARVIS", listOf("hey jarvis", "hey jervis", "hey jar vis", "hey jar vice")),
     HEY_OMEGA("Hey OMEGA", listOf("hey omega")),
-    OMEGA("OMEGA", listOf("omega"))
+    OMEGA("OMEGA", listOf("omega")),
+    CUSTOM("Custom wake phrase", emptyList())
 }
 object OmegaVoicePreferences {
+    private fun prefs(c: Context) = c.getSharedPreferences("omega_voice", 0)
+
+    fun customWake(c: Context): String = prefs(c).getString("custom_wake", "").orEmpty()
+    fun setCustomWake(c: Context, value: String): Boolean {
+        val validated = OmegaWakeEngine.validCustomPhrase(value) ?: return false
+        prefs(c).edit().putString("custom_wake", validated).apply()
+        return true
+    }
+    fun activeWakePhrases(c: Context): List<String> =
+        if (wakePhrase(c) == OmegaWakePhrase.CUSTOM) {
+            listOfNotNull(OmegaWakeEngine.validCustomPhrase(customWake(c)))
+                .ifEmpty { OmegaWakePhrase.HEY_JARVIS.spoken }
+        } else wakePhrase(c).spoken
+
+    fun sensitivity(c: Context): WakeSensitivity = runCatching {
+        WakeSensitivity.valueOf(prefs(c).getString("wake_sensitivity", WakeSensitivity.STRICT.name)!!)
+    }.getOrDefault(WakeSensitivity.STRICT)
+    fun setSensitivity(c: Context, value: WakeSensitivity) {
+        prefs(c).edit().putString("wake_sensitivity", value.name).apply()
+    }
+
+    fun acknowledgement(c: Context): WakeAckStyle = runCatching {
+        WakeAckStyle.valueOf(prefs(c).getString("wake_ack", WakeAckStyle.YES_SIR.name)!!)
+    }.getOrDefault(WakeAckStyle.YES_SIR)
+    fun setAcknowledgement(c: Context, value: WakeAckStyle) {
+        prefs(c).edit().putString("wake_ack", value.name).apply()
+    }
+    fun customAcknowledgement(c: Context): String = prefs(c).getString("wake_ack_custom", "").orEmpty()
+    fun setCustomAcknowledgement(c: Context, value: String) {
+        prefs(c).edit().putString("wake_ack_custom", OmegaWakeAck.sanitizeCustom(value)).apply()
+    }
+
     fun wakePhrase(c: Context): OmegaWakePhrase = runCatching {
         OmegaWakePhrase.valueOf(c.getSharedPreferences("omega_voice", 0)
             .getString("wake_phrase", OmegaWakePhrase.HEY_JARVIS.name)!!)

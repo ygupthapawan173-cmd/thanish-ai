@@ -109,7 +109,7 @@ fun HomeCommandTab(
     val listeningState = uiState.voiceInputState as? VoiceInputState.Listening
     val isListening = listeningState != null
     val isThinking = uiState.aiGenState is AiGenState.Thinking || uiState.aiGenState is AiGenState.Streaming
-    val amplitude = listeningState?.amplitude ?: 0.2f
+    val amplitude = listeningState?.amplitude ?: 0f
 
     val starterPrompts = listOf(
         stringResource(R.string.starter_prompt_joke),
@@ -141,7 +141,7 @@ fun HomeCommandTab(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OmegaPlasmaOrb(
+                    OmegaSafeSingularityVisual(
                         status = uiState.jarvisStatus,
                         amplitude = amplitude
                     )

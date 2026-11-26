@@ -46,7 +46,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     private var loading = false
     private var closed = false
     private var armed = false
-    private var lastWakeElapsed = 0L
+    private val wakeGate = WakeGate(1600L)
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     override fun onCreate() {
@@ -59,21 +59,33 @@ class OmegaWakeService : Service(), RecognitionListener {
         }
     }
     private fun acknowledgeWake() {
-        if (ttsReady) runCatching { tts?.speak("Yes, Sir!", TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack") }
+        val style = OmegaVoicePreferences.acknowledgement(this)
+        val text = OmegaWakeAck.spokenText(style, OmegaVoicePreferences.customAcknowledgement(this))
+        if (style == WakeAckStyle.CHIME) {
+            runCatching {
+                val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 65)
+                tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 120)
+                handler.postDelayed({ tone.release() }, 300)
+            }
+        } else if (ttsReady && text != null) {
+            runCatching {
+                tts?.language = if (OmegaWakeAck.isTelugu(text)) Locale("te", "IN") else Locale.US
+                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack")
+            }
+        }
     }
-    private fun armWake() {
-        if (closed || armed) return
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastWakeElapsed < 1600L) return
-        lastWakeElapsed = now
+    /** One gate for BOTH partial recognition and combined wake+command finals. */
+    private fun armWake(speakAck: Boolean = true): Boolean {
+        if (closed || armed || !wakeGate.allow(SystemClock.elapsedRealtime())) return false
         lastWakeAt.value = System.currentTimeMillis()
         armed = true
         lastError.value = ""
         status.value = "Wake detected — say one English command"
         refresh()
-        acknowledgeWake()
+        if (speakAck) acknowledgeWake()
         handler.removeCallbacks(expiry)
-        handler.postDelayed(expiry, 15000)
+        handler.postDelayed(expiry, 15000L)
+        return true
     }
     private val expiry = Runnable {
         armed = false
@@ -152,7 +164,8 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (partial.isEmpty()) return
         lastPartial.value = partial
         // A partial hypothesis may wake the assistant, but only a final result commits a command.
-        if (!armed && OmegaPolicy.wakeTail(partial, OmegaVoicePreferences.wakePhrase(this).spoken) != null) armWake()
+        if (!armed && OmegaWakeEngine.match(partial, OmegaVoicePreferences.activeWakePhrases(this),
+                OmegaVoicePreferences.sensitivity(this)) != null) armWake()
     }
     override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
     override fun onTimeout() { if (!closed) fail("Offline recognition timed out; start listening again") }
@@ -163,13 +176,15 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (closed || !active.value) return
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
-        if (armed && OmegaPolicy.normalize(text) == "yes sir") return
-        val tail = OmegaPolicy.wakeTail(text, OmegaVoicePreferences.wakePhrase(this).spoken)
-        if (tail != null) {
-            if (tail.isNotEmpty()) {
-                lastWakeAt.value = System.currentTimeMillis()
-                deliver(tail)
-            } else armWake()
+        if (armed && OmegaWakeAck.isEcho(text, OmegaWakeAck.spokenText(
+                OmegaVoicePreferences.acknowledgement(this),
+                OmegaVoicePreferences.customAcknowledgement(this)))) return
+        val match = OmegaWakeEngine.match(text, OmegaVoicePreferences.activeWakePhrases(this),
+            OmegaVoicePreferences.sensitivity(this))
+        if (match != null) {
+            if (match.tail.isNotBlank()) {
+                if (armed || armWake(speakAck = false)) deliver(match.tail)
+            } else if (!armed) armWake()
         } else if (armed) deliver(text.take(300))
     }
     private fun deliver(text: String) {
