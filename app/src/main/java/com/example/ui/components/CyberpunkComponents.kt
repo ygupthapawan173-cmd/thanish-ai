@@ -99,7 +99,8 @@ enum class CyberpunkTab(
     CHAT(R.string.nav_chat, Icons.Filled.Forum, Icons.Outlined.Forum, "nav_chat"),
     APPS(R.string.nav_apps, Icons.Filled.Apps, Icons.Outlined.Apps, "nav_apps"),
     HISTORY(R.string.nav_history, Icons.Filled.History, Icons.Outlined.History, "nav_history"),
-    SETTINGS(R.string.nav_settings, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
+    SETTINGS(R.string.nav_settings, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings"),
+    OMEGA(R.string.nav_omega, Icons.Filled.GraphicEq, Icons.Filled.GraphicEq, "nav_omega")
 }
 
 fun cyberDualNeonBrush(reverse: Boolean = false): Brush {
@@ -177,7 +178,7 @@ fun HolographicJarvisCore(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         ElectricCyan.copy(alpha = 0.24f + 0.14f * liveAmp),
-                        CyberOrange.copy(alpha = 0.10f + 0.08f * liveAmp),
+                        Color(0xFF8563FF).copy(alpha = 0.10f + 0.08f * liveAmp),
                         Color.Transparent
                     ),
                     center = center,
@@ -191,7 +192,7 @@ fun HolographicJarvisCore(
             val r1Inset = 6.dp.toPx()
             val r1Size = Size(size.width - r1Inset * 2, size.height - r1Inset * 2)
             drawArc(
-                color = CyberOrange.copy(alpha = 0.8f),
+                color = Color(0xFF8563FF).copy(alpha = 0.8f),
                 startAngle = outerAngle,
                 sweepAngle = 140f,
                 useCenter = false,
@@ -235,7 +236,7 @@ fun HolographicJarvisCore(
             val r3Size = Size(size.width - r3Inset * 2, size.height - r3Inset * 2)
             drawArc(
                 brush = Brush.sweepGradient(
-                    colors = listOf(ElectricCyan, CyberOrange, NeonSapphire, ElectricCyan)
+                    colors = listOf(ElectricCyan, Color(0xFF8563FF), NeonSapphire, ElectricCyan)
                 ),
                 startAngle = innerAngle,
                 sweepAngle = 255f,

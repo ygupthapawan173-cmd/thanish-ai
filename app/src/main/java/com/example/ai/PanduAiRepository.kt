@@ -23,16 +23,22 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.UnknownHostException
+import java.net.SocketTimeoutException
+import javax.net.ssl.SSLException
+
+class AiConnectionTestException(message: String) : Exception(message)
 
 private const val TAG = "PanduAiRepository"
 private const val AI_TIMEOUT_MS = 60_000L
 
 private val PANDU_SYSTEM_INSTRUCTION = """
-    You are "Pandu Babu – Jarvis Edition" (పాండు బాబు – జార్విస్ ఎడిషన్), a smart, friendly Telugu AI voice assistant.
+    You are "OMEGA JARVIS – Native Master" (ఓమెగా జార్విస్), a smart, friendly Telugu AI voice assistant.
     Address the user respectfully as "బాస్" or "గురూ". Be helpful, warm, concise, and natural.
     Reply primarily in everyday Telugu using Telugu script. Understand Telugu, English, and Tenglish.
     Keep casual answers short and voice-friendly. Use clear structure for detailed requests.
@@ -87,12 +93,25 @@ class PanduAiRepository(context: Context) {
             val accumulated = StringBuilder()
             try {
                 withTimeout(AI_TIMEOUT_MS) {
-                    providerStream(provider, apiKey, keyStore.getModel(provider), history, userPrompt)
-                        .collect { piece ->
-                            require(accumulated.length + piece.length <= 64000) { "Response limit exceeded" }
-                            accumulated.append(piece)
-                            send(AiStreamEvent.Chunk(accumulated.toString()))
+                    // Transient Gemini/provider 503: at most two retries, only if
+                    // no visible text has streamed. Never duplicate a partial reply.
+                    for (attempt in 0..2) {
+                        try {
+                            providerStream(provider, apiKey, keyStore.getModel(provider),
+                                history, userPrompt).collect { piece ->
+                                require(accumulated.length + piece.length <= 64000) {
+                                    "Response limit exceeded"
+                                }
+                                accumulated.append(piece)
+                                send(AiStreamEvent.Chunk(accumulated.toString()))
+                            }
+                            break
+                        } catch (e: ProviderHttpFailure) {
+                            if (e.status != 503 || attempt == 2 ||
+                                accumulated.isNotEmpty()) throw e
+                            delay(650L * (attempt + 1))
                         }
+                    }
                 }
                 val finalText = accumulated.toString().trim()
                 if (finalText.isBlank()) {
@@ -187,16 +206,63 @@ class PanduAiRepository(context: Context) {
         }
     }
 
+    /**
+     * Verify a real model response. Never display API keys, raw server responses,
+     * request headers, or exception messages that could contain credentials.
+     */
     suspend fun testProvider(provider: AiProvider, apiKey: String, model: String): String {
-        return withTimeout(35_000L) {
-            providerStream(
-                provider = provider,
-                apiKey = apiKey.trim(),
-                model = model.trim().ifBlank { provider.defaultModel },
-                history = emptyList(),
-                userPrompt = "Reply with only the word OK."
-            ).first().let { "Connection successful. First response received." }
+        val selectedModel = model.trim().ifBlank { provider.defaultModel }
+        if (!OmegaPolicy.modelId(selectedModel)) {
+            throw AiConnectionTestException(
+                "Invalid Model ID. Use the exact API ID (example: gemini-3.6-flash), not a display name."
+            )
         }
+        return try {
+            withTimeout(35_000L) {
+                val firstText = providerStream(
+                    provider = provider,
+                    apiKey = apiKey.trim(),
+                    model = selectedModel,
+                    history = emptyList(),
+                    userPrompt = "Reply with only the word OK."
+                ).first()
+                check(firstText.isNotBlank()) { "Empty streamed reply" }
+                "Connection verified — real model response received."
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw AiConnectionTestException("Connection timed out. Check mobile data/Wi-Fi and try again.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw AiConnectionTestException(safeConnectionFailure(e))
+        }
+    }
+
+    private fun safeConnectionFailure(error: Throwable): String {
+        var cause: Throwable? = error
+        repeat(8) {
+            when (cause) {
+                is ProviderHttpFailure -> {
+                    val status = (cause as ProviderHttpFailure).status
+                    return when (status) {
+                        400 -> "HTTP 400 — Invalid request or model. Check the exact Model ID."
+                        401 -> "HTTP 401 — API key rejected. Check the key in Google AI Studio."
+                        402 -> "HTTP 402 — Billing or prepaid credits issue for this project."
+                        403 -> "HTTP 403 — API access denied. Check API key and project restrictions."
+                        404 -> "HTTP 404 — Model not found or unavailable for this API/project."
+                        429 -> "HTTP 429 — Model request quota/rate limit reached. Check AI Studio limits."
+                        500, 502, 503, 504 -> "HTTP $status — Provider temporarily unavailable. Try again."
+                        else -> "HTTP $status — API request failed. Check model and project access."
+                    }
+                }
+                is UnknownHostException -> return "Network/DNS unavailable. Check Internet and Private DNS."
+                is SocketTimeoutException -> return "Network timeout. Try again on Wi-Fi or mobile data."
+                is SSLException -> return "Secure connection failed. Check device time and network."
+                is IllegalArgumentException -> return "Invalid Model ID or API request."
+            }
+            cause = cause?.cause
+        }
+        return "Request failed without a readable HTTP code. Check Internet, model and key restrictions."
     }
 
     private fun providerStream(
@@ -222,7 +288,7 @@ class PanduAiRepository(context: Context) {
                 connection.setRequestProperty("Authorization", "Bearer $apiKey")
                 if (provider == AiProvider.OPENROUTER) {
                     connection.setRequestProperty("HTTP-Referer", "https://github.com/ygupthapawan173-cmd/thanish-ai")
-                    connection.setRequestProperty("X-Title", "Pandu Babu Jarvis")
+                    connection.setRequestProperty("X-Title", "OMEGA JARVIS")
                 }
             }
 
