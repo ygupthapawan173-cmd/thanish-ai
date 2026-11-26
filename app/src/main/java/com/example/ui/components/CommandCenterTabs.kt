@@ -53,6 +53,12 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,6 +72,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.ai.AiProviderSettingsCard
+import com.example.ai.AiReplyPreferences
+import com.example.ai.ReplyStyle
 import com.example.control.BatteryStatusInfo
 import com.example.data.ChatMessageEntity
 import com.example.ui.AiGenState
@@ -110,6 +118,7 @@ fun HomeCommandTab(
     val isListening = listeningState != null
     val isThinking = uiState.aiGenState is AiGenState.Thinking || uiState.aiGenState is AiGenState.Streaming
     val amplitude = listeningState?.amplitude ?: 0.2f
+    var singularityOrb by rememberSaveable { mutableStateOf(false) }
 
     val starterPrompts = listOf(
         stringResource(R.string.starter_prompt_joke),
@@ -141,10 +150,28 @@ fun HomeCommandTab(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OmegaPlasmaOrb(
-                        status = uiState.jarvisStatus,
-                        amplitude = amplitude
-                    )
+                    if (singularityOrb) {
+                        OmegaSafeSingularityVisual(
+                            status = uiState.jarvisStatus,
+                            amplitude = amplitude
+                        )
+                    } else {
+                        OmegaPlasmaOrb(
+                            status = uiState.jarvisStatus,
+                            amplitude = amplitude
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { singularityOrb = !singularityOrb },
+                        border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.65f))
+                    ) {
+                        Text(
+                            if (singularityOrb) "Orb Style: Singularity · Change"
+                            else "Orb Style: Plasma · Change",
+                            color = ElectricCyan
+                        )
+                    }
 
                     Text(
                         text = when {
@@ -722,6 +749,42 @@ fun SettingsCommandTab(
                     style = MaterialTheme.typography.bodyMedium,
                     color = SlateCyan
                 )
+            }
+        }
+
+        // AI reply style is persisted locally and consumed by the real AI repository.
+        item {
+            val context = LocalContext.current
+            var replyStyle by remember(context) {
+                mutableStateOf(AiReplyPreferences.get(context))
+            }
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = JarvisSurface.copy(alpha = 0.9f),
+                border = BorderStroke(1.dp, cyberDualNeonBrush())
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("OMEGA AI Reply Style", color = ElectricCyan,
+                        style = MaterialTheme.typography.titleMedium)
+                    Text(replyStyle.label, color = IceWhite,
+                        style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(
+                        onClick = {
+                            val choices = ReplyStyle.entries
+                            val next = choices[(choices.indexOf(replyStyle) + 1) % choices.size]
+                            AiReplyPreferences.set(context, next)
+                            replyStyle = next
+                        },
+                        border = BorderStroke(1.dp, ElectricCyan)
+                    ) {
+                        Text("Change AI Reply Style", color = ElectricCyan)
+                    }
+                    Text("Saved for new answers. Does not change stored API keys.",
+                        color = SlateCyan, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
