@@ -451,6 +451,7 @@ fun SettingsCommandTab(
     onRequestClearChat: () -> Unit,
     onMicPermissionChanged: (Boolean) -> Unit,
     onRefreshDeviceState: () -> Unit,
+    onNavigateOmega: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -461,18 +462,14 @@ fun SettingsCommandTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.settings_screen_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = ElectricCyan
-                )
-                Text(
-                    text = stringResource(R.string.settings_screen_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = SlateCyan
-                )
-            }
+            OmegaR104SettingsHeader(
+                onOpenOmega = onNavigateOmega,
+                onRefresh = onRefreshDeviceState
+            )
+        }
+        item {
+            Text("PERMISSIONS & SYSTEM", color = ElectricCyan,
+                style = MaterialTheme.typography.titleSmall)
         }
 
         // One real permission setup center; Android handles every grant.
