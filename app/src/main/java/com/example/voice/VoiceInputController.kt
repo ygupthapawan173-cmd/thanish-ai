@@ -48,7 +48,7 @@ class VoiceInputController(
         get() = SpeechRecognizer.isRecognitionAvailable(context) ||
             (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context))
 
-    fun startListening(locale: SpeechLocaleOption = SpeechLocaleOption.TELUGU) {
+    fun startListening(locale: SpeechLocaleOption = SpeechLocaleOption.TELUGU, forcePlatform: Boolean = false) {
         mainHandler.post {
             if (OmegaWakeService.active.value) {
                 onError("Stop OMEGA offline listening before using chat microphone.")
@@ -56,7 +56,7 @@ class VoiceInputController(
             }
             val mode = OmegaVoicePreferences.get(context)
             val availableLocal = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
-            val local = availableLocal && mode != OmegaVoiceMode.PLATFORM
+            val local = !forcePlatform && availableLocal && mode != OmegaVoiceMode.PLATFORM
             if (mode == OmegaVoiceMode.LOCAL && !local) {
                 onError("On-device recognition unavailable. Check language packs.")
                 return@post
@@ -116,6 +116,16 @@ class VoiceInputController(
                         Log.w(TAG, "SpeechRecognizer error code: $error")
                         _state.value = VoiceInputState.Idle
                         destroyRecognizerInternal()
+                        // HYBRID permits one platform fallback. LOCAL mode never uploads speech.
+                        val missingLocalModel = error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                            error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ||
+                            error == SpeechRecognizer.ERROR_SERVER
+                        if (local && mode == OmegaVoiceMode.HYBRID &&
+                            !forcePlatform && missingLocalModel &&
+                            SpeechRecognizer.isRecognitionAvailable(context)) {
+                            startListening(locale, forcePlatform = true)
+                            return
+                        }
                         val message = mapErrorToMessage(error)
                         if (message != null) {
                             onError(message)
@@ -163,6 +173,20 @@ class VoiceInputController(
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, local)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        val supported = arrayListOf("te-IN", "en-IN")
+                        putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+                        putStringArrayListExtra(
+                            RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, supported
+                        )
+                        putExtra(
+                            RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
+                            RecognizerIntent.LANGUAGE_SWITCH_BALANCED
+                        )
+                        putStringArrayListExtra(
+                            RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, supported
+                        )
+                    }
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 }
 

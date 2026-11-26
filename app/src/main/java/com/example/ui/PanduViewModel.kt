@@ -23,6 +23,8 @@ import com.example.data.AppDatabase
 import com.example.data.ChatMessageEntity
 import com.example.data.ChatRepository
 import com.example.data.TtsPreferencesRepository
+import com.example.omega.OmegaVoicePreferences
+import com.example.omega.OmegaWakeService
 import com.example.voice.SpeechLocaleOption
 import com.example.voice.TeluguTtsConfig
 import com.example.voice.TeluguTtsController
@@ -114,6 +116,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingSensitiveAction = MutableStateFlow<PendingSensitiveAction?>(null)
 
     private var activeGenerationJob: Job? = null
+    private var followupJob: Job? = null
     private var currentTtsConfig = TeluguTtsConfig()
     private var pendingFromVoiceOrChat = false
 
@@ -314,6 +317,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startVoiceListening() {
+        followupJob?.cancel()
         ttsController.stop()
         _bannerError.value = null
         if (_aiGenState.value is AiGenState.Error) {
@@ -323,10 +327,12 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopVoiceListening() {
+        followupJob?.cancel()
         voiceInputController.stopListening()
     }
 
     fun cancelVoiceListening() {
+        followupJob?.cancel()
         voiceInputController.cancel()
     }
 
@@ -692,6 +698,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         if (trimmed.isBlank()) return
 
         activeGenerationJob?.cancel()
+        followupJob?.cancel()
         ttsController.stop()
         _bannerError.value = null
         _lastFailedPrompt.value = null
@@ -733,6 +740,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                             if (currentTtsConfig.autoSpeakEnabled) {
                                 ttsController.speak(event.fullText, savedId)
                             }
+                            scheduleFollowupIfEnabled(isVoiceInput)
                         }
                     }
                 }
@@ -814,10 +822,35 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             if (currentTtsConfig.autoSpeakEnabled) {
                 ttsController.speak(result.teluguResponse, savedId)
             }
+            scheduleFollowupIfEnabled(isVoiceInput)
+        }
+    }
+
+    /** Opt-in only. Schedule one follow-up after speech ends; lifecycle ON_STOP cancels. */
+    private fun scheduleFollowupIfEnabled(fromVoice: Boolean) {
+        if (!fromVoice || !OmegaVoicePreferences.continuous(getApplication())) return
+        followupJob?.cancel()
+        followupJob = viewModelScope.launch {
+            delay(1200)
+            var ticks = 0
+            while (ttsController.isSpeaking.value && ticks < 160) {
+                delay(125)
+                ticks++
+            }
+            if (ticks >= 160) return@launch
+            delay(500)
+            if (OmegaVoicePreferences.continuous(getApplication()) &&
+                _hasMicPermission.value &&
+                !OmegaWakeService.active.value &&
+                _pendingSensitiveAction.value == null &&
+                _aiGenState.value is AiGenState.Idle) {
+                voiceInputController.startListening(_speechLocale.value)
+            }
         }
     }
 
     override fun onCleared() {
+        followupJob?.cancel()
         super.onCleared()
         voiceInputController.release()
         ttsController.release()

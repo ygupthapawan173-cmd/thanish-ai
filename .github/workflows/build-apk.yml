@@ -3,9 +3,9 @@ name: THANISH AI APK Build
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, omega-native-master]
   push:
-    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master]
+    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126']
 
 jobs:
   build:
@@ -85,6 +85,9 @@ jobs:
           print("Model files:", sum(p.is_file() for p in target.rglob("*")))
           PY
 
+      - name: OMEGA premium review gates
+        run: python3 ci/omega_review_checks.py
+
       - name: Run unit tests
         run: bash ci/omega-gradle-retry.sh testDebugUnitTest
 
@@ -113,6 +116,30 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: PANDU-BABU-JARVIS-APK
+          name: OMEGA-PREMIUM-REVIEW-APK
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # Isolated package: safer than uninstalling an existing debug-signed OMEGA.
+      # Firebase App Check is not registered for this package; direct Gemini key
+      # testing is the sole purpose of the diagnostic artifact.
+      - name: Prepare side-by-side diagnostic application ID
+        run: python3 ci/prepare_side_by_side_debug.py
+
+      - name: Build side-by-side Gemini diagnostic APK
+        run: bash ci/omega-gradle-retry.sh assembleDebug
+
+      - name: Verify isolated diagnostic package and signature
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "name='com.aistudio.pandubabu.kxmpzq.diagnostic'"
+          sha256sum "$APK"
+
+      - name: Upload side-by-side Gemini connection diagnostic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-GEMINI-CONNECTION-DIAGNOSTIC-SIDE-BY-SIDE
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

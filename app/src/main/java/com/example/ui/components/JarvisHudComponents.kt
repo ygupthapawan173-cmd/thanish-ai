@@ -228,12 +228,7 @@ fun JarvisTopBar(
                         .border(1.5.dp, ElectricCyan.copy(alpha = 0.75f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.pandu_jarvis_icon_1794946931645),
-                        contentDescription = stringResource(R.string.logo_cd),
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Text("Ω", style = MaterialTheme.typography.headlineMedium, color = ElectricCyan)
                 }
 
                 Spacer(modifier = Modifier.width(10.dp))
@@ -466,12 +461,7 @@ fun JarvisArcCoreHero(
                 border = BorderStroke(2.dp, ElectricCyan.copy(alpha = 0.8f)),
                 shadowElevation = 12.dp
             ) {
-                Image(
-                    painter = painterResource(id = R.drawable.pandu_jarvis_icon_1794946931645),
-                    contentDescription = stringResource(R.string.logo_cd),
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Text("Ω", style = MaterialTheme.typography.headlineMedium, color = ElectricCyan)
             }
         }
 

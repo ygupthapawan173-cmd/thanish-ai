@@ -229,12 +229,6 @@ fun PanduDashboardScreen(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
 
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = {
-                        viewModel.cancelVoiceListening()
-                        context.startActivity(Intent(context, com.example.omega.OmegaControlActivity::class.java))
-                    }) { Text("OMEGA · Advanced engines") }
-                }
                 if (omegaCommand.isNotBlank()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Text("Offline command captured: $omegaCommand")
@@ -378,6 +372,11 @@ fun PanduDashboardScreen(
                                 onOpenChat = { selectedTab = CyberpunkTab.CHAT }
                             )
 
+                            CyberpunkTab.OMEGA -> com.example.omega.OmegaCenter(
+                                embedded = true,
+                                onOpenPermissions = { selectedTab = CyberpunkTab.SETTINGS }
+                            )
+
                             CyberpunkTab.SETTINGS -> SettingsCommandTab(
                                 uiState = uiState,
                                 onToggleAutoSpeak = { viewModel.toggleAutoSpeak() },
@@ -398,7 +397,11 @@ fun PanduDashboardScreen(
                                     }
                                 },
                                 onOpenHelp = { showHelpSheet = true },
-                                onRequestClearChat = { showClearDialog = true }
+                                onRequestClearChat = { showClearDialog = true },
+                                onMicPermissionChanged = { granted -> 
+                                    viewModel.updateMicPermissionStatus(granted)
+                                },
+                                onRefreshDeviceState = { viewModel.refreshDeviceControls() }
                             )
                         }
                     }
