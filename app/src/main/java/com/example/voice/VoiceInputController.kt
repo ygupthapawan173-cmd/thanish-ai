@@ -3,6 +3,10 @@ package com.example.voice
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
+import com.example.omega.OmegaVoiceMode
+import com.example.omega.OmegaVoicePreferences
+import com.example.omega.OmegaWakeService
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
@@ -41,11 +45,23 @@ class VoiceInputController(
     val state: StateFlow<VoiceInputState> = _state.asStateFlow()
 
     val isRecognitionAvailable: Boolean
-        get() = SpeechRecognizer.isRecognitionAvailable(context)
+        get() = SpeechRecognizer.isRecognitionAvailable(context) ||
+            (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context))
 
     fun startListening(locale: SpeechLocaleOption = SpeechLocaleOption.TELUGU) {
         mainHandler.post {
-            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            if (OmegaWakeService.active.value) {
+                onError("Stop OMEGA offline listening before using chat microphone.")
+                return@post
+            }
+            val mode = OmegaVoicePreferences.get(context)
+            val availableLocal = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            val local = availableLocal && mode != OmegaVoiceMode.PLATFORM
+            if (mode == OmegaVoiceMode.LOCAL && !local) {
+                onError("On-device recognition unavailable. Check language packs.")
+                return@post
+            }
+            if (!local && !SpeechRecognizer.isRecognitionAvailable(context)) {
                 _state.value = VoiceInputState.Idle
                 onError(
                     "బాస్, ఈ డివైజ్‌లో వాయిస్ రికగ్నిషన్ సర్వీస్ అందుబాటులో లేదు. కింద టైప్ చేసి మాట్లాడండి!"
@@ -56,15 +72,19 @@ class VoiceInputController(
             try {
                 destroyRecognizerInternal()
 
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
+                val recognizer = if (local && Build.VERSION.SDK_INT >= 31)
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(context.applicationContext)
+                else SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
                 speechRecognizer = recognizer
 
                 recognizer.setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
+                        if (speechRecognizer !== recognizer) return
                         _state.value = VoiceInputState.Listening(partialText = "", amplitude = 0.2f)
                     }
 
                     override fun onBeginningOfSpeech() {
+                        if (speechRecognizer !== recognizer) return
                         _state.value = VoiceInputState.Listening(
                             partialText = (_state.value as? VoiceInputState.Listening)?.partialText.orEmpty(),
                             amplitude = 0.45f
@@ -72,6 +92,7 @@ class VoiceInputController(
                     }
 
                     override fun onRmsChanged(rmsdB: Float) {
+                        if (speechRecognizer !== recognizer) return
                         val current = _state.value
                         if (current is VoiceInputState.Listening) {
                             // Map typical SpeechRecognizer dB range [-2f..10f] into 0.15f..1.0f
@@ -83,6 +104,7 @@ class VoiceInputController(
                     override fun onBufferReceived(buffer: ByteArray?) = Unit
 
                     override fun onEndOfSpeech() {
+                        if (speechRecognizer !== recognizer) return
                         val current = _state.value
                         if (current is VoiceInputState.Listening) {
                             _state.value = current.copy(amplitude = 0.15f)
@@ -90,6 +112,7 @@ class VoiceInputController(
                     }
 
                     override fun onError(error: Int) {
+                        if (speechRecognizer !== recognizer) return
                         Log.w(TAG, "SpeechRecognizer error code: $error")
                         _state.value = VoiceInputState.Idle
                         destroyRecognizerInternal()
@@ -100,6 +123,7 @@ class VoiceInputController(
                     }
 
                     override fun onResults(results: Bundle?) {
+                        if (speechRecognizer !== recognizer) return
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                             ?.map { it.trim() }
                             ?.filter { it.isNotBlank() }
@@ -117,6 +141,7 @@ class VoiceInputController(
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
+                        if (speechRecognizer !== recognizer) return
                         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val partial = matches?.firstOrNull()?.trim().orEmpty()
                         val current = _state.value
@@ -136,12 +161,20 @@ class VoiceInputController(
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.tag)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, locale.tag)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, local)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 }
 
                 _state.value = VoiceInputState.Listening(partialText = "", amplitude = 0.2f)
                 recognizer.startListening(intent)
+                mainHandler.postDelayed({
+                    if (speechRecognizer === recognizer) {
+                        destroyRecognizerInternal()
+                        _state.value = VoiceInputState.Idle
+                        onError("Voice session timed out. Tap the microphone to try again.")
+                    }
+                }, 35000)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start SpeechRecognizer", e)
                 _state.value = VoiceInputState.Idle
@@ -180,9 +213,11 @@ class VoiceInputController(
     }
 
     private fun destroyRecognizerInternal() {
+        val old = speechRecognizer
+        speechRecognizer = null
         try {
-            speechRecognizer?.cancel()
-            speechRecognizer?.destroy()
+            old?.cancel()
+            old?.destroy()
         } catch (e: Exception) {
             Log.w(TAG, "Error destroying SpeechRecognizer", e)
         } finally {

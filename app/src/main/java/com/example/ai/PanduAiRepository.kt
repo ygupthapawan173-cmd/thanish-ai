@@ -2,6 +2,11 @@ package com.example.ai
 
 import android.content.Context
 import android.util.Log
+import android.os.SystemClock
+import com.example.omega.OmegaPolicy
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.example.data.ChatMessageEntity
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
@@ -44,6 +49,8 @@ class PanduAiRepository(context: Context) {
 
     private val appContext = context.applicationContext
     private val keyStore = EncryptedApiKeyStore(appContext)
+    private val cooldownUntil = ConcurrentHashMap<AiProvider, Long>()
+    private class ProviderHttpFailure(val status: Int, val retry: String?) : Exception("HTTP $status")
 
     private val firebaseModel by lazy {
         Firebase.ai.generativeModel(
@@ -75,12 +82,14 @@ class PanduAiRepository(context: Context) {
         var lastError: Throwable? = null
 
         for (provider in orderedProviders) {
+            if ((cooldownUntil[provider] ?: 0L) > SystemClock.elapsedRealtime()) continue
             val apiKey = keyStore.getApiKey(provider) ?: continue
             val accumulated = StringBuilder()
             try {
                 withTimeout(AI_TIMEOUT_MS) {
                     providerStream(provider, apiKey, keyStore.getModel(provider), history, userPrompt)
                         .collect { piece ->
+                            require(accumulated.length + piece.length <= 64000) { "Response limit exceeded" }
                             accumulated.append(piece)
                             send(AiStreamEvent.Chunk(accumulated.toString()))
                         }
@@ -99,15 +108,15 @@ class PanduAiRepository(context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "${provider.name} failed; checking configured fallback providers", e)
+                Log.w(TAG, "${provider.name} failed; checking configured fallback providers")
+                if (e is ProviderHttpFailure) cooldownUntil[provider] = SystemClock.elapsedRealtime() + OmegaPolicy.retryMillis(e.status, e.retry)
                 lastError = e
                 // Do not splice two providers' answers together after visible text has streamed.
                 if (accumulated.isNotEmpty()) throw e
             }
         }
 
-        val detail = lastError?.localizedMessage?.take(240)
-            ?: "No configured AI provider could complete the request."
+        val detail = if (lastError is ProviderHttpFailure) "Provider HTTP failure" else "No configured AI provider could complete the request. Check cooldown, model and connectivity."
         throw PanduAiException("బాస్, AI కనెక్షన్‌లో సమస్య వచ్చింది: $detail", lastError)
     }
 
@@ -197,9 +206,11 @@ class PanduAiRepository(context: Context) {
         history: List<ChatMessageEntity>,
         userPrompt: String
     ): Flow<String> = channelFlow {
+        require(OmegaPolicy.modelId(model.ifBlank { provider.defaultModel })) { "Invalid model identifier" }
         val connection = (URL(buildEndpoint(provider, model)).openConnection() as HttpURLConnection)
         try {
             connection.requestMethod = "POST"
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = 15_000
             connection.readTimeout = 45_000
             connection.doOutput = true
@@ -224,21 +235,22 @@ class PanduAiRepository(context: Context) {
                 connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
                 val status = connection.responseCode
                 if (status !in 200..299) {
-                    val errorText = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                    val message = runCatching {
-                        JSONObject(errorText).optJSONObject("error")?.optString("message")
-                    }.getOrNull()?.takeIf { !it.isNullOrBlank() } ?: errorText.take(260)
-                    throw IllegalStateException("${provider.title} API error ($status): ${message.ifBlank { "Request rejected" }}")
+                    throw ProviderHttpFailure(status, connection.getHeaderField("Retry-After"))
                 }
 
-                connection.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
-                    lines.forEach { line ->
-                        if (line.startsWith("data:")) {
-                            val payload = line.removePrefix("data:").trim()
-                            if (payload.isNotEmpty() && payload != "[DONE]") {
-                                val piece = parseStreamPiece(provider, payload)
-                                if (piece.isNotEmpty()) trySend(piece)
-                            }
+                connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                    var total = 0
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val line = reader.readLine() ?: break
+                        total += line.length
+                        require(line.length <= 262144 && total <= 4_000_000) { "Streaming response limit exceeded" }
+                        if (!line.startsWith("data:")) continue
+                        val payload = line.removePrefix("data:").trim()
+                        if (payload == "[DONE]") break
+                        if (payload.isNotEmpty()) {
+                            val piece = parseStreamPiece(provider, payload)
+                            if (piece.isNotEmpty()) send(piece)
                         }
                     }
                 }

@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai]
+    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master]
 
 jobs:
   build:

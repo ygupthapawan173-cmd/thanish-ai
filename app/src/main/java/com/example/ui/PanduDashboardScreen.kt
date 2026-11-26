@@ -125,6 +125,7 @@ fun PanduDashboardScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val omegaCommand by com.example.omega.OmegaWakeService.pendingCommand.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableStateOf(CyberpunkTab.HOME) }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -228,6 +229,24 @@ fun PanduDashboardScreen(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
 
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = {
+                        viewModel.cancelVoiceListening()
+                        context.startActivity(Intent(context, com.example.omega.OmegaControlActivity::class.java))
+                    }) { Text("OMEGA · Advanced engines") }
+                }
+                if (omegaCommand.isNotBlank()) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        Text("Offline command captured: $omegaCommand")
+                        Row {
+                            TextButton(onClick = {
+                                viewModel.onInputTextChanged(omegaCommand)
+                                com.example.omega.OmegaWakeService.pendingCommand.value = ""
+                            }) { Text("Use in chat") }
+                            TextButton(onClick = { com.example.omega.OmegaWakeService.pendingCommand.value = "" }) { Text("Discard") }
+                        }
+                    }
+                }
                 val showPermissionBanner = uiState.showPermissionRationale
                 val bannerMessage = when {
                     showPermissionBanner -> stringResource(R.string.permission_mic_message)
