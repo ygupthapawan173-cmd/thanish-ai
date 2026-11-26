@@ -49,7 +49,7 @@ fun OmegaUnifiedGpuOrb(status: JarvisStatus, amplitude: Float, onClick: () -> Un
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); view.onPause() }
     }
-    Box(modifier.size(216.dp)) {
+    Box(modifier.size(216.dp).clickable(onClick = onClick)) {
         AndroidView(factory = { view }, modifier = Modifier.size(216.dp), update = {
             it.failure = { failed = true }
             it.scene.status = status

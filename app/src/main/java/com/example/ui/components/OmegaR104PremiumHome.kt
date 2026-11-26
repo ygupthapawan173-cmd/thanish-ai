@@ -80,7 +80,14 @@ fun OmegaR104PremiumHome(
         PackageManager.PERMISSION_GRANTED
     val lastAnswer = uiState.messages.lastOrNull { it.role == ChatMessageEntity.ROLE_ASSISTANT }
     val battery = uiState.deviceControlState.battery
+    val displayStatus = when {
+        backgroundBusy && backgroundPhase.startsWith("Speaking") -> JarvisStatus.SPEAKING
+        backgroundBusy -> JarvisStatus.THINKING
+        else -> uiState.jarvisStatus
+    }
     val stateLabel = when {
+        backgroundBusy && displayStatus == JarvisStatus.SPEAKING -> "SPEAKING"
+        backgroundBusy -> "THINKING"
         listening != null -> "LISTENING"
         thinking -> "THINKING"
         uiState.isSpeaking -> "SPEAKING"
@@ -109,9 +116,10 @@ fun OmegaR104PremiumHome(
                             color=if(wakeReady) Cyan104 else Muted104,
                             style=MaterialTheme.typography.labelSmall)
                     }
-                    OmegaUnifiedGpuOrb(uiState.jarvisStatus, amplitude, onMicClick, Modifier.testTag("r105_orb"))
+                    OmegaUnifiedGpuOrb(displayStatus, amplitude, onMicClick, Modifier.testTag("r105_orb"))
                     Text(
                         text = when {
+                            backgroundBusy -> backgroundPhase
                             listening != null -> listening.partialText.ifBlank { "వింటున్నాను బాస్..." }
                             thinking -> "మీ ప్రశ్నను పరిశీలిస్తున్నాను..."
                             uiState.isSpeaking -> "మాట్లాడుతున్నాను..."

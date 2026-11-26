@@ -340,9 +340,10 @@ class OmegaWakeService : Service(), RecognitionListener {
     }
     override fun onDestroy() {
         closed = true
+        val wasProcessing = processing
         sessionScope.cancel()
         assistantTts?.release(); assistantTts = null
-        if (processing) OmegaAssistantCore.sessions.endBackground()
+        if (wasProcessing) OmegaAssistantCore.sessions.endBackground()
         OmegaAssistantCore.backgroundPhase.value = "Idle"
         handler.removeCallbacksAndMessages(null)
         runCatching { tts?.stop(); tts?.shutdown() }
