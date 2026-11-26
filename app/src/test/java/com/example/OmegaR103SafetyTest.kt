@@ -23,7 +23,7 @@ class OmegaR103SafetyTest {
         assertNull(OmegaWakeEngine.match("hey jarvisian", phrases))
         assertNull(OmegaWakeEngine.match("hey jorvis", phrases))
         assertNotNull(OmegaWakeEngine.match(
-            "hey jorvis", phrases, WakeSensitivity.BALANCED))
+            "hey singularty", listOf("hey singularity"), WakeSensitivity.BALANCED))
         assertNull(OmegaWakeEngine.match(
             "hey panda", listOf("hey pandu"), WakeSensitivity.SENSITIVE))
         assertNull(OmegaWakeEngine.match(
