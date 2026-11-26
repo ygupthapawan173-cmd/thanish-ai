@@ -33,6 +33,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         val lastPartial = MutableStateFlow("")
         val lastError = MutableStateFlow("")
         val lastWakeAt = MutableStateFlow(0L)
+        val capturedCount = MutableStateFlow(0)
         fun start(c: Context) {
             ContextCompat.startForegroundService(c, Intent(c, OmegaWakeService::class.java))
         }
@@ -86,7 +87,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     }
     /** One gate for BOTH partial recognition and combined wake+command finals. */
     private fun armWake(speakAck: Boolean = true): Boolean {
-        if (closed || armed || !wakeGate.allow(SystemClock.elapsedRealtime())) return false
+        if (closed || armed || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value) || !wakeGate.allow(SystemClock.elapsedRealtime())) return false
         lastWakeAt.value = System.currentTimeMillis()
         armed = true
         lastError.value = ""
@@ -114,6 +115,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (loading || speech != null) return START_NOT_STICKY
         lastError.value = ""
         lastPartial.value = ""
+        capturedCount.value = 0
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
             fail("Microphone and notification permissions required")
@@ -170,7 +172,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         stopSelf()
     }
     override fun onPartialResult(hypothesis: String?) {
-        if (closed || !active.value) return
+        if (closed || !active.value || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
         val partial = runCatching { JSONObject(hypothesis.orEmpty()).optString("partial") }
             .getOrDefault("").trim().take(300)
         if (partial.isEmpty()) return
@@ -219,7 +221,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (!closed) recoverOfflineRecognition("recognizer error")
     }
     override fun onResult(hypothesis: String?) {
-        if (closed || !active.value) return
+        if (closed || !active.value || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
         if (armed && OmegaWakeAck.isEcho(text, OmegaWakeAck.spokenText(
@@ -236,10 +238,16 @@ class OmegaWakeService : Service(), RecognitionListener {
     private fun deliver(text: String) {
         armed = false
         handler.removeCallbacks(expiry)
+        if (pendingCommand.value.isNotBlank()) return
         pendingCommand.value = text
+        capturedCount.value += 1
+        lastPartial.value = ""
         status.value = "Command captured; review in JARVIS"
         runCatching { getSystemService(NotificationManager::class.java).notify(RESULT, notification("Command captured. Tap to review.", false)) }
-        stopSelf()
+        if (OmegaRecoveryPolicy.keepListeningAfterCapture(OmegaVoicePreferences.continuousWake(this))) {
+            status.value = "Wake session active; review command before next wake"
+            refresh()
+        } else stopSelf()
     }
     override fun onDestroy() {
         closed = true

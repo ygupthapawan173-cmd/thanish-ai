@@ -76,7 +76,7 @@ fun OmegaR104TopBar(
                 Column(Modifier.weight(1f)) {
                     Text("OMEGA  /  JARVIS",color=ChLight,style=MaterialTheme.typography.titleMedium,
                         fontWeight=FontWeight.Bold,maxLines=1)
-                    Text("R105 · NEURAL COMMAND",color=ChCyan,
+                    Text("R106 · NEURAL COMMAND",color=ChCyan,
                         style=MaterialTheme.typography.labelSmall,maxLines=1)
                 }
                 IconButton(onClick=onOpenHelp,modifier=Modifier.size(48.dp)) {

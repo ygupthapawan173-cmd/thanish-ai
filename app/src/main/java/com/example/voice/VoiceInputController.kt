@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import com.example.omega.OmegaRecoveryPolicy
 import com.example.omega.OmegaVoiceMode
 import com.example.omega.OmegaVoicePreferences
 import com.example.omega.OmegaWakeService
@@ -39,6 +40,11 @@ class VoiceInputController(
     private val onFinalResult: (String) -> Unit,
     private val onError: (String) -> Unit
 ) {
+    companion object {
+        val engineStatus = MutableStateFlow("Idle — no speech session")
+        val detectedLanguage = MutableStateFlow("Not reported")
+        val lastSpeechError = MutableStateFlow("None")
+    }
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speechRecognizer: SpeechRecognizer? = null
 
@@ -51,7 +57,9 @@ class VoiceInputController(
 
     fun startListening(locale: SpeechLocaleOption = SpeechLocaleOption.TELUGU, forcePlatform: Boolean = false) {
         mainHandler.post {
+            if (!forcePlatform) { detectedLanguage.value = "Not reported"; lastSpeechError.value = "None" }
             if (OmegaWakeService.active.value) {
+                engineStatus.value = "Wake microphone owns recording"
                 onError("Stop OMEGA offline listening before using chat microphone.")
                 return@post
             }
@@ -59,10 +67,13 @@ class VoiceInputController(
             val availableLocal = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             val local = !forcePlatform && availableLocal && mode != OmegaVoiceMode.PLATFORM
             if (mode == OmegaVoiceMode.LOCAL && !local) {
+                engineStatus.value = "On-device service unavailable"
+                lastSpeechError.value = "Local recognition unavailable"
                 onError("On-device recognition unavailable. Check language packs.")
                 return@post
             }
             if (!local && !SpeechRecognizer.isRecognitionAvailable(context)) {
+                engineStatus.value = "Platform speech service unavailable"
                 _state.value = VoiceInputState.Idle
                 onError(
                     "బాస్, ఈ డివైజ్‌లో వాయిస్ రికగ్నిషన్ సర్వీస్ అందుబాటులో లేదు. కింద టైప్ చేసి మాట్లాడండి!"
@@ -77,11 +88,13 @@ class VoiceInputController(
                     SpeechRecognizer.createOnDeviceSpeechRecognizer(context.applicationContext)
                 else SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
                 speechRecognizer = recognizer
+                engineStatus.value = (if (local) "On-device" else "Android platform") + " · " + locale.shortLabel + " · starting"
 
                 recognizer.setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
                         if (speechRecognizer !== recognizer) return
-                        _state.value = VoiceInputState.Listening(partialText = "", amplitude = 0.2f)
+                        engineStatus.value = (if (local) "On-device" else "Android platform") + " · listening"
+                        _state.value = VoiceInputState.Listening(partialText = "", amplitude = 0f)
                     }
 
                     override fun onBeginningOfSpeech() {
@@ -115,15 +128,14 @@ class VoiceInputController(
                     override fun onError(error: Int) {
                         if (speechRecognizer !== recognizer) return
                         Log.w(TAG, "SpeechRecognizer error code: $error")
+                        lastSpeechError.value = "SpeechRecognizer error " + error
+                        engineStatus.value = "Speech recognition failed"
                         _state.value = VoiceInputState.Idle
                         destroyRecognizerInternal()
                         // HYBRID permits one platform fallback. LOCAL mode never uploads speech.
-                        val missingLocalModel = error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
-                            error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ||
-                            error == SpeechRecognizer.ERROR_SERVER
-                        if (local && mode == OmegaVoiceMode.HYBRID &&
-                            !forcePlatform && missingLocalModel &&
-                            SpeechRecognizer.isRecognitionAvailable(context)) {
+                        if (OmegaRecoveryPolicy.platformFallback(mode, local, forcePlatform,
+                                SpeechRecognizer.isRecognitionAvailable(context), error)) {
+                            engineStatus.value = "Hybrid retry via Android platform"
                             startListening(locale, forcePlatform = true)
                             return
                         }
@@ -145,6 +157,7 @@ class VoiceInputController(
                         destroyRecognizerInternal()
 
                         if (transcript.isNotBlank()) {
+                            engineStatus.value = "Speech result received"
                             onFinalResult(transcript)
                         } else {
                             onError("అయ్యో బాస్, సరిగ్గా వినిపించలేదు! మళ్ళీ చెప్పండి.")
@@ -161,6 +174,13 @@ class VoiceInputController(
                         }
                     }
 
+                    override fun onLanguageDetection(results: Bundle) {
+                        if (speechRecognizer !== recognizer) return
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            detectedLanguage.value = results.getString(SpeechRecognizer.DETECTED_LANGUAGE)
+                                ?.take(35) ?: "Not reported by speech service"
+                        }
+                    }
                     override fun onEvent(eventType: Int, params: Bundle?) = Unit
                 })
 
@@ -197,11 +217,15 @@ class VoiceInputController(
                     if (speechRecognizer === recognizer) {
                         destroyRecognizerInternal()
                         _state.value = VoiceInputState.Idle
+                        engineStatus.value = "Speech timeout"
+                        lastSpeechError.value = "35-second session timeout"
                         onError("Voice session timed out. Tap the microphone to try again.")
                     }
                 }, 35000)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start SpeechRecognizer", e)
+                engineStatus.value = "Speech service start failed"
+                lastSpeechError.value = e.javaClass.simpleName
                 _state.value = VoiceInputState.Idle
                 destroyRecognizerInternal()
                 onError("మైక్ స్టార్ట్ చేయడంలో సమస్య వచ్చింది బాస్. కింద టైప్ చేయొచ్చు!")
@@ -265,7 +289,7 @@ class VoiceInputController(
                 "బాస్, మీరు ఇంకా మాట్లాడలేదు అనుకుంటా! మైక్ మళ్ళీ నొక్కి చెప్పండి."
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
                 "మైక్ కాస్త బిజీగా ఉంది బాస్, ఒక సెకను ఆగి మళ్ళీ నొక్కండి."
-            SpeechRecognizer.ERROR_CLIENT -> null
+            SpeechRecognizer.ERROR_CLIENT -> "Speech service client error (5). Check engine and try again."
             else ->
                 "వాయిస్ వినడంలో సమస్య వచ్చింది (కోడ్: $error). కింద టైప్ చేయండి బాస్!"
         }
