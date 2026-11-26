@@ -37,6 +37,9 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val wakeStatus by OmegaWakeService.status.collectAsState()
     val wakeActive by OmegaWakeService.active.collectAsState()
+    val wakePartial by OmegaWakeService.lastPartial.collectAsState()
+    val wakeError by OmegaWakeService.lastError.collectAsState()
+    val lastWakeTime by OmegaWakeService.lastWakeAt.collectAsState()
     var tab by remember { mutableStateOf(0) }
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var notice by remember { mutableStateOf("") }
@@ -93,7 +96,7 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
                 when (tab) {
                     0 -> {
                         Text("OMEGA • Wake & Voice", style = MaterialTheme.typography.titleLarge)
-                        Text("On-device language packs depend on Android. Prefer on-device uses the platform service if local recognition is unavailable.")
+                        Text("Android speech language packs depend on your phone. Hybrid may use the online speech service if local language recognition is unsupported. Offline-only never switches to online.")
                         OmegaVoiceMode.entries.forEach { item -> Row {
                             RadioButton(selected = item == mode, onClick = { mode = item; OmegaVoicePreferences.set(c, item) })
                             Text(item.label, modifier = Modifier.padding(top = 14.dp))
@@ -109,7 +112,7 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
                             else try { OmegaWakeService.start(c) } catch (e: Exception) { notice = "Wake service could not start." }
                         }) { Text("Start offline listening") }
                         OutlinedButton(onClick = { OmegaWakeService.stop(c) }, modifier = Modifier.fillMaxWidth()) { Text("STOP microphone") }
-                        Text("Locked-screen endurance needs device testing.")
+                        Text("Android 16: start listening while the app is visible. The microphone foreground notification must stay active. Background and lock-screen endurance still needs device testing.")
                     }
                     1 -> {
                         Text("Encrypted notebook & tasks", style = MaterialTheme.typography.titleLarge)
@@ -142,7 +145,12 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
                     }
                     2 -> {
                         Text("OMEGA • System diagnostics", style = MaterialTheme.typography.titleLarge)
-                        Text(diagnostic); Button(onClick = { measure() }) { Text("Refresh measurements") }
+                        Text(diagnostic)
+                        Text("Wake last detected: " + (if (lastWakeTime == 0L) "Never" else java.text.DateFormat.getTimeInstance().format(java.util.Date(lastWakeTime))))
+                        Text("Last recognized partial: " + wakePartial.ifBlank { "No audio hypothesis yet" })
+                        Text("Last wake error: " + wakeError.ifBlank { "None reported" })
+                        Text("Foreground microphone service active: " + wakeActive)
+                        Button(onClick = { measure() }) { Text("Refresh measurements") }
                         Text("Microphone permissions, accessibility controls and voice configuration remain under user control. AI connections are managed in one Settings panel.")
                     }
                 }
