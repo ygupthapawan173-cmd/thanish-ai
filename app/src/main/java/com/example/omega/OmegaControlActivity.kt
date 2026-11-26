@@ -32,7 +32,11 @@ class OmegaControlActivity : ComponentActivity() {
     }
 }
 @Composable
-fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
+fun OmegaCenter(
+    embedded: Boolean = false,
+    close: () -> Unit = {},
+    onOpenPermissions: (() -> Unit)? = null
+) {
     val c = LocalContext.current
     val scope = rememberCoroutineScope()
     val wakeStatus by OmegaWakeService.status.collectAsState()
@@ -91,6 +95,12 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
                 listOf("Voice", "Memory", "System").forEachIndexed { i, label ->
                     Tab(selected = i == tab, onClick = { tab = i }, text = { Text(label) })
                 }
+            }
+            if (onOpenPermissions != null) {
+                OutlinedButton(
+                    onClick = onOpenPermissions,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Permissions & Android Setup") }
             }
             if (notice.isNotBlank()) Text(notice, color = MaterialTheme.colorScheme.secondary)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
