@@ -32,7 +32,13 @@ recognizer = read("java/com/example/voice/VoiceInputController.kt")
 assert 'AUTO("te-IN", "TE+EN")' in recognizer and 'locale == SpeechLocaleOption.AUTO' in recognizer
 assert "SpeechLocaleOption.AUTO" in viewmodel
 repository = read("java/com/example/ai/PanduAiRepository.kt")
-assert "e.status != 503" in repository and "accumulated.isNotEmpty()" in repository
+assert "AiRetryPolicy.retryDelayMs" in repository and "accumulated.isNotEmpty()" in repository
+assert "OmegaContext.recent" in repository and "AiReplyPreferences.get" in repository
+assert "OmegaSafeSingularityVisual(" in tabs and "singularityOrb" in tabs
+assert "OmegaWakeEngine.match" in wake and "WakeGate(1600L)" in wake
+assert "OmegaWakeAck.isEcho" in wake and "activeWakeLabel" in wake
+assert "WakeSensitivity.entries" in omega and "WakeAckStyle.entries" in omega
+print("PASS R103 curated modules wired into actual Android views, AI and wake service")
 print("PASS R100 unified UI, locale, wake and AI safeguards")
 assert '"Coding"' not in omega
 assert 'OMEGA(R.string.nav_omega' in nav and "com.example.omega.OmegaCenter(" in screen and "embedded = true" in screen
