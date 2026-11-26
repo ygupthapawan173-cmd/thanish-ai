@@ -2,6 +2,10 @@ package com.example.control
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.content.Context
+import android.content.ComponentName
+import android.provider.Settings
+import com.example.omega.OmegaRecoveryPolicy
 import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
@@ -178,6 +182,7 @@ class PanduAccessibilityService : AccessibilityService() {
         instance = this
         _isConnected.value = true
         connectionEvent.value = "Connected"
+        lastConnectionTime.value = System.currentTimeMillis()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -210,6 +215,7 @@ class PanduAccessibilityService : AccessibilityService() {
             agentScreenCaptureGranted = false
             _isConnected.value = false
             connectionEvent.value = "Disconnected — check Android accessibility settings"
+            lastConnectionTime.value = System.currentTimeMillis()
         }
     }
 
@@ -252,6 +258,15 @@ class PanduAccessibilityService : AccessibilityService() {
         private val _isConnected = MutableStateFlow(false)
         val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
         val connectionEvent = MutableStateFlow("Not connected in this process")
+        val lastConnectionTime = MutableStateFlow(0L)
+        fun bindingDiagnostic(context: Context): String {
+            val component = ComponentName(context, PanduAccessibilityService::class.java)
+            val enabled = runCatching {
+                Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                    .orEmpty().split(':').any { ComponentName.unflattenFromString(it) == component }
+            }.getOrNull() ?: return "Android accessibility setting unavailable"
+            return OmegaRecoveryPolicy.accessibilityLabel(enabled, isConnected.value)
+        }
 
         fun performGlobalNav(action: GlobalNavigationAction): Boolean {
             val service = instance ?: return false

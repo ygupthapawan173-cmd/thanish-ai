@@ -263,7 +263,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         active.value = false
         recognitionReady.value = false
         reconnectPending = false
-        if (status.value.startsWith("Listening") || status.value.startsWith("Loading") || status.value.startsWith("Wake detected")) status.value = "Stopped"
+        if (lastError.value.isBlank()) status.value = "Stopped"
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }

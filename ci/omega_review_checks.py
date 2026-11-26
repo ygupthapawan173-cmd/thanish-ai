@@ -93,3 +93,5 @@ print('PASS R105 source wiring; runtime and visual verification are separate')
 assert 'OmegaRecoveryPolicy.platformFallback' in recognizer
 assert 'OmegaRecoveryPolicy.keepListeningAfterCapture' in wake
 print('PASS R106 recovery wiring; physical wake still unverified')
+
+assert 'bindingDiagnostic(context)' in premium_chrome

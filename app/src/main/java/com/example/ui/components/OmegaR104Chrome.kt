@@ -186,6 +186,7 @@ fun OmegaR104SettingsHeader(
                 R104StateCell("A11Y",if(a11y) "ON" else "OFF",Modifier.weight(1f))
             }
             Text(accessibilityEvent,color=ChDim,style=MaterialTheme.typography.bodySmall)
+            Text(PanduAccessibilityService.bindingDiagnostic(context),color=ChDim,style=MaterialTheme.typography.bodySmall)
             Text(requestState,color=ChCyan,style=MaterialTheme.typography.labelMedium)
             Text("LAST AI SUCCESS: " + lastRoute,color=ChDim,
                 style=MaterialTheme.typography.bodySmall,maxLines=2)

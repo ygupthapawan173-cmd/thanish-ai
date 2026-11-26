@@ -228,7 +228,10 @@ class VoiceInputController(
                 lastSpeechError.value = e.javaClass.simpleName
                 _state.value = VoiceInputState.Idle
                 destroyRecognizerInternal()
-                onError("మైక్ స్టార్ట్ చేయడంలో సమస్య వచ్చింది బాస్. కింద టైప్ చేయొచ్చు!")
+                if (e !is SecurityException && OmegaRecoveryPolicy.platformFallback(mode, local, forcePlatform,
+                        SpeechRecognizer.isRecognitionAvailable(context), SpeechRecognizer.ERROR_CLIENT)) {
+                    startListening(locale, forcePlatform = true)
+                } else onError("మైక్ స్టార్ట్ చేయడంలో సమస్య వచ్చింది బాస్. కింద టైప్ చేయొచ్చు!")
             }
         }
     }
@@ -254,6 +257,7 @@ class VoiceInputController(
         mainHandler.post {
             _state.value = VoiceInputState.Idle
             destroyRecognizerInternal()
+            engineStatus.value = "Stopped"
         }
     }
 
