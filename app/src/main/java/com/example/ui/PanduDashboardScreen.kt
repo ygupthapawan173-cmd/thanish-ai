@@ -85,7 +85,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.control.AppControlTarget
 import com.example.ui.components.ChatMessageBubble
-import com.example.ui.components.CyberpunkBottomNavBar
+import com.example.ui.components.OmegaR104BottomNavBar
+import com.example.ui.components.OmegaR104TopBar
 import com.example.ui.components.CyberpunkTab
 import com.example.ui.components.HistoryCommandTab
 import com.example.ui.components.HomeCommandTab
@@ -93,7 +94,6 @@ import com.example.ui.components.JarvisAlertBanner
 import com.example.ui.components.JarvisArcCoreHero
 import com.example.ui.components.JarvisAtmosphericBackdrop
 import com.example.ui.components.JarvisMicOrb
-import com.example.ui.components.JarvisTopBar
 import com.example.ui.components.LiveVoiceTranscriptChip
 import com.example.ui.components.PhoneControlDashboard
 import com.example.ui.components.SettingsCommandTab
@@ -215,7 +215,7 @@ fun PanduDashboardScreen(
                     .widthIn(max = 640.dp)
                     .align(Alignment.Center)
             ) {
-                JarvisTopBar(
+                OmegaR104TopBar(
                     status = uiState.jarvisStatus,
                     speechLocaleLabel = uiState.speechLocale.shortLabel,
                     ttsPresetLabel = uiState.ttsConfig.preset.shortHudLabel,
@@ -401,13 +401,14 @@ fun PanduDashboardScreen(
                                 onMicPermissionChanged = { granted -> 
                                     viewModel.updateMicPermissionStatus(granted)
                                 },
-                                onRefreshDeviceState = { viewModel.refreshDeviceControls() }
+                                onRefreshDeviceState = { viewModel.refreshDeviceControls() },
+                                onNavigateOmega = { selectedTab = CyberpunkTab.OMEGA }
                             )
                         }
                     }
                 }
 
-                CyberpunkBottomNavBar(
+                OmegaR104BottomNavBar(
                     selectedTab = selectedTab,
                     onSelectTab = { selectedTab = it }
                 )
@@ -863,7 +864,7 @@ fun PanduCyberpunkCommandCenterPreview() {
         Box(modifier = Modifier.fillMaxSize()) {
             JarvisAtmosphericBackdrop()
             Column(modifier = Modifier.fillMaxSize()) {
-                JarvisTopBar(
+                OmegaR104TopBar(
                     status = JarvisStatus.ONLINE,
                     speechLocaleLabel = "తెలుగు",
                     ttsPresetLabel = "WITTY",
@@ -891,7 +892,7 @@ fun PanduCyberpunkCommandCenterPreview() {
                         onSpeakBattery = {}
                     )
                 }
-                CyberpunkBottomNavBar(
+                OmegaR104BottomNavBar(
                     selectedTab = CyberpunkTab.HOME,
                     onSelectTab = {}
                 )

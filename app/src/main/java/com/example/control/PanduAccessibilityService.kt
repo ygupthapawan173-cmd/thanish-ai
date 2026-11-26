@@ -183,7 +183,13 @@ class PanduAccessibilityService : AccessibilityService() {
         // Agent screen snapshots are captured only on demand, never collected in the background.
     }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        // Keep service connection state accurate: interruption is not disconnection.
+        // Discard temporary screen data and stop agent capture until consent is renewed.
+        agentNodes = emptyList()
+        agentNodeLabels = emptyList()
+        agentScreenCaptureGranted = false
+    }
 
     override fun onUnbind(intent: Intent?): Boolean {
         markDisconnected()

@@ -106,270 +106,20 @@ fun HomeCommandTab(
     onSpeakBattery: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val listeningState = uiState.voiceInputState as? VoiceInputState.Listening
-    val isListening = listeningState != null
-    val isThinking = uiState.aiGenState is AiGenState.Thinking || uiState.aiGenState is AiGenState.Streaming
-    val amplitude = listeningState?.amplitude ?: 0f
-
-    val starterPrompts = listOf(
-        stringResource(R.string.starter_prompt_joke),
-        stringResource(R.string.starter_prompt_motivation),
-        stringResource(R.string.starter_prompt_tech),
-        stringResource(R.string.starter_prompt_food)
-    )
-
-    LazyColumn(
+    OmegaR104PremiumHome(
+        uiState = uiState,
+        onMicClick = onMicClick,
+        onStopSpeaking = onStopSpeaking,
+        onReplayMessage = onReplayMessage,
+        onStarterPromptClick = onStarterPromptClick,
+        onOpenHelp = onOpenHelp,
+        onNavigateToChat = onNavigateToChat,
+        onNavigateToApps = onNavigateToApps,
+        onYouTubeShortcut = onYouTubeShortcut,
+        onWhatsAppShortcut = onWhatsAppShortcut,
+        onSpeakBattery = onSpeakBattery,
         modifier = modifier
-            .fillMaxSize()
-            .testTag("home_command_tab"),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Central Holographic Avatar + Animated Waveform + Large Circular Mic Button
-        item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = JarvisSurface.copy(alpha = 0.88f),
-                border = BorderStroke(1.2.dp, cyberDualNeonBrush())
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OmegaSafeSingularityVisual(
-                        status = uiState.jarvisStatus,
-                        amplitude = amplitude
-                    )
-
-                    Text(
-                        text = when {
-                            isListening -> listeningState?.partialText?.ifBlank {
-                                stringResource(R.string.listening_hint_te)
-                            }.orEmpty()
-                            uiState.aiGenState is AiGenState.Streaming -> uiState.aiGenState.partialText
-                            uiState.aiGenState is AiGenState.Thinking -> stringResource(R.string.status_thinking)
-                            else -> stringResource(R.string.welcome_title)
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = IceWhite,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    CyberpunkAudioWaveform(
-                        status = uiState.jarvisStatus,
-                        amplitude = amplitude,
-                        modifier = Modifier.padding(horizontal = 6.dp)
-                    )
-
-                    CyberpunkHeroMicButton(
-                        isListening = isListening,
-                        isThinking = isThinking,
-                        isSpeaking = uiState.isSpeaking,
-                        amplitude = amplitude,
-                        onClick = onMicClick
-                    )
-
-                    Text(
-                        text = if (isListening) {
-                            stringResource(R.string.status_listening)
-                        } else {
-                            stringResource(R.string.tap_to_speak_telugu)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isListening) ElectricCyan else CyberOrange
-                    )
-
-                    AnimatedVisibility(
-                        visible = uiState.isSpeaking,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        OutlinedButton(
-                            onClick = onStopSpeaking,
-                            border = BorderStroke(1.dp, HudOnlineGreen)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = stringResource(R.string.stop_voice_cd),
-                                tint = HudOnlineGreen,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(R.string.tts_stop_pill),
-                                color = HudOnlineGreen,
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Quick Launch Deck: YouTube, WhatsApp, Apps Shortcut Cards
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.command_deck_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ElectricCyan,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-                CyberpunkShortcutDeck(
-                    onYouTubeClick = onYouTubeShortcut,
-                    onWhatsAppClick = onWhatsAppShortcut,
-                    onAppsClick = onNavigateToApps
-                )
-            }
-        }
-
-        // Power Core Telemetry Card (Battery Percentage & Charging State)
-        item {
-            JarvisDashboardBatteryCard(
-                battery = uiState.deviceControlState.battery,
-                onSpeakBattery = onSpeakBattery
-            )
-        }
-
-        // Latest Jarvis Transmission Card (if conversation exists)
-        val latestAssistant = uiState.messages.lastOrNull {
-            it.role == ChatMessageEntity.ROLE_ASSISTANT
-        }
-        if (latestAssistant != null) {
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    color = JarvisSurface.copy(alpha = 0.92f),
-                    border = BorderStroke(1.2.dp, cyberDualNeonBrush(reverse = true))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = stringResource(R.string.last_reply_card_title),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = CyberOrange
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { onReplayMessage(latestAssistant) },
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    val speakingThis = uiState.isSpeaking &&
-                                        uiState.speakingMessageId == latestAssistant.id
-                                    Icon(
-                                        imageVector = if (speakingThis) {
-                                            Icons.Default.Stop
-                                        } else {
-                                            Icons.AutoMirrored.Filled.VolumeUp
-                                        },
-                                        contentDescription = stringResource(R.string.replay_voice_cd),
-                                        tint = if (speakingThis) HudOnlineGreen else ElectricCyan
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = onNavigateToChat,
-                                    border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.6f))
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.open_full_chat),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = ElectricCyan
-                                    )
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = latestAssistant.text,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = IceWhite
-                        )
-                    }
-                }
-            }
-        }
-
-        // Quick Telugu Prompt Chips + Help Guide CTA
-        item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = JarvisSurface.copy(alpha = 0.85f),
-                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.35f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        starterPrompts.forEachIndexed { index, prompt ->
-                            Surface(
-                                modifier = Modifier
-                                    .minimumInteractiveComponentSize()
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable(role = Role.Button) {
-                                        onStarterPromptClick(prompt)
-                                    }
-                                    .testTag("starter_chip_$index"),
-                                shape = RoundedCornerShape(50),
-                                color = JarvisSurfaceElevated.copy(alpha = 0.9f),
-                                border = BorderStroke(1.dp, cyberDualNeonBrush())
-                            ) {
-                                Text(
-                                    text = prompt,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = IceWhite,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = onOpenHelp,
-                        border = BorderStroke(1.dp, CyberOrange.copy(alpha = 0.75f)),
-                        modifier = Modifier.testTag("hero_help_examples_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
-                            contentDescription = null,
-                            tint = CyberOrange,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.help_examples_cta),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = ElectricCyan
-                        )
-                    }
-                }
-            }
-        }
-    }
+    )
 }
 
 @Composable
@@ -701,6 +451,7 @@ fun SettingsCommandTab(
     onRequestClearChat: () -> Unit,
     onMicPermissionChanged: (Boolean) -> Unit,
     onRefreshDeviceState: () -> Unit,
+    onNavigateOmega: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -711,18 +462,14 @@ fun SettingsCommandTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.settings_screen_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = ElectricCyan
-                )
-                Text(
-                    text = stringResource(R.string.settings_screen_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = SlateCyan
-                )
-            }
+            OmegaR104SettingsHeader(
+                onOpenOmega = onNavigateOmega,
+                onRefresh = onRefreshDeviceState
+            )
+        }
+        item {
+            Text("PERMISSIONS & SYSTEM", color = ElectricCyan,
+                style = MaterialTheme.typography.titleSmall)
         }
 
         // One real permission setup center; Android handles every grant.
