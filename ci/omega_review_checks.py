@@ -37,6 +37,19 @@ assert "AiRetryPolicy.retryDelayMs" in repository and "accumulated.isNotEmpty()"
 assert "OmegaContext.recent" in repository and "ReplyPreferences.get" in repository
 assert "OmegaWakeEngine.match" in wake and "WakeGate(1600L)" in wake
 assert "lastRoute.collectAsState()" in master
+premium_home = read("java/com/example/ui/components/OmegaR104PremiumHome.kt")
+premium_chrome = read("java/com/example/ui/components/OmegaR104Chrome.kt")
+screen = read("java/com/example/ui/PanduDashboardScreen.kt")
+assert "OmegaR104PremiumHome(" in tabs
+assert "OmegaR104TopBar(" in screen and "OmegaR104BottomNavBar(" in screen
+assert "OmegaR104SettingsHeader(" in tabs and "onNavigateOmega" in tabs
+assert "lastRoute.collectAsState()" in premium_home and "lastRoute.collectAsState()" in premium_chrome
+assert "OmegaWakeService.active.collectAsState()" in premium_home
+assert "onMicClick=onMicClick" in premium_home
+assert "onWhatsAppShortcut" in premium_home and "onYouTubeShortcut" in premium_home
+assert "onNavigateToApps" in premium_home and "onSpeakBattery" in premium_home
+assert "recognitionRestarts >= 2" in wake and "recoverOfflineRecognition" in wake
+print("PASS R104 premium Home, neon chrome, real settings status and bounded voice recovery")
 print("PASS R100 unified UI, locale, wake and AI safeguards")
 assert '"Coding"' not in omega
 assert 'OMEGA(R.string.nav_omega' in nav and "com.example.omega.OmegaCenter(" in screen and "embedded = true" in screen
