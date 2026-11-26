@@ -1,0 +1,62 @@
+name: OMEGA PANDU V19.2 BUILD FIXED APK
+on:
+  push:
+    branches: [build/omega-pandu-v19-2-build-fixed]
+    paths: [OMEGA-PANDU-v19.2-BUILD-FIXED.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and extract exact V19.2 source
+        run: |
+          echo "d9b0a77994f830730685cdc393d6361d12edd1b38bf3c9523e88d43f9cd7d593  OMEGA-PANDU-v19.2-BUILD-FIXED.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile, pathlib, stat
+          with zipfile.ZipFile('OMEGA-PANDU-v19.2-BUILD-FIXED.zip') as z:
+              assert z.testzip() is None
+              assert len([i for i in z.infolist() if not i.is_dir()]) == 76
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts
+                  assert not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('omega-v192-build')
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Run original unit tests
+        working-directory: omega-v192-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build original debug APK
+        working-directory: omega-v192-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK signature package and original version
+        run: |
+          mkdir -p out
+          cp omega-v192-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v19.2-BUILD-FIXED-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/OMEGA-PANDU-v19.2-BUILD-FIXED-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v19.2-BUILD-FIXED-TEST.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v19.2-BUILD-FIXED-TEST.apk | grep -F "versionName='19.1-voice-fixed'"
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v19.2-BUILD-FIXED-TEST
+          path: out/
+          if-no-files-found: error
