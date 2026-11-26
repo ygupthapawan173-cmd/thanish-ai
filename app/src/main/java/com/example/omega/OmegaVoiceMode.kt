@@ -1,7 +1,9 @@
 package com.example.omega
 import android.content.Context
 enum class OmegaVoiceMode(val label: String) {
-    PLATFORM("Android speech service"), LOCAL("On-device only"), HYBRID("Prefer on-device")
+    PLATFORM("Android speech service (may use internet)"),
+    LOCAL("On-device only (never uploads voice)"),
+    HYBRID("Hybrid: offline first, online if unavailable")
 }
 object OmegaVoicePreferences {
     fun get(c: Context): OmegaVoiceMode = runCatching {
