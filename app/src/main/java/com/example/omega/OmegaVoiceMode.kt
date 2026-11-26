@@ -13,5 +13,10 @@ object OmegaVoicePreferences {
     fun set(c: Context, m: OmegaVoiceMode) {
         c.getSharedPreferences("omega_voice", 0).edit().putString("mode", m.name).apply()
     }
+    fun continuous(c: Context): Boolean =
+        c.getSharedPreferences("omega_voice", 0).getBoolean("continuous_opt_in", false)
+    fun setContinuous(c: Context, enabled: Boolean) {
+        c.getSharedPreferences("omega_voice", 0).edit().putBoolean("continuous_opt_in", enabled).apply()
+    }
 }
 
