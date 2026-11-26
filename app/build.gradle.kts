@@ -1,3 +1,5 @@
+import java.util.zip.ZipFile
+import java.security.MessageDigest
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
@@ -25,21 +27,47 @@ abstract class ExtractOmegaModel : DefaultTask() {
 
   @TaskAction
   fun extract() {
-    fileSystemOperations.sync {
-      from(archiveOperations.zipTree(archive.singleFile)) {
-        include("assets/**")
-        eachFile { path = path.removePrefix("assets/") }
-        includeEmptyDirs = false
+    val aar = archive.singleFile
+    val dest = outputDirectory.get().asFile
+    fileSystemOperations.delete { delete(dest) }
+    val model = dest.resolve("model-en-us")
+    check(model.mkdirs() || model.isDirectory)
+    ZipFile(aar).use { zip ->
+      val files = zip.entries().asSequence().filterNot { it.isDirectory }.toList()
+      val candidates = files.filter { it.name.endsWith("/am/final.mdl") }
+      val acoustic = if (candidates.isNotEmpty()) candidates.single()
+        else files.singleOrNull { it.name.endsWith("/final.mdl") }
+          ?: error("No acoustic model in Vosk AAR. Archive entries: " +
+            files.take(40).joinToString { it.name })
+      val suffix = if (acoustic.name.endsWith("/am/final.mdl")) "am/final.mdl" else "final.mdl"
+      val prefix = acoustic.name.removeSuffix(suffix)
+      check(prefix.isNotEmpty() && prefix.startsWith("assets/")) {
+        "Unexpected Vosk model location: " + acoustic.name
       }
-      into(outputDirectory.get().asFile)
+      logger.lifecycle("Extracting Vosk model from " + prefix)
+      for (entry in files.filter { it.name.startsWith(prefix) }) {
+        val relative = entry.name.removePrefix(prefix)
+        val out = model.resolve(relative).canonicalFile
+        check(out.toPath().startsWith(model.canonicalFile.toPath())) { "Unsafe archive entry" }
+        out.parentFile.mkdirs()
+        zip.getInputStream(entry).use { input -> out.outputStream().use { input.copyTo(it) } }
+      }
+      check(model.resolve(suffix).length() > 0L)
     }
-    val model = outputDirectory.get().dir("model-en-us").asFile
-    check(model.resolve("am/final.mdl").isFile) {
-      "Vosk English model archive missing model-en-us/am/final.mdl"
+    val uuid = model.resolve("uuid")
+    if (!uuid.isFile || uuid.length() == 0L) {
+      val digest = MessageDigest.getInstance("SHA-256")
+      aar.inputStream().use { input ->
+        val buffer = ByteArray(65536)
+        while (true) {
+          val count = input.read(buffer)
+          if (count < 0) break
+          digest.update(buffer, 0, count)
+        }
+      }
+      uuid.writeText(digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) })
     }
-    check(model.resolve("uuid").isFile) {
-      "Vosk English model archive missing StorageService uuid"
-    }
+    logger.lifecycle("Packaged Vosk model files: " + model.walkTopDown().count { it.isFile })
   }
 }
 val omegaModelArchive = configurations.create("omegaModelArchive") {
