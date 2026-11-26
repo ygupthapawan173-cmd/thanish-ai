@@ -3,7 +3,7 @@ name: THANISH AI APK Build
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, omega-native-master, 'review/omega-r100-single-master-patch']
+    branches: [main, omega-native-master, 'review/omega-r100-single-master-patch', 'review/omega-r103-safe-integrated-build']
   push:
     branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master']
 
