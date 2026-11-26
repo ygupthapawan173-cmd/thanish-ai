@@ -24,7 +24,8 @@ tabs = read("java/com/example/ui/components/CommandCenterTabs.kt")
 orb = read("java/com/example/ui/components/OmegaPlasmaOrb.kt")
 master = read("java/com/example/omega/OmegaMasterDashboard.kt")
 safe_orb = read("java/com/example/ui/components/OmegaSafeSingularityVisual.kt")
-assert "OmegaSafeSingularityVisual(" in tabs and "Canvas(" in safe_orb
+premium_home = read("java/com/example/ui/components/OmegaR104PremiumHome.kt")
+assert "OmegaSafeSingularityVisual(" in premium_home and "Canvas(" in safe_orb
 assert "JarvisStatus.LISTENING" in safe_orb and "amplitude" in safe_orb
 assert "OmegaMasterDashboard(" in omega and "EncryptedApiKeyStore" in master
 assert "PanduAccessibilityService.isConnected.collectAsState()" in master
@@ -45,7 +46,7 @@ assert "OmegaR104TopBar(" in screen and "OmegaR104BottomNavBar(" in screen
 assert "OmegaR104SettingsHeader(" in tabs and "onNavigateOmega" in tabs
 assert "lastRoute.collectAsState()" in premium_home and "lastRoute.collectAsState()" in premium_chrome
 assert "OmegaWakeService.active.collectAsState()" in premium_home
-assert "onMicClick=onMicClick" in premium_home
+assert "onClick=onMicClick" in premium_home
 assert "onWhatsAppShortcut" in premium_home and "onYouTubeShortcut" in premium_home
 assert "onNavigateToApps" in premium_home and "onSpeakBattery" in premium_home
 assert "recognitionRestarts >= 2" in wake and "recoverOfflineRecognition" in wake
