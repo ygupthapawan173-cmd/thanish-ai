@@ -139,3 +139,14 @@ assert 'checkAudioHealth(id)' in live and 'lastMicFrameMs' in live
 assert 'UtteranceProgressListener' in wake and 'wakeToCommandMs' in wake and 'recoveryDelay' in wake
 assert 'elite_confidence_' in omega
 print('PASS ELITE audio-route recovery, acknowledgement latency, calibration and recorder recovery wiring')
+
+from pathlib import Path
+horizon_assets=root/'assets/omega_horizon'
+horizon_renderer=read('java/com/example/ui/components/OmegaHorizonOrb.kt')
+assert 'OmegaHorizonOrb(' in premium_home and 'horizon_renderer_toggle' in premium_home
+assert 'blockNetworkLoads=true' in horizon_renderer and 'allowFileAccess=false' in horizon_renderer and 'addJavascriptInterface' not in horizon_renderer
+assert 'OmegaUnifiedGpuOrb(' in horizon_renderer and 'setPaused' in horizon_renderer
+assert 'MIT License' in (horizon_assets/'LICENSE.txt').read_text()
+ui_bytes=sum(p.stat().st_size for p in horizon_assets.rglob('*') if p.is_file())+len(horizon_renderer.encode())+len(premium_home.encode())
+assert ui_bytes<=20_000_000, f'Horizon UI source/assets exceeded 20 MB: {ui_bytes}'
+print(f'PASS Horizon UI source and assets: {ui_bytes} bytes; 20 MB maximum; packaged check separate')

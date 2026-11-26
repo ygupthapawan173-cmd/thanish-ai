@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.pandubabu.kxmpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 15
-    versionName = "3.5-omega-elite-audio-recovery-review"
+    versionCode = 16
+    versionName = "3.6-omega-horizon-lite-review"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

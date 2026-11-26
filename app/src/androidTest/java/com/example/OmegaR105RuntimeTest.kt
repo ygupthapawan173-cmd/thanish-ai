@@ -21,6 +21,10 @@ class OmegaR105RuntimeTest {
     @Test fun launchShowsActualR105HomeAndOrb() {
         compose.onNodeWithTag("home_command_tab").assertIsDisplayed()
         compose.onNodeWithTag("r105_orb").assertIsDisplayed()
+        compose.onNodeWithTag("horizon_hero").assertIsDisplayed()
+        compose.onNodeWithTag("horizon_renderer_toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("r105_orb").assertIsDisplayed()
+        compose.onNodeWithTag("horizon_renderer_toggle").performScrollTo().performClick()
         compose.onNodeWithTag("nav_settings").performClick()
         compose.onNodeWithTag("settings_command_tab").assertIsDisplayed()
         compose.onNodeWithTag("nav_home").performClick()
