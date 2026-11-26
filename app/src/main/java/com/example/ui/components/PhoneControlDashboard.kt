@@ -199,7 +199,7 @@ fun PhoneControlDashboard(
                         color = ElectricCyan
                     )
                     Text(
-                        text = "Describe a task. Pandu Babu will suggest one phone action at a time; every tap or text entry waits for your approval.",
+                        text = "Describe a task. OMEGA JARVIS will suggest one phone action at a time; every tap or text entry waits for your approval.",
                         style = MaterialTheme.typography.bodySmall,
                         color = SlateCyan
                     )
@@ -207,7 +207,7 @@ fun PhoneControlDashboard(
                         value = agentGoal,
                         onValueChange = { agentGoal = it.take(500) },
                         modifier = Modifier.fillMaxWidth().testTag("phone_agent_goal"),
-                        label = { Text("What should Pandu Babu do?") },
+                        label = { Text("What should OMEGA JARVIS do?") },
                         placeholder = { Text("Example: Open Chrome and search for weather") },
                         minLines = 2,
                         maxLines = 3,
@@ -827,7 +827,7 @@ fun PhoneControlDashboard(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "• Android 10+ restricts apps from silently toggling Wi-Fi, Bluetooth, Hotspot, or Mobile Data — Pandu Babu opens the official system settings panel instead.\n• System Brightness requires 'Modify System Settings' permission.\n• Phone & Messages always ask explicit confirmation before opening.",
+                        text = "• Android 10+ restricts apps from silently toggling Wi-Fi, Bluetooth, Hotspot, or Mobile Data — OMEGA JARVIS opens the official system settings panel instead.\n• System Brightness requires 'Modify System Settings' permission.\n• Phone & Messages always ask explicit confirmation before opening.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = SlateCyan
                     )
