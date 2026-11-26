@@ -46,6 +46,11 @@ fun OmegaCenter(
     val lastWakeTime by OmegaWakeService.lastWakeAt.collectAsState()
     var tab by remember { mutableStateOf(0) }
     var wakePhrase by remember { mutableStateOf(OmegaVoicePreferences.wakePhrase(c)) }
+    var sensitivity by remember { mutableStateOf(OmegaVoicePreferences.sensitivity(c)) }
+    var customWakeInput by remember { mutableStateOf(OmegaVoicePreferences.customWake(c)) }
+    var acknowledgement by remember { mutableStateOf(OmegaVoicePreferences.acknowledgement(c)) }
+    var customAckInput by remember { mutableStateOf(OmegaVoicePreferences.customAcknowledgement(c)) }
+    var replyStyle by remember { mutableStateOf(ReplyPreferences.get(c)) }
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var notice by remember { mutableStateOf("") }
@@ -149,6 +154,56 @@ fun OmegaCenter(
                                 Text(phrase.label, modifier = Modifier.padding(top = 14.dp))
                             }
                         }
+                        if (wakePhrase == OmegaWakePhrase.CUSTOM) {
+                            OutlinedTextField(
+                                value = customWakeInput,
+                                onValueChange = { customWakeInput = it.take(40) },
+                                enabled = !wakeActive,
+                                label = { Text("Custom English wake phrase (2-4 words)") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedButton(
+                                enabled = !wakeActive && OmegaWakeEngine.validCustomPhrase(customWakeInput) != null,
+                                onClick = {
+                                    if (OmegaVoicePreferences.setCustomWake(c, customWakeInput)) notice = "Custom phrase saved."
+                                }
+                            ) { Text("Save custom wake phrase") }
+                            Text("Unusual names may not be recognized by the bundled English speech model.")
+                        }
+                        Text("Wake sensitivity • Strict recommended")
+                        WakeSensitivity.entries.forEach { value ->
+                            Row {
+                                RadioButton(selected = sensitivity == value, enabled = !wakeActive,
+                                    onClick = { sensitivity = value; OmegaVoicePreferences.setSensitivity(c, value) })
+                                Text(value.label, Modifier.padding(top = 14.dp))
+                            }
+                        }
+                        HorizontalDivider()
+                        Text("Wake acknowledgement")
+                        WakeAckStyle.entries.forEach { value ->
+                            Row {
+                                RadioButton(selected = acknowledgement == value, enabled = !wakeActive,
+                                    onClick = { acknowledgement = value; OmegaVoicePreferences.setAcknowledgement(c, value) })
+                                Text(value.label, Modifier.padding(top = 14.dp))
+                            }
+                        }
+                        if (acknowledgement == WakeAckStyle.CUSTOM) {
+                            OutlinedTextField(customAckInput, {
+                                customAckInput = OmegaWakeAck.sanitizeCustom(it)
+                                OmegaVoicePreferences.setCustomAcknowledgement(c, customAckInput)
+                            }, enabled = !wakeActive, label = { Text("Wake reply (max 40 characters)") },
+                                modifier = Modifier.fillMaxWidth())
+                        }
+                        HorizontalDivider()
+                        Text("AI reply style")
+                        ReplyStyle.entries.forEach { value ->
+                            Row {
+                                RadioButton(selected = replyStyle == value,
+                                    onClick = { replyStyle = value; ReplyPreferences.set(c, value) })
+                                Text(value.label, Modifier.padding(top = 14.dp))
+                            }
+                        }
+                        Text("Reply styles apply to direct Gemini/OpenAI-compatible API requests; Firebase fallback retains its existing configuration.")
                         Text(wakeStatus)
                         Text("Bundled English acoustic model. Selected phrase: " +
                             wakePhrase.label + ". Stop listening before changing the phrase. " +
