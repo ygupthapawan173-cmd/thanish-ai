@@ -8,8 +8,39 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+ // The English model AAR shares org.vosk namespace with the engine AAR.
+ // Resolve it as a data archive, not an Android library; package only model assets.
+val omegaModelArchive = configurations.create("omegaModelArchive") {
+  isCanBeConsumed = false
+  isCanBeResolved = true
+  isTransitive = false
+}
+val omegaGeneratedAssets = layout.buildDirectory.dir("generated/omegaVoskAssets")
+val extractOmegaVoskModel by tasks.registering(Sync::class) {
+  inputs.files(omegaModelArchive)
+  from({ zipTree(omegaModelArchive.singleFile) }) {
+    include("assets/**")
+    eachFile {
+      path = path.removePrefix("assets/")
+    }
+    includeEmptyDirs = false
+  }
+  into(omegaGeneratedAssets)
+  doLast {
+    val model = omegaGeneratedAssets.get().dir("model-en-us").asFile
+    check(model.resolve("am/final.mdl").isFile) {
+      "Vosk English model archive missing model-en-us/am/final.mdl"
+    }
+    check(model.resolve("uuid").isFile) {
+      "Vosk English model archive missing StorageService uuid"
+    }
+  }
+}
+tasks.named("preBuild").configure { dependsOn(extractOmegaVoskModel) }
+
 android {
   namespace = "com.example"
+  sourceSets.getByName("main").assets.srcDir(omegaGeneratedAssets)
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
@@ -85,7 +116,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 dependencies {
   implementation("net.java.dev.jna:jna:5.18.1@aar")
   implementation("com.alphacephei:vosk-android:0.3.75@aar")
-  implementation("com.alphacephei:vosk-model-en:0.3.75@aar")
+  add(omegaModelArchive.name, "com.alphacephei:vosk-model-en:0.3.75@aar")
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
