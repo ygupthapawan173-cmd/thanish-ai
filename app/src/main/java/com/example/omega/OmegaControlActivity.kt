@@ -120,6 +120,7 @@ fun OmegaCenter(
                         shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
                 }
             }
+            OutlinedButton(onClick = { tab = 4 }, modifier = Modifier.fillMaxWidth().testTag("singularity_hud_open")) { Text("10,000X · Singularity Lab") }
             if (onOpenPermissions != null) {
                 OutlinedButton(
                     onClick = onOpenPermissions,
@@ -129,6 +130,7 @@ fun OmegaCenter(
             if (notice.isNotBlank()) Text(notice, color = MaterialTheme.colorScheme.secondary)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (tab) {
+                    4 -> com.example.ui.components.OmegaSingularityHudScreen()
                     0 -> {
                         OmegaMasterDashboard(
                             noteCount = entries.size,

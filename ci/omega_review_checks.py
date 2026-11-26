@@ -106,3 +106,9 @@ assert 'OmegaAssistantCore.sessions.acquireMic' in voice and 'OmegaAssistantCore
 assert 'runBackgroundReply(text)' in wake and 'OmegaAssistantCore.routeWake' in wake
 assert 'promptWithMemory' in viewmodel and 'promptWithMemory' in wake
 print('PASS unified source wiring; functional tests remain separate')
+
+assert 'OmegaSingularityHudScreen()' in omega
+live = read('java/com/example/ai/GeminiLiveDuplexEngine.kt')
+assert 'setupComplete' in live and 'MicOwner.LIVE' in live and 'interrupted' in live
+assert 'REQUEST_INSTALL_PACKAGES' in manifest and '.verifiedupdates' in manifest
+print('PASS Singularity source wiring; live provider and update behavior require runtime checks')

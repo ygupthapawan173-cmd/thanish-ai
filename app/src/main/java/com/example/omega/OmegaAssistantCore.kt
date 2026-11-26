@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
-enum class MicOwner { NONE, MANUAL, WAKE }
+enum class MicOwner { NONE, MANUAL, WAKE, LIVE }
 enum class WakeRoute { REVIEW, AI }
 
 /** Process-wide, synchronized lease. Wake keeps its lease while pausing for AI/TTS. */
@@ -21,7 +21,7 @@ class AssistantSessionGate {
     private var foregroundBusy = false
 
     @Synchronized fun acquireMic(request: MicOwner): Boolean {
-        if (request == MicOwner.NONE || _owner.value != MicOwner.NONE) return false
+        if (request == MicOwner.NONE || _owner.value != MicOwner.NONE || (request == MicOwner.LIVE && foregroundBusy)) return false
         _owner.value = request
         return true
     }
@@ -35,7 +35,7 @@ class AssistantSessionGate {
     }
     @Synchronized fun endBackground() { _backgroundBusy.value = false }
     @Synchronized fun beginForeground(): Long? {
-        if (_backgroundBusy.value) return null
+        if (_backgroundBusy.value || _owner.value == MicOwner.LIVE) return null
         foregroundBusy = true
         foregroundToken += 1
         return foregroundToken
