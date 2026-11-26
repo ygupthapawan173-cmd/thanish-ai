@@ -41,6 +41,7 @@ fun OmegaCenter(
     val scope = rememberCoroutineScope()
     val wakeStatus by OmegaWakeService.status.collectAsState()
     val wakeActive by OmegaWakeService.active.collectAsState()
+    val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
     val wakePartial by OmegaWakeService.lastPartial.collectAsState()
     val wakeError by OmegaWakeService.lastError.collectAsState()
     val lastWakeTime by OmegaWakeService.lastWakeAt.collectAsState()
@@ -258,6 +259,7 @@ fun OmegaCenter(
                         Text("Last recognized partial: " + wakePartial.ifBlank { "No audio hypothesis yet" })
                         Text("Last wake error: " + wakeError.ifBlank { "None reported" })
                         Text("Foreground microphone service active: " + wakeActive)
+                        Text("Offline recognizer started: " + wakeReady)
                         Button(onClick = { measure() }) { Text("Refresh measurements") }
                         Text("Microphone permissions, accessibility controls and voice configuration remain under user control. AI connections are managed in one Settings panel.")
                     }

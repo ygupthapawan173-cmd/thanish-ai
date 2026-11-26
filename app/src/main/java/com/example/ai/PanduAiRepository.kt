@@ -149,6 +149,7 @@ class PanduAiRepository(context: Context) {
                 Log.w(TAG, "${provider.name} failed; checking configured fallback providers")
                 if (e is ProviderHttpFailure) cooldownUntil[provider] = SystemClock.elapsedRealtime() + OmegaPolicy.retryMillis(e.status, e.retry)
                 lastError = e
+                requestState.value = provider.title + " request failed"
                 // Do not splice two providers' answers together after visible text has streamed.
                 if (accumulated.isNotEmpty()) throw e
             }

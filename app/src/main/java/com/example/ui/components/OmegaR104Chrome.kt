@@ -161,6 +161,7 @@ fun OmegaR104SettingsHeader(
     val context=LocalContext.current
     val wake by OmegaWakeService.active.collectAsState()
     val a11y by PanduAccessibilityService.isConnected.collectAsState()
+    val accessibilityEvent by PanduAccessibilityService.connectionEvent.collectAsState()
     val lastRoute by PanduAiRepository.lastRoute.collectAsState()
     val requestState by PanduAiRepository.requestState.collectAsState()
     val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
@@ -184,6 +185,7 @@ fun OmegaR104SettingsHeader(
                 R104StateCell("WAKE",if(wakeReady) "LISTENING" else if(wake) "STARTING" else "STOPPED",Modifier.weight(1f))
                 R104StateCell("A11Y",if(a11y) "ON" else "OFF",Modifier.weight(1f))
             }
+            Text(accessibilityEvent,color=ChDim,style=MaterialTheme.typography.bodySmall)
             Text(requestState,color=ChCyan,style=MaterialTheme.typography.labelMedium)
             Text("LAST AI SUCCESS: " + lastRoute,color=ChDim,
                 style=MaterialTheme.typography.bodySmall,maxLines=2)

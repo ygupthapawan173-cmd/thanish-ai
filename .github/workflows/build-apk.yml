@@ -127,6 +127,22 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
+      - name: Enable KVM for Android 16 runtime review
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 16 emulator runtime UI tests
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ci/omega-gradle-retry.sh connectedDebugAndroidTest
+
       # Isolated package: safer than uninstalling an existing debug-signed OMEGA.
       # Firebase App Check is not registered for this package; direct Gemini key
       # testing is the sole purpose of the diagnostic artifact.

@@ -188,7 +188,7 @@ fun PanduDashboardScreen(
         } else if (com.example.omega.OmegaWakeService.active.value) {
             // Never start a competing recorder; user can stop the wake session in Voice.
             selectedTab = CyberpunkTab.OMEGA
-            // The Omega tab exposes the existing explicit microphone stop control.
+            coroutineScope.launch { snackbarHostState.showSnackbar("Stop offline wake listening in Voice before manual speech.") }
         } else {
             val granted = ContextCompat.checkSelfPermission(
                 context,
