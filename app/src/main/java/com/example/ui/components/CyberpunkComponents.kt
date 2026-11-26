@@ -99,7 +99,8 @@ enum class CyberpunkTab(
     CHAT(R.string.nav_chat, Icons.Filled.Forum, Icons.Outlined.Forum, "nav_chat"),
     APPS(R.string.nav_apps, Icons.Filled.Apps, Icons.Outlined.Apps, "nav_apps"),
     HISTORY(R.string.nav_history, Icons.Filled.History, Icons.Outlined.History, "nav_history"),
-    SETTINGS(R.string.nav_settings, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
+    SETTINGS(R.string.nav_settings, Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings"),
+    OMEGA(R.string.nav_omega, Icons.Filled.GraphicEq, Icons.Filled.GraphicEq, "nav_omega")
 }
 
 fun cyberDualNeonBrush(reverse: Boolean = false): Brush {
