@@ -6,3 +6,6 @@ Original uploaded four modules reviewed; installer not executed. Rewritten compa
 - Evolution: actual AI code proposal using user-pasted source and existing AI route, review/export, GitHub PR page; no direct automated commits or compiler. User-picked APK verified against independently supplied SHA-256, matching installed signing certificates, same package, newer version, then explicit OS installer. Android package installer performs final signature verification. Debug signing mismatch expected across CI runs.
 - HUD: integrated Singularity Lab inside Omega, three functional tabs, 24 RMS-driven spokes, system RAM/battery/thermal, actual session status. Existing GPU Home preserved; not pixel-identical original HUD.
 - Tests: four new JVM cases and one new Android UI navigation/consent test; existing emulator workflow preserved; CI status pending. Physical tests and complete original four-module parity pending.
+
+## Consolidated follow-up
+Added foreground CameraX preview with opt-in 1 FPS upload, observable state checks for approved ReAct actions, and reviewed GitHub draft PR publication on a new branch. No hidden recording, automatic merge or execution. Six new JVM tests total; live provider, camera and GitHub publication remain unverified. Screen projection and autonomous compiler loop remain outside this implementation.

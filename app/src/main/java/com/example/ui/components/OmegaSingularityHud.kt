@@ -14,6 +14,10 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,6 +56,12 @@ fun OmegaSingularityHudScreen() {
     var model by remember{mutableStateOf("")}
     var prompt by remember{mutableStateOf("")}
     var selectedImage by remember{mutableStateOf<ByteArray?>(null)}
+    var cameraOn by remember{mutableStateOf(false)}
+    var cameraConsent by remember{mutableStateOf(false)}
+    var gitToken by remember{mutableStateOf("")}
+    var replacement by remember{mutableStateOf("")}
+    var prUrl by remember{mutableStateOf("")}
+    var confirmPublish by remember{mutableStateOf(false)}
     var chain by remember{mutableStateOf("")}
     var path by remember{mutableStateOf("app/src/main/java/com/example/")}
     var source by remember{mutableStateOf("")}
@@ -64,6 +74,9 @@ fun OmegaSingularityHudScreen() {
     var metrics by remember{mutableStateOf("")}
     val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->
         status=if(granted) "Permission granted. Tap Connect again." else "Microphone denied"
+    }
+    val cameraPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->
+        status=if(granted) "Camera permission granted. Reconnect Live, then start camera." else "Camera permission denied"
     }
     val imagePicker=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->
         if(uri!=null) scope.launch {
@@ -91,7 +104,7 @@ fun OmegaSingularityHudScreen() {
         }
     }
     DisposableEffect(lifecycle,engine,manager){
-        val observer=LifecycleEventObserver{_,event->if(event==Lifecycle.Event.ON_PAUSE){engine.disconnect("Paused: session stopped");react.cancel();consent=false}}
+        val observer=LifecycleEventObserver{_,event->if(event==Lifecycle.Event.ON_PAUSE){engine.disconnect("Paused: session stopped");react.cancel();consent=false;cameraOn=false;cameraConsent=false;gitToken=""}}
         lifecycle.addObserver(observer)
         onDispose{lifecycle.removeObserver(observer);engine.release();manager.release()}
     }
@@ -108,12 +121,16 @@ fun OmegaSingularityHudScreen() {
             delay(5000)
         }
     }
-    Text("OMEGA • 10,000X SINGULARITY",style=MaterialTheme.typography.titleLarge,color=Color(0xFF69F5FF),modifier=Modifier.testTag("singularity_hud"))
-    Text(metrics,style=MaterialTheme.typography.bodySmall)
-    Text("Microphone owner: "+owner.name)
+    Surface(shape=RoundedCornerShape(22.dp),color=Color(0xFF0B1830),modifier=Modifier.fillMaxWidth()){
+        Column(Modifier.background(Brush.verticalGradient(listOf(Color(0xFF14294B),Color(0xFF07101F)))).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("OMEGA • 10,000X SINGULARITY",style=MaterialTheme.typography.titleLarge,color=Color(0xFF69F5FF),modifier=Modifier.testTag("singularity_hud"))
+            Text(metrics,style=MaterialTheme.typography.bodySmall,color=Color(0xFFB7D7F1))
+            Text("Microphone owner: "+owner.name,color=Color(0xFFAD86FF))
+        }
+    }
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)){
         listOf("Live","ReAct","Evolution").forEachIndexed{i,label->
-            OutlinedButton(onClick={if(tab==0 && i!=0)engine.disconnect();tab=i},modifier=Modifier.weight(1f).testTag("singularity_tab_"+i),contentPadding=PaddingValues(horizontal=4.dp)){Text(label,maxLines=1)}
+            OutlinedButton(onClick={if(tab==0 && i!=0){engine.disconnect();cameraOn=false;cameraConsent=false};tab=i},modifier=Modifier.weight(1f).testTag("singularity_tab_"+i),contentPadding=PaddingValues(horizontal=4.dp)){Text(label,maxLines=1)}
         }
     }
     when(tab){
@@ -131,7 +148,7 @@ fun OmegaSingularityHudScreen() {
                 if(ContextCompat.checkSelfPermission(c,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)permission.launch(Manifest.permission.RECORD_AUDIO)
                 else engine.connect(model.trim())
             },enabled=consent && owner==MicOwner.NONE && model.isNotBlank(),modifier=Modifier.testTag("singularity_connect")){Text("Connect Live")}
-            OutlinedButton(onClick={engine.disconnect()}){Text("Stop Live")}
+            OutlinedButton(onClick={cameraOn=false;cameraConsent=false;engine.disconnect()}){Text("Stop Live")}
             OutlinedTextField(prompt,{prompt=it},label={Text("Live text prompt")},modifier=Modifier.fillMaxWidth())
             Button(onClick={engine.sendTextTurn(prompt);prompt=""},enabled=telemetry.connected && prompt.isNotBlank()){Text("Send text")}
             OutlinedButton(onClick={engine.disconnect();consent=false;selectedImage=null;imagePicker.launch("image/*")}){Text("Choose image (stored temporarily)")}
@@ -140,7 +157,19 @@ fun OmegaSingularityHudScreen() {
                 Button(onClick={if(engine.sendVisionFrame(bytes)){selectedImage=null;status="Selected image sent"}else status="Image send failed"},enabled=telemetry.connected){Text("Send selected image to Gemini")}
                 OutlinedButton(onClick={selectedImage=null}){Text("Discard selected image")}
             }
-            Text("No screen recording. Image selection stops Live; reconnect and explicitly send the selected image. Live stops when app loses focus.")
+            HorizontalDivider()
+            Text("Live camera • visible rear-camera preview")
+            Row{Checkbox(cameraConsent,{cameraConsent=it;if(!it)cameraOn=false});Text("Send camera frames to Gemini (up to 1 FPS). Do not capture private content or other people without permission.")}
+            Button(onClick={
+                if(ContextCompat.checkSelfPermission(c,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){engine.disconnect();cameraPermission.launch(Manifest.permission.CAMERA)}
+                else cameraOn=true
+            },enabled=telemetry.connected && cameraConsent && !cameraOn){Text("Start camera streaming")}
+            OutlinedButton(onClick={cameraOn=false;cameraConsent=false},enabled=cameraOn){Text("Stop camera")}
+            if(cameraOn && telemetry.connected && cameraConsent){
+                OmegaLiveCameraPreview(onFrame={engine.sendVisionFrame(it)},onFailure={status=it;cameraOn=false})
+            }
+            LaunchedEffect(telemetry.connected){if(!telemetry.connected){cameraOn=false;cameraConsent=false}}
+            Text("No screen recording. Camera and Live stop when leaving the foreground.")
         }
         1->{
             Text("Reviewed phone workflow")
@@ -149,7 +178,7 @@ fun OmegaSingularityHudScreen() {
             Button(onClick={react.prepare(chain)},enabled=chain.isNotBlank(),modifier=Modifier.testTag("singularity_review_chain")){Text("Review chain")}
             Text(trace.status,modifier=Modifier.testTag("singularity_react_status"))
             trace.steps.getOrNull(trace.index)?.let{Text("Next: "+it)}
-            Button(onClick={react.approveNext()},enabled=trace.status.startsWith("Awaiting"),modifier=Modifier.testTag("singularity_approve_step")){Text("Approve next step")}
+            Button(onClick={scope.launch{react.approveNext()}},enabled=trace.status.startsWith("Awaiting"),modifier=Modifier.testTag("singularity_approve_step")){Text("Approve next step")}
             OutlinedButton(onClick={react.cancel()}){Text("Cancel chain")}
             trace.logs.forEach{Text(it,style=MaterialTheme.typography.bodySmall)}
             Text("For screen-node actions use the existing consent-based Phone Agent under Apps. No automatic gestures.")
@@ -157,13 +186,25 @@ fun OmegaSingularityHudScreen() {
         2->{
             Text("AI code proposal • review only",modifier=Modifier.testTag("singularity_evolution"))
             OutlinedTextField(path,{path=it},label={Text("Kotlin path")},modifier=Modifier.fillMaxWidth())
-            OutlinedTextField(source,{source=it.take(24000)},label={Text("Paste current source (remove secrets)")},modifier=Modifier.fillMaxWidth())
+            OutlinedTextField(source,{source=it.take(64000)},label={Text("Paste current source (remove secrets)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(change,{change=it.take(2000)},label={Text("Requested change")},modifier=Modifier.fillMaxWidth())
-            Button(onClick={scope.launch{busy=true;try{draft=SelfEvolutionCompilerLoop.generateDraft(c,path,source,change);status="Draft generated; not compiled or committed"}catch(e:CancellationException){throw e}catch(_:Exception){status="Draft generation failed"}finally{busy=false}}},enabled=!busy && source.isNotBlank() && change.isNotBlank() && SelfEvolutionCompilerLoop.validPath(path)){Text("Generate review draft (sends source to AI)")}
+            Button(onClick={scope.launch{busy=true;try{draft=SelfEvolutionCompilerLoop.generateDraft(c,path,source,change);status="Draft generated; not compiled or committed"}catch(e:CancellationException){throw e}catch(_:Exception){status="Draft generation failed"}finally{busy=false}}},enabled=!busy && source.length in 1..24000 && change.isNotBlank() && SelfEvolutionCompilerLoop.validPath(path)){Text("Generate review draft (sends source to AI)")}
             if(draft.isNotBlank()){
                 androidx.compose.foundation.text.selection.SelectionContainer{Text(draft)}
                 Button(onClick={c.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,draft),"Share draft"))}){Text("Export draft")}
             }
+            HorizontalDivider()
+            Text("GitHub draft PR • reviewed source only")
+            Text("Paste the exact current source above and a complete reviewed replacement below. Token is used for this request only, never stored.")
+            OutlinedTextField(replacement,{replacement=it.take(64000)},label={Text("Reviewed full Kotlin replacement")},modifier=Modifier.fillMaxWidth(),enabled=!busy)
+            OutlinedTextField(gitToken,{gitToken=it.take(512)},label={Text("Repository-scoped GitHub token")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth(),enabled=!busy)
+            Button(onClick={confirmPublish=true},enabled=!busy && gitToken.isNotBlank() && OmegaReviewedPrPublisher.validReplacement(path,source,replacement)){Text("Review draft PR submission")}
+            if(confirmPublish)AlertDialog(onDismissRequest={confirmPublish=false},title={Text("Create GitHub draft PR?")},text={Text("One replacement: "+path+"\nBase: "+OmegaReviewedPrPublisher.BASE+"\nA new review branch will be created. No merge or installation.")},confirmButton={TextButton(onClick={
+                confirmPublish=false
+                val token=gitToken;gitToken="";val file=path;val original=source;val next=replacement
+                scope.launch{busy=true;try{prUrl=OmegaReviewedPrPublisher.publish(token,file,original,next);status="Draft PR created. Review and run CI in GitHub."}catch(e:CancellationException){throw e}catch(e:Exception){status=e.message?:"Draft PR failed"}finally{busy=false}}
+            }){Text("Create draft PR")}},dismissButton={TextButton(onClick={confirmPublish=false}){Text("Cancel")}})
+            if(prUrl.isNotBlank())OutlinedButton(onClick={c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(prUrl)))}){Text("Open created draft PR")}
             OutlinedButton(onClick={c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/ygupthapawan173-cmd/thanish-ai/pulls")))}){Text("Open GitHub PR review")}
             HorizontalDivider()
             Text("Verified update • choose an APK and independently trusted release SHA-256")

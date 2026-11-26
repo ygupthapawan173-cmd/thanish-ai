@@ -163,7 +163,7 @@ class GeminiLiveDuplexEngine(private val context: Context) {
     }
     /** Explicit user-selected JPEG only, not background screen capture. */
     fun sendVisionFrame(jpeg:ByteArray):Boolean {
-        if(!_telemetry.value.connected || jpeg.isEmpty() || jpeg.size>500000) return false
+        if(!_telemetry.value.connected || jpeg.isEmpty() || jpeg.size>500000 || (ws?.queueSize() ?: Long.MAX_VALUE)>256000L) return false
         return ws?.send(JSONObject().put("realtimeInput",JSONObject().put("video",JSONObject().put("mimeType","image/jpeg")
             .put("data",Base64.encodeToString(jpeg,Base64.NO_WRAP)))).toString())==true
     }

@@ -25,6 +25,19 @@ class OmegaSingularityV2Test {
         assertNull(AutonomousReActOrchestrator.parseChain("check battery -> arbitrary unknown command"))
         assertNull(AutonomousReActOrchestrator.parseChain("check battery ->"))
     }
+    @Test fun stateVerificationDoesNotInventSuccess() {
+        val before=com.example.control.DeviceControlState(currentVolume=4,maxVolume=10)
+        val cmd=com.example.control.PhoneControlCommand.IncreaseVolume
+        assertEquals(false,AutonomousReActOrchestrator.verifyState(cmd,before,before))
+        assertEquals(true,AutonomousReActOrchestrator.verifyState(cmd,before,before.copy(currentVolume=5)))
+        assertNull(AutonomousReActOrchestrator.verifyState(com.example.control.PhoneControlCommand.OpenApp(com.example.control.AppControlTarget.CHROME),before,before))
+    }
+    @Test fun reviewedReplacementValidation() {
+        val file="app/src/main/java/com/example/Test.kt"
+        val old="package com.example\nclass Old"
+        assertTrue(com.example.ai.OmegaReviewedPrPublisher.validReplacement(file,old,"package com.example\nclass New"))
+        assertFalse(com.example.ai.OmegaReviewedPrPublisher.validReplacement(file,old,old))
+    }
     @Test fun updateAndDraftValidation() {
         assertTrue(SelfEvolutionCompilerLoop.validDigest("a".repeat(64)))
         assertFalse(SelfEvolutionCompilerLoop.validDigest("not verified"))
