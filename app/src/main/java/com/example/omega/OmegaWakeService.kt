@@ -22,6 +22,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
+import org.json.JSONArray
+import com.example.voice.VoiceInputController
+import com.example.voice.SpeechLocaleOption
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
@@ -43,6 +46,8 @@ class OmegaWakeService : Service(), RecognitionListener {
         val lastError = MutableStateFlow("")
         val lastWakeAt = MutableStateFlow(0L)
         val capturedCount = MutableStateFlow(0)
+        val acceptedWakeCount = MutableStateFlow(0)
+        val recognitionStage = MutableStateFlow("Stopped")
         fun start(c: Context) {
             ContextCompat.startForegroundService(c, Intent(c, OmegaWakeService::class.java))
         }
@@ -67,6 +72,11 @@ class OmegaWakeService : Service(), RecognitionListener {
     private var processing = false
     private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var assistantTts: TeluguTtsController? = null
+    private var strictGrammar = true
+    private var commandPhase = false
+    private var offlineEpoch = 0L
+    private var captureJob: Job? = null
+    private var platformCommand: VoiceInputController? = null
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(applicationContext) { result ->
@@ -102,6 +112,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     private fun armWake(speakAck: Boolean = true): Boolean {
         if (closed || armed || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value) || !wakeGate.allow(SystemClock.elapsedRealtime())) return false
         lastWakeAt.value = System.currentTimeMillis()
+        acceptedWakeCount.value += 1
         armed = true
         lastError.value = ""
         status.value = "Wake detected — say one English command"
@@ -129,6 +140,9 @@ class OmegaWakeService : Service(), RecognitionListener {
         lastError.value = ""
         lastPartial.value = ""
         capturedCount.value = 0
+        acceptedWakeCount.value = 0
+        strictGrammar = OmegaVoicePreferences.strictWakeGrammar(this)
+        recognitionStage.value = "Loading"
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
             fail("Microphone and notification permissions required")
@@ -152,13 +166,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                     loading = false
                     if (closed) loaded.close() else try {
                         model = loaded
-                        val local = Recognizer(loaded, 16000f)
-                        recognizer = local
-                        speech = SpeechService(local, 16000f)
-                        check(speech?.startListening(this) == true)
-                        recognitionReady.value = true
-                        status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
-                        refresh()
+                        check(startOfflineStage(false))
                     } catch (e: Exception) { fail("Offline microphone could not start") }
                     catch (e: LinkageError) { fail("Native library unavailable") }
                 },
@@ -166,6 +174,103 @@ class OmegaWakeService : Service(), RecognitionListener {
         } catch (e: Exception) { fail("Start wake service from the visible app") }
         catch (e: LinkageError) { fail("Native library unavailable") }
         return START_NOT_STICKY
+    }
+    /** Rebuild the recognizer only after the old AudioRecord is released; stale events are ignored. */
+    private fun closeOfflineStage() {
+        ++offlineEpoch
+        recognitionReady.value = false
+        val old = speech
+        speech = null
+        runCatching { old?.cancel() }
+        runCatching { old?.shutdown() }
+        runCatching { recognizer?.close() }
+        recognizer = null
+    }
+    private fun startOfflineStage(command: Boolean): Boolean {
+        if (closed || !active.value || !ownsMic) return false
+        closeOfflineStage()
+        commandPhase = command
+        return try {
+            val m = model ?: error("Model not loaded")
+            val local = if (strictGrammar && !command) {
+                val grammar = JSONArray(OmegaWakeEngine.grammarPhrases(OmegaVoicePreferences.activeWakePhrases(this))).toString()
+                Recognizer(m, 16000f, grammar)
+            } else Recognizer(m, 16000f)
+            recognizer = local
+            val recorder = SpeechService(local, 16000f)
+            speech = recorder
+            val epoch = offlineEpoch
+            val listener = object : RecognitionListener {
+                override fun onPartialResult(hypothesis: String?) { if (epoch == offlineEpoch) this@OmegaWakeService.onPartialResult(hypothesis) }
+                override fun onResult(hypothesis: String?) { if (epoch == offlineEpoch) this@OmegaWakeService.onResult(hypothesis) }
+                override fun onFinalResult(hypothesis: String?) { if (epoch == offlineEpoch) this@OmegaWakeService.onFinalResult(hypothesis) }
+                override fun onError(exception: Exception?) { if (epoch == offlineEpoch) this@OmegaWakeService.onError(exception) }
+                override fun onTimeout() { if (epoch == offlineEpoch) this@OmegaWakeService.onTimeout() }
+            }
+            check(recorder.startListening(listener))
+            recognitionReady.value = true
+            recognitionStage.value = if (command) "Vosk English command" else if (strictGrammar) "Vosk strict phrase grammar" else "Vosk legacy open vocabulary"
+            status.value = if (command) "Say one English command" else "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
+            refresh()
+            true
+        } catch (_: Exception) { closeOfflineStage(); false }
+          catch (_: LinkageError) { closeOfflineStage(); false }
+    }
+    private fun restoreWake() {
+        captureJob?.cancel(); captureJob = null
+        platformCommand?.release(); platformCommand = null
+        handler.removeCallbacks(expiry)
+        handler.removeCallbacks(commandExpiry)
+        armed = false
+        commandPhase = false
+        if (!closed && active.value && !startOfflineStage(false)) fail("Strict wake recognizer could not resume")
+    }
+    private val commandExpiry = Runnable {
+        if (!closed && commandPhase && !processing) {
+            lastError.value = "No command received; wake listening resumed"
+            restoreWake()
+        }
+    }
+    private fun startStrictCommand() {
+        if (closed || commandPhase || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value) || !wakeGate.allow(SystemClock.elapsedRealtime())) return
+        acceptedWakeCount.value += 1
+        lastWakeAt.value = System.currentTimeMillis()
+        lastError.value = ""
+        armed = true
+        commandPhase = true
+        closeOfflineStage()
+        recognitionStage.value = "Wake confirmed • microphone paused"
+        status.value = "Hey JARVIS detected — preparing command"
+        refresh()
+        acknowledgeWake()
+        captureJob = sessionScope.launch {
+            delay(600)
+            var ticks = 0
+            while (tts?.isSpeaking == true && ticks++ < 20) delay(200)
+            if (tts?.isSpeaking == true) tts?.stop()
+            delay(200)
+            if (closed || !active.value || !commandPhase) return@launch
+            if (OmegaVoicePreferences.bilingualWakeCommand(this@OmegaWakeService)) {
+                recognitionStage.value = "Android SpeechRecognizer • AUTO TE+EN"
+                status.value = "Say a Telugu or English command"
+                refresh()
+                platformCommand = VoiceInputController(applicationContext,
+                    onFinalResult = { transcript -> if (!closed && commandPhase) deliver(transcript) },
+                    onError = { message ->
+                        if (!closed && commandPhase) {
+                            platformCommand?.release(); platformCommand = null
+                            lastError.value = message + " — English offline fallback"
+                            if (!startOfflineStage(true)) restoreWake()
+                            else handler.postDelayed(commandExpiry, 15000L)
+                        }
+                    }, wakeOwned = true)
+                platformCommand?.startListening(SpeechLocaleOption.AUTO)
+                handler.postDelayed(commandExpiry, 40000L)
+            } else {
+                if (!startOfflineStage(true)) restoreWake()
+                else handler.postDelayed(commandExpiry, 15000L)
+            }
+        }
     }
     private fun notification(message: String, ongoing: Boolean): Notification {
         val open = PendingIntent.getActivity(this, 7203, Intent(this, MainActivity::class.java)
@@ -196,6 +301,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (partial.isEmpty()) return
         lastPartial.value = partial
         recognitionRestarts = 0
+        if (strictGrammar) return // Strict mode accepts a complete final phrase, never a partial guess.
         // A partial hypothesis may wake the assistant, but only a final result commits a command.
         if (!armed && OmegaWakeEngine.match(partial, OmegaVoicePreferences.activeWakePhrases(this),
                 OmegaVoicePreferences.sensitivity(this)) != null) armWake()
@@ -217,14 +323,14 @@ class OmegaWakeService : Service(), RecognitionListener {
             recognitionReady.value = false
             status.value = "Reconnecting offline recognition (" + recognitionRestarts + "/2)"
             refresh()
-            runCatching { speech?.stop() }
+            if (strictGrammar) closeOfflineStage() else runCatching { speech?.stop() }
             handler.postDelayed({
                 if (closed || !active.value) return@postDelayed
                 reconnectPending = false
-                val resumed = runCatching { speech?.startListening(this) == true }.getOrDefault(false)
+                val resumed = if (strictGrammar) startOfflineStage(commandPhase) else runCatching { speech?.startListening(this) == true }.getOrDefault(false)
                 if (resumed) {
                     recognitionReady.value = true
-                    status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
+                    if (!strictGrammar) status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
                     refresh()
                 } else {
                     fail("Offline voice engine could not restart")
@@ -233,7 +339,8 @@ class OmegaWakeService : Service(), RecognitionListener {
         }
     }
     override fun onTimeout() {
-        if (!closed) recoverOfflineRecognition("timeout")
+        if (!closed && strictGrammar && commandPhase) restoreWake()
+        else if (!closed) recoverOfflineRecognition("timeout")
     }
     override fun onError(exception: Exception?) {
         if (!closed) recoverOfflineRecognition("recognizer error")
@@ -242,9 +349,14 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (closed || !active.value || processing || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
+        if (strictGrammar && !commandPhase) {
+            if (OmegaWakeEngine.strictGrammarMatch(text, OmegaVoicePreferences.activeWakePhrases(this))) startStrictCommand()
+            return
+        }
         if (armed && OmegaWakeAck.isEcho(text, OmegaWakeAck.spokenText(
                 OmegaVoicePreferences.acknowledgement(this),
                 OmegaVoicePreferences.customAcknowledgement(this)))) return
+        if (strictGrammar && commandPhase) { deliver(text.take(300)); return }
         val match = OmegaWakeEngine.match(text, OmegaVoicePreferences.activeWakePhrases(this),
             OmegaVoicePreferences.sensitivity(this))
         if (match != null) {
@@ -256,6 +368,12 @@ class OmegaWakeService : Service(), RecognitionListener {
     private fun deliver(text: String) {
         armed = false
         handler.removeCallbacks(expiry)
+        handler.removeCallbacks(commandExpiry)
+        if (strictGrammar) {
+            captureJob?.cancel(); captureJob = null
+            platformCommand?.release(); platformCommand = null
+            closeOfflineStage(); commandPhase = false
+        }
         if (pendingCommand.value.isNotBlank()) return
         if (OmegaAssistantCore.routeWake(text, OmegaVoicePreferences.backgroundAi(this), OmegaVoicePreferences.get(this)) == WakeRoute.AI &&
             OmegaAssistantCore.sessions.beginBackground()) {
@@ -269,6 +387,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         status.value = "Command captured; review in JARVIS"
         runCatching { getSystemService(NotificationManager::class.java).notify(RESULT, notification("Command captured. Tap to review.", false)) }
         if (OmegaRecoveryPolicy.keepListeningAfterCapture(OmegaVoicePreferences.continuousWake(this))) {
+            if (strictGrammar && !startOfflineStage(false)) { fail("Wake restart failed"); return }
             status.value = "Wake session active; review command before next wake"
             refresh()
         } else stopSelf()
@@ -279,7 +398,8 @@ class OmegaWakeService : Service(), RecognitionListener {
         OmegaAssistantCore.backgroundPhase.value = "Processing wake question"
         status.value = "Processing wake question — microphone paused"
         refresh()
-        if (!runCatching { speech?.stop() == true }.getOrDefault(false)) {
+        recognitionStage.value = "AI processing • mic paused"
+        if (!runCatching { speech == null || speech?.stop() == true }.getOrDefault(false)) {
             processing = false
             OmegaAssistantCore.sessions.endBackground()
             OmegaAssistantCore.backgroundPhase.value = "Microphone pause failed"
@@ -329,7 +449,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                 processing = false
                 if (!closed) {
                     if (!OmegaVoicePreferences.continuousWake(this@OmegaWakeService)) stopSelf()
-                    else if (runCatching { speech?.startListening(this@OmegaWakeService) == true }.getOrDefault(false)) {
+                    else if (if (strictGrammar) startOfflineStage(false) else runCatching { speech?.startListening(this@OmegaWakeService) == true }.getOrDefault(false)) {
                         recognitionReady.value = true
                         status.value = if (pendingCommand.value.isBlank()) "Listening for " + OmegaVoicePreferences.wakePhrase(this@OmegaWakeService).label else "Review captured command before next wake"
                         refresh()
@@ -342,6 +462,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         closed = true
         val wasProcessing = processing
         sessionScope.cancel()
+        platformCommand?.release(); platformCommand = null
         assistantTts?.release(); assistantTts = null
         if (wasProcessing) OmegaAssistantCore.sessions.endBackground()
         OmegaAssistantCore.backgroundPhase.value = "Idle"
@@ -349,14 +470,12 @@ class OmegaWakeService : Service(), RecognitionListener {
         runCatching { tts?.stop(); tts?.shutdown() }
         tts = null
         ttsReady = false
-        runCatching { speech?.stop() }
-        runCatching { speech?.shutdown() }
-        speech = null
-        runCatching { recognizer?.close() }; recognizer = null
+        closeOfflineStage()
         runCatching { model?.close() }; model = null
         if (ownsMic) { ownsMic = false; OmegaAssistantCore.sessions.releaseMic(MicOwner.WAKE) }
         active.value = false
         recognitionReady.value = false
+        recognitionStage.value = "Stopped"
         reconnectPending = false
         if (lastError.value.isBlank()) status.value = "Stopped"
         stopForeground(STOP_FOREGROUND_REMOVE)

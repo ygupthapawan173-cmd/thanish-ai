@@ -58,6 +58,10 @@ fun OmegaCenter(
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var continuousWake by remember { mutableStateOf(OmegaVoicePreferences.continuousWake(c)) }
+    var strictGrammar by remember { mutableStateOf(OmegaVoicePreferences.strictWakeGrammar(c)) }
+    var bilingualCommand by remember { mutableStateOf(OmegaVoicePreferences.bilingualWakeCommand(c)) }
+    val acceptedWakes by OmegaWakeService.acceptedWakeCount.collectAsState()
+    val recognitionStage by OmegaWakeService.recognitionStage.collectAsState()
     var backgroundAi by remember { mutableStateOf(OmegaVoicePreferences.backgroundAi(c)) }
     var memoryContext by remember { mutableStateOf(OmegaVoicePreferences.memoryContext(c)) }
     val micOwner by OmegaAssistantCore.sessions.owner.collectAsState()
@@ -160,6 +164,22 @@ fun OmegaCenter(
                         }
                         Text("When enabled, chat listens for one follow-up after finishing a reply while the app is visible. Stop microphone to cancel. This does not bypass Android permissions.")
                         HorizontalDivider()
+                        Text("ELITE wake engine • offline Vosk")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Strict phrase grammar", modifier = Modifier.weight(1f))
+                            Switch(checked = strictGrammar, enabled = !wakeActive, onCheckedChange = {
+                                strictGrammar = it; OmegaVoicePreferences.setStrictWakeGrammar(c, it)
+                            }, modifier = Modifier.testTag("elite_strict_grammar"))
+                        }
+                        Text("Strict: say the complete wake phrase, wait for the acknowledgement, then speak a separate command. Turn off for the older combined phrase mode.")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Telugu + English AUTO after wake", modifier = Modifier.weight(1f))
+                            Switch(checked = bilingualCommand, enabled = !wakeActive && strictGrammar, onCheckedChange = {
+                                bilingualCommand = it; OmegaVoicePreferences.setBilingualWakeCommand(c, it)
+                            }, modifier = Modifier.testTag("elite_bilingual_command"))
+                        }
+                        Text("Optional Android speech service after offline wake. Platform/hybrid may send command audio online; local-only mode does not. English Vosk fallback if the service fails.")
+                        Text("Engine stage: " + recognitionStage + " · accepted wakes: " + acceptedWakes)
                         Text("Offline wake phrases • on-device Vosk")
                         OmegaWakePhrase.entries.forEach { phrase ->
                             Row {
@@ -190,10 +210,10 @@ fun OmegaCenter(
                             ) { Text("Save custom wake phrase") }
                             Text("Unusual names may not be recognized by the bundled English speech model.")
                         }
-                        Text("Wake sensitivity • Strict recommended")
+                        Text("Wake sensitivity • applies to legacy open-vocabulary mode")
                         WakeSensitivity.entries.forEach { value ->
                             Row {
-                                RadioButton(selected = sensitivity == value, enabled = !wakeActive,
+                                RadioButton(selected = sensitivity == value, enabled = !wakeActive && !strictGrammar,
                                     onClick = { sensitivity = value; OmegaVoicePreferences.setSensitivity(c, value) })
                                 Text(value.label, Modifier.padding(top = 14.dp))
                             }
@@ -230,14 +250,14 @@ fun OmegaCenter(
                             Switch(checked = continuousWake, enabled = !wakeActive,
                                 onCheckedChange = { continuousWake = it; OmegaVoicePreferences.setContinuousWake(c, it) })
                         }
-                        Text("Opt-in. Review or discard the pending command before another wake. Stop microphone ends the session. English offline model only.")
+                        Text("Opt-in. Review or discard pending commands before another wake. Stop microphone ends the session. Offline wake uses the English model.")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Answer wake questions with AI", modifier = Modifier.weight(1f))
                             Switch(checked = backgroundAi, enabled = !wakeActive, onCheckedChange = {
                                 backgroundAi = it; OmegaVoicePreferences.setBackgroundAi(c, it)
                             }, modifier = Modifier.testTag("unified_background_ai"))
                         }
-                        Text("Opt-in: sends English wake transcript and chat context to your configured AI. Not in on-device-only mode. Phone commands still require review. With continuous wake, resumes after reply; Stop microphone cancels.")
+                        Text("Opt-in: sends captured command transcript and chat context to your configured AI. Not in on-device-only mode. Phone commands still require review. With continuous wake, resumes after reply; Stop microphone cancels.")
                         Text("Assistant: " + backgroundPhase)
                         Text("Microphone owner: " + micOwner.name)
                         Text("Bundled English acoustic model. Selected phrase: " +
@@ -298,6 +318,8 @@ fun OmegaCenter(
                         Text("Last wake error: " + wakeError.ifBlank { "None reported" })
                         Text("Foreground microphone service active: " + wakeActive)
                         Text("Offline recognizer started: " + wakeReady)
+                        Text("Accepted wake phrases: " + acceptedWakes)
+                        Text("Recognition stage: " + recognitionStage)
                         Text("Captured commands this session: " + capturedCount)
                         Text("Microphone owner: " + micOwner.name)
                         Text("Background assistant: " + backgroundPhase)

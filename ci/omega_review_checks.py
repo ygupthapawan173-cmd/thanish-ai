@@ -112,3 +112,9 @@ live = read('java/com/example/ai/GeminiLiveDuplexEngine.kt')
 assert 'setupComplete' in live and 'MicOwner.LIVE' in live and 'interrupted' in live
 assert 'REQUEST_INSTALL_PACKAGES' in manifest and '.verifiedupdates' in manifest
 print('PASS Singularity source wiring; live provider and update behavior require runtime checks')
+
+assert 'Recognizer(m, 16000f, grammar)' in wake and 'strictGrammarMatch' in wake
+assert 'wakeOwned = true' in wake and 'SpeechLocaleOption.AUTO' in wake
+assert 'elite_strict_grammar' in omega and 'elite_bilingual_command' in omega
+assert 'old?.cancel()' in wake and 'old?.shutdown()' in wake
+print('PASS ELITE strict grammar and command handoff wiring')

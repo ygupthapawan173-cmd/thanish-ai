@@ -60,6 +60,10 @@ object OmegaVoicePreferences {
     fun set(c: Context, m: OmegaVoiceMode) {
         c.getSharedPreferences("omega_voice", 0).edit().putString("mode", m.name).apply()
     }
+    fun strictWakeGrammar(c: Context): Boolean = prefs(c).getBoolean("elite_strict_grammar", true)
+    fun setStrictWakeGrammar(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("elite_strict_grammar", enabled).apply() }
+    fun bilingualWakeCommand(c: Context): Boolean = prefs(c).getBoolean("elite_bilingual_command_opt_in", false)
+    fun setBilingualWakeCommand(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("elite_bilingual_command_opt_in", enabled).apply() }
     fun backgroundAi(c: Context): Boolean = prefs(c).getBoolean("background_ai_opt_in", false)
     fun setBackgroundAi(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("background_ai_opt_in", enabled).apply() }
     fun memoryContext(c: Context): Boolean = prefs(c).getBoolean("memory_context_opt_in", false)

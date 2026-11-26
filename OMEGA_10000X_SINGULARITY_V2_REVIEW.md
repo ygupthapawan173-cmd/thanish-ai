@@ -9,3 +9,6 @@ Original uploaded four modules reviewed; installer not executed. Rewritten compa
 
 ## Consolidated follow-up
 Added foreground CameraX preview with opt-in 1 FPS upload, observable state checks for approved ReAct actions, and reviewed GitHub draft PR publication on a new branch. No hidden recording, automatic merge or execution. Six new JVM tests total; live provider, camera and GitHub publication remain unverified. Screen projection and autonomous compiler loop remain outside this implementation.
+
+## ELITE wake integration (3.2)
+Actual Vosk restricted grammar with [unk] rejection, final phrase acceptance, separate open-vocabulary English command stage, optional Android AUTO Telugu/English command stage under wake mic lease with offline English fallback, acknowledged wake count and recorder cleanup. Retains legacy mode, existing FGS, continuous and AI opt-ins. ELITE original service exact model/version not available; adapted its documented pattern instead of copying smali. Android recognition service, lockscreen reliability and physical audio remain unverified.
