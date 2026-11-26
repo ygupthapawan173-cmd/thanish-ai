@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -454,7 +457,10 @@ fun SettingsCommandTab(
     onNavigateOmega: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .testTag("settings_command_tab"),
@@ -466,6 +472,20 @@ fun SettingsCommandTab(
                 onOpenOmega = onNavigateOmega,
                 onRefresh = onRefreshDeviceState
             )
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(listOf("Permissions" to 3, "Voice input" to 4),
+                    listOf("AI connection" to 6, "Voice studio" to 7),
+                    listOf("Help & privacy" to 8)).forEach { group ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        group.forEach { (label, destination) ->
+                            OutlinedButton(onClick = { scope.launch { listState.animateScrollToItem(destination) } },
+                                modifier = Modifier.weight(1f).heightIn(min=48.dp)) { Text(label) }
+                        }
+                    }
+                }
+            }
         }
         item {
             Text("PERMISSIONS & SYSTEM", color = ElectricCyan,

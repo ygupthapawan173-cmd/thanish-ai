@@ -28,6 +28,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         private const val STOP = "com.example.omega.STOP_WAKE"
         val status = MutableStateFlow("Stopped")
         val active = MutableStateFlow(false)
+        val recognitionReady = MutableStateFlow(false)
         val pendingCommand = MutableStateFlow("")
         val lastPartial = MutableStateFlow("")
         val lastError = MutableStateFlow("")
@@ -51,6 +52,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     private var ttsReady = false
     // Recovery is bounded and only active while the user-started foreground service remains alive.
     private var recognitionRestarts = 0
+    private var reconnectPending = false
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(applicationContext) { result ->
@@ -134,6 +136,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                         recognizer = local
                         speech = SpeechService(local, 16000f)
                         check(speech?.startListening(this) == true)
+                        recognitionReady.value = true
                         status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
                         refresh()
                     } catch (e: Exception) { fail("Offline microphone could not start") }
@@ -162,6 +165,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     }
     private fun fail(message: String) {
         lastError.value = message
+        recognitionReady.value = false
         status.value = message
         stopSelf()
     }
@@ -179,7 +183,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
     private fun recoverOfflineRecognition(reason: String) {
         handler.post {
-            if (closed || !active.value) return@post
+            if (closed || !active.value || reconnectPending) return@post
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 fail("Microphone permission revoked; stop offline listening")
                 return@post
@@ -189,13 +193,17 @@ class OmegaWakeService : Service(), RecognitionListener {
                 return@post
             }
             recognitionRestarts++
+            reconnectPending = true
+            recognitionReady.value = false
             status.value = "Reconnecting offline recognition (" + recognitionRestarts + "/2)"
             refresh()
             runCatching { speech?.stop() }
             handler.postDelayed({
                 if (closed || !active.value) return@postDelayed
+                reconnectPending = false
                 val resumed = runCatching { speech?.startListening(this) == true }.getOrDefault(false)
                 if (resumed) {
+                    recognitionReady.value = true
                     status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
                     refresh()
                 } else {
@@ -245,6 +253,8 @@ class OmegaWakeService : Service(), RecognitionListener {
         runCatching { recognizer?.close() }; recognizer = null
         runCatching { model?.close() }; model = null
         active.value = false
+        recognitionReady.value = false
+        reconnectPending = false
         if (status.value.startsWith("Listening") || status.value.startsWith("Loading") || status.value.startsWith("Wake detected")) status.value = "Stopped"
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()

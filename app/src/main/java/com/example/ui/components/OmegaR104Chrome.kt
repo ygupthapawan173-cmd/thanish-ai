@@ -65,8 +65,8 @@ fun OmegaR104TopBar(
         shape=RoundedCornerShape(bottomStart=22.dp,bottomEnd=22.dp),
         border=BorderStroke(1.dp,Brush.horizontalGradient(listOf(ChCyan,ChViolet)))
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),
-            verticalArrangement=Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),
+            verticalArrangement=Arrangement.spacedBy(2.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Box(Modifier.size(40.dp).border(1.5.dp,ChCyan,CircleShape),
                     contentAlignment=Alignment.Center) {
@@ -76,16 +76,16 @@ fun OmegaR104TopBar(
                 Column(Modifier.weight(1f)) {
                     Text("OMEGA  /  JARVIS",color=ChLight,style=MaterialTheme.typography.titleMedium,
                         fontWeight=FontWeight.Bold,maxLines=1)
-                    Text("R104 · SINGULARITY INTERFACE",color=ChCyan,
+                    Text("R105 · NEURAL COMMAND",color=ChCyan,
                         style=MaterialTheme.typography.labelSmall,maxLines=1)
                 }
-                IconButton(onClick=onOpenHelp,modifier=Modifier.size(38.dp)) {
+                IconButton(onClick=onOpenHelp,modifier=Modifier.size(48.dp)) {
                     Icon(Icons.Default.HelpOutline,contentDescription="Help",tint=ChCyan)
                 }
-                IconButton(onClick=onOpenTtsSettings,modifier=Modifier.size(38.dp)) {
+                IconButton(onClick=onOpenTtsSettings,modifier=Modifier.size(48.dp)) {
                     Icon(Icons.Default.Tune,contentDescription="Voice settings",tint=ChViolet)
                 }
-                IconButton(onClick=onRequestClearChat,enabled=hasMessages,modifier=Modifier.size(38.dp)) {
+                IconButton(onClick=onRequestClearChat,enabled=hasMessages,modifier=Modifier.size(48.dp)) {
                     Icon(Icons.Default.DeleteOutline,contentDescription="Clear conversation",
                         tint=if(hasMessages) ChDim else ChDim.copy(alpha=.35f))
                 }
@@ -125,20 +125,20 @@ fun OmegaR104BottomNavBar(
         color=ChDark,
         border=BorderStroke(1.dp,Brush.horizontalGradient(listOf(ChCyan,ChViolet)))
     ) {
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=6.dp,vertical=7.dp),
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=4.dp,vertical=3.dp),
             horizontalArrangement=Arrangement.spacedBy(3.dp),verticalAlignment=Alignment.CenterVertically) {
             CyberpunkTab.entries.forEach { tab ->
                 val selected=tab==selectedTab
                 val tint=if(selected) ChCyan else ChDim
                 Column(
-                    Modifier.weight(1f).heightIn(min=57.dp)
+                    Modifier.weight(1f).heightIn(min=48.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(if(selected) ChCyan.copy(alpha=.13f) else Color.Transparent)
                         .then(if(selected) Modifier.border(1.dp,ChCyan.copy(alpha=.66f),
                             RoundedCornerShape(14.dp)) else Modifier)
                         .clickable { onSelectTab(tab) }
                         .testTag(tab.testTag)
-                        .padding(vertical=6.dp),
+                        .padding(vertical=3.dp),
                     horizontalAlignment=Alignment.CenterHorizontally,
                     verticalArrangement=Arrangement.spacedBy(4.dp)
                 ) {
@@ -162,6 +162,8 @@ fun OmegaR104SettingsHeader(
     val wake by OmegaWakeService.active.collectAsState()
     val a11y by PanduAccessibilityService.isConnected.collectAsState()
     val lastRoute by PanduAiRepository.lastRoute.collectAsState()
+    val requestState by PanduAiRepository.requestState.collectAsState()
+    val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
     val microphone=ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==
         PackageManager.PERMISSION_GRANTED
     Surface(
@@ -179,9 +181,10 @@ fun OmegaR104SettingsHeader(
             HorizontalDivider(color=ChCyan.copy(alpha=.2f))
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 R104StateCell("MIC",if(microphone) "ALLOWED" else "DENIED",Modifier.weight(1f))
-                R104StateCell("WAKE",if(wake) "ACTIVE" else "STOPPED",Modifier.weight(1f))
+                R104StateCell("WAKE",if(wakeReady) "LISTENING" else if(wake) "STARTING" else "STOPPED",Modifier.weight(1f))
                 R104StateCell("A11Y",if(a11y) "ON" else "OFF",Modifier.weight(1f))
             }
+            Text(requestState,color=ChCyan,style=MaterialTheme.typography.labelMedium)
             Text("LAST AI SUCCESS: " + lastRoute,color=ChDim,
                 style=MaterialTheme.typography.bodySmall,maxLines=2)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

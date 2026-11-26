@@ -69,6 +69,8 @@ fun OmegaR104PremiumHome(
     val wakeStatus by OmegaWakeService.status.collectAsState()
     val accessibility by PanduAccessibilityService.isConnected.collectAsState()
     val lastRoute by PanduAiRepository.lastRoute.collectAsState()
+    val requestState by PanduAiRepository.requestState.collectAsState()
+    val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
     val micAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED
     val lastAnswer = uiState.messages.lastOrNull { it.role == ChatMessageEntity.ROLE_ASSISTANT }
@@ -82,45 +84,27 @@ fun OmegaR104PremiumHome(
     val line = Brush.horizontalGradient(listOf(Cyan104, Color(0xFF287DFF), Purple104))
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag("home_command_tab").background(Void104),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("S I N G U L A R I T Y   /   1 0 4", color = Cyan104,
-                        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Text("JARVIS  OMEGA", color = White104, style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold)
-                    Text("NATIVE INTELLIGENCE · TELUGU + ENGLISH",
-                        color = Muted104, style = MaterialTheme.typography.labelSmall)
-                }
-                Surface(shape = RoundedCornerShape(50), color = Cyan104.copy(alpha=.11f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Cyan104.copy(alpha=.7f))) {
-                    Text(stateLabel, Modifier.padding(horizontal=12.dp,vertical=9.dp),
-                        color=Cyan104, style=MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-        item {
             Surface(
-                shape = RoundedCornerShape(32.dp),
-                color = Panel104,
-                border = androidx.compose.foundation.BorderStroke(1.3.dp, line),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.Transparent,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal=16.dp, vertical=14.dp),
+                    Modifier.fillMaxWidth().padding(horizontal=8.dp, vertical=4.dp),
                     horizontalAlignment=Alignment.CenterHorizontally,
                     verticalArrangement=Arrangement.spacedBy(7.dp)
                 ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween) {
-                        Text("NEURAL CORE  /  LIVE", color=Cyan104, style=MaterialTheme.typography.labelSmall)
-                        Text(if (wake) "WAKE MIC ACTIVE" else "WAKE MIC OFF",
-                            color=if(wake) Cyan104 else Muted104,
+                        Text("NEURAL CORE  /  " + stateLabel, color=Cyan104, style=MaterialTheme.typography.labelSmall)
+                        Text(if (wakeReady) "WAKE LISTENING" else if (wake) "WAKE STARTING" else "WAKE OFF",
+                            color=if(wakeReady) Cyan104 else Muted104,
                             style=MaterialTheme.typography.labelSmall)
                     }
-                    OmegaSafeSingularityVisual(uiState.jarvisStatus, amplitude)
+                    OmegaSafeSingularityVisual(uiState.jarvisStatus, amplitude, Modifier.clickable(onClick = onMicClick).testTag("r105_orb"))
                     Text(
                         text = when {
                             listening != null -> listening.partialText.ifBlank { "వింటున్నాను బాస్..." }
@@ -198,7 +182,8 @@ fun OmegaR104PremiumHome(
                             modifier=Modifier.weight(1f))
                         Icon(Icons.Default.ArrowForward, contentDescription="Open chat", tint=Cyan104)
                     }
-                    Text(lastRoute, color=Muted104, style=MaterialTheme.typography.bodySmall,
+                    Text(requestState, color=Cyan104, style=MaterialTheme.typography.labelMedium)
+                    Text("Last success: " + lastRoute, color=Muted104, style=MaterialTheme.typography.bodySmall,
                         maxLines=2, overflow=TextOverflow.Ellipsis)
                     if (lastAnswer != null) {
                         Text(lastAnswer.text, color=White104, style=MaterialTheme.typography.bodyMedium,
@@ -231,7 +216,7 @@ fun OmegaR104PremiumHome(
 
 @Composable
 private fun R104Metric(label: String, value: String, onClick: () -> Unit, modifier: Modifier) {
-    Surface(modifier=modifier.heightIn(min=90.dp).clickable(onClick=onClick),
+    Surface(modifier=modifier.heightIn(min=62.dp).clickable(onClick=onClick),
         color=Panel104, shape=RoundedCornerShape(17.dp),
         border=androidx.compose.foundation.BorderStroke(1.dp, Cyan104.copy(alpha=.25f))) {
         Column(Modifier.padding(horizontal=10.dp, vertical=12.dp),
@@ -247,7 +232,7 @@ private fun R104Metric(label: String, value: String, onClick: () -> Unit, modifi
 @Composable
 private fun R104Quick(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit, modifier: Modifier) {
-    Surface(modifier=modifier.heightIn(min=80.dp).clickable(onClick=onClick),
+    Surface(modifier=modifier.heightIn(min=62.dp).clickable(onClick=onClick),
         color=Panel104, shape=RoundedCornerShape(18.dp),
         border=androidx.compose.foundation.BorderStroke(1.dp,
             Brush.linearGradient(listOf(Cyan104.copy(alpha=.7f), Purple104.copy(alpha=.5f))))) {
@@ -266,7 +251,7 @@ private fun R104Waveform(amplitude: Float, active: Boolean) {
     val transition = rememberInfiniteTransition(label="r104_wave_clock")
     val phase by transition.animateFloat(0f, 6.28f,
         infiniteRepeatable(tween(1100, easing=LinearEasing)),label="phase")
-    Canvas(Modifier.fillMaxWidth().height(42.dp)) {
+    Canvas(Modifier.fillMaxWidth().height(28.dp)) {
         val w=size.width/42f
         val base=size.height/2f
         for(i in 0 until 41) {

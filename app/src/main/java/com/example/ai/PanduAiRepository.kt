@@ -77,7 +77,15 @@ class PanduAiRepository(context: Context) {
     ): Flow<AiStreamEvent> = channelFlow {
         val configured = AiProvider.values().filter { keyStore.hasApiKey(it) }
         if (configured.isEmpty()) {
-            firebaseFallback(history, userPrompt).collect { send(it) }
+            requestState.value = "Requesting Firebase AI"
+            try {
+                firebaseFallback(history, userPrompt).collect { send(it) }
+                requestState.value = "Firebase request completed"
+            } catch (e: CancellationException) {
+                requestState.value = "AI request cancelled"; throw e
+            } catch (e: Exception) {
+                requestState.value = "Firebase request failed"; throw e
+            }
             return@channelFlow
         }
 
@@ -92,6 +100,7 @@ class PanduAiRepository(context: Context) {
             if ((cooldownUntil[provider] ?: 0L) > SystemClock.elapsedRealtime()) continue
             val apiKey = keyStore.getApiKey(provider) ?: continue
             val accumulated = StringBuilder()
+            requestState.value = "Requesting " + provider.title
             try {
                 withTimeout(AI_TIMEOUT_MS) {
                     // Transient Gemini/provider 503: at most two retries, only if
@@ -124,14 +133,17 @@ class PanduAiRepository(context: Context) {
                     throw IllegalStateException("${provider.title} returned an empty response.")
                 }
                 lastRoute.value = provider.title + " · " + keyStore.getModel(provider)
+                requestState.value = "Response received · " + provider.title
                 send(AiStreamEvent.Completed(finalText))
                 return@channelFlow
             } catch (e: TimeoutCancellationException) {
                 Log.w(TAG, "${provider.name} timed out; checking configured fallback providers", e)
                 lastError = e
+                requestState.value = provider.title + " request failed"
                 // Do not splice two providers' answers together after visible text has streamed.
                 if (accumulated.isNotEmpty()) throw e
             } catch (e: CancellationException) {
+                requestState.value = "AI request cancelled"
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "${provider.name} failed; checking configured fallback providers")
@@ -142,6 +154,7 @@ class PanduAiRepository(context: Context) {
             }
         }
 
+        requestState.value = "No configured provider completed the request"
         val detail = if (lastError is ProviderHttpFailure) "Provider HTTP failure" else "No configured AI provider could complete the request. Check cooldown, model and connectivity."
         throw PanduAiException("బాస్, AI కనెక్షన్‌లో సమస్య వచ్చింది: $detail", lastError)
     }
@@ -462,6 +475,7 @@ class PanduAiRepository(context: Context) {
     companion object {
         /** True only after a real successful response, not from a saved API key. */
         val lastRoute = MutableStateFlow("No successful AI response in this session")
+        val requestState = MutableStateFlow("No AI request yet")
         internal fun normalizeChatHistory(history: List<ChatMessageEntity>): List<Content> {
             val recent = history.filter { it.text.isNotBlank() }.takeLast(24)
             val alternating = mutableListOf<Pair<String, String>>()

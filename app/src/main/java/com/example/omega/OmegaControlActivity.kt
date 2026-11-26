@@ -92,14 +92,18 @@ fun OmegaCenter(
         Column(Modifier.fillMaxSize().padding(insets).padding(horizontal = 14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
-                    Text("OMEGA / NATIVE", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("Premium offline and online voice control")
+                    Text("OMEGA / CONTROL CENTER", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(if (wakeActive) wakeStatus else "Voice • memory • system")
                 }
                 if (!embedded) TextButton(onClick = close) { Text("Close") }
             }
-            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 listOf("Master", "Voice", "Memory", "System").forEachIndexed { i, label ->
-                    Tab(selected = i == tab, onClick = { tab = i }, text = { Text(label) })
+                    if (tab == i) Button(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp),
+                        contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
+                    else OutlinedButton(onClick = { tab = i }, modifier = Modifier.weight(1f).heightIn(min=48.dp),
+                        contentPadding = PaddingValues(horizontal=2.dp)) { Text(label, maxLines=1) }
                 }
             }
             if (onOpenPermissions != null) {
