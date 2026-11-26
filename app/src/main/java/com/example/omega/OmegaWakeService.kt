@@ -46,12 +46,18 @@ class OmegaWakeService : Service(), RecognitionListener {
         val enrollmentStatus=MutableStateFlow("Not recording")
         val enrolledSpeaker=MutableStateFlow(false)
         val speakerRejections=MutableStateFlow(0)
-        fun requestEnrollment(c:Context) { if(active.value) c.startService(Intent(c,OmegaWakeService::class.java).setAction(ENROLL)) }
-        fun cancelEnrollment(c:Context) { if(enrollmentActive.value) runCatching{c.startService(Intent(c,OmegaWakeService::class.java).setAction(CANCEL_ENROLL))} }
+        @Volatile private var enrollmentRequested=false
+        fun requestEnrollment(c:Context) { if(active.value) {enrollmentRequested=true;runCatching{c.startService(Intent(c,OmegaWakeService::class.java).setAction(ENROLL))}.onFailure{enrollmentRequested=false;enrollmentStatus.value="Could not start enrollment"}} }
+        fun cancelEnrollment(c:Context) { val requested=enrollmentRequested || enrollmentActive.value;enrollmentRequested=false;if(active.value && requested)runCatching{c.startService(Intent(c,OmegaWakeService::class.java).setAction(CANCEL_ENROLL))} }
         val status = MutableStateFlow("Stopped")
         val active = MutableStateFlow(false)
         val recognitionReady = MutableStateFlow(false)
         val pendingCommand = MutableStateFlow("")
+        private val reviewQueue=mutableListOf<String>()
+        val pendingQueueSize=MutableStateFlow(0)
+        private fun publishPending(){pendingQueueSize.value=reviewQueue.size;pendingCommand.value=reviewQueue.firstOrNull().orEmpty()}
+        @Synchronized fun resolvePending(expected:String){val updated=OmegaEliteConversation.removePending(reviewQueue.toList(),expected);reviewQueue.clear();reviewQueue.addAll(updated);publishPending()}
+        @Synchronized private fun offerPending(text:String):Boolean {val updated=OmegaEliteConversation.appendPending(reviewQueue.toList(),text)?:return false;reviewQueue.clear();reviewQueue.addAll(updated);publishPending();return true}
         val lastPartial = MutableStateFlow("")
         val lastError = MutableStateFlow("")
         val lastWakeAt = MutableStateFlow(0L)
@@ -270,8 +276,9 @@ class OmegaWakeService : Service(), RecognitionListener {
     }
     private val enrollmentExpiry=Runnable{if(enrollmentActive.value)endEnrollment("Enrollment timed out; previous template unchanged")}
     private fun beginEnrollment(){
+        if(!enrollmentRequested)return
         if(closed || !active.value || !recognitionReady.value || processing || commandPhase || armed || reconnectPending || enrollmentActive.value || pendingCommand.value.isNotBlank()){
-            enrollmentStatus.value="Wait for wake standby; review pending commands first";return
+            enrollmentRequested=false;enrollmentStatus.value="Wait for wake standby; review pending commands first";return
         }
         ++enrollmentEpoch
         val epoch=enrollmentEpoch
@@ -292,6 +299,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         }
     }
     private fun endEnrollment(message:String){
+        enrollmentRequested=false
         if(!enrollmentActive.value)return
         ++enrollmentEpoch
         enrollmentJob?.cancel();enrollmentJob=null
@@ -330,8 +338,9 @@ class OmegaWakeService : Service(), RecognitionListener {
             restoreWake()
         }
     }
+    private fun hasReviewRoom()=pendingQueueSize.value<OmegaEliteConversation.MAX_PENDING
     private fun startStrictCommand() {
-        if (closed || commandPhase || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value) || !wakeGate.allow(SystemClock.elapsedRealtime())) return
+        if (closed || commandPhase || !hasReviewRoom() || !wakeGate.allow(SystemClock.elapsedRealtime())) return
         followupTurns=0
         liveRetries=0
         acceptedWakeCount.value += 1
@@ -469,7 +478,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         stopSelf()
     }
     override fun onPartialResult(hypothesis: String?) {
-        if (closed || !active.value || processing || enrollmentActive.value || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
+        if (closed || !active.value || processing || enrollmentActive.value || (!strictGrammar && !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value))) return
         val partial = runCatching { JSONObject(hypothesis.orEmpty()).optString("partial") }
             .getOrDefault("").trim().take(300)
         if (partial.isEmpty()) return
@@ -538,13 +547,13 @@ class OmegaWakeService : Service(), RecognitionListener {
                             speakerRejections.value++;lastError.value="Optional speaker filter rejected wake; short phrase or mismatch";return
                         }
                     }
-                    if(pendingCommand.value.isNotBlank()) {status.value="Wake heard — review or discard previous command";refresh();return}
+                    if(!hasReviewRoom()) {status.value="Wake heard — review queue full (3/3)";refresh();return}
                     startStrictCommand()
                 }else{rejectedWakeCount.value+=1;lastError.value="Wake rejected: insufficient word confidence"}
             }
             return
         }
-        if (!OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
+        if ((!strictGrammar && !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) || (strictGrammar && !hasReviewRoom())) return
         if (armed && OmegaWakeAck.isEcho(text, OmegaWakeAck.spokenText(
                 OmegaVoicePreferences.acknowledgement(this),
                 OmegaVoicePreferences.customAcknowledgement(this)))) return
@@ -567,21 +576,21 @@ class OmegaWakeService : Service(), RecognitionListener {
             platformCommand?.release(); platformCommand = null
             closeOfflineStage(); commandPhase = false
         }
-        if (pendingCommand.value.isNotBlank()) return
+        if ((!strictGrammar && pendingCommand.value.isNotBlank()) || !hasReviewRoom()) {if(strictGrammar)restoreWake();return}
         if (OmegaAssistantCore.routeWake(text, OmegaVoicePreferences.backgroundAi(this), OmegaVoicePreferences.get(this)) == WakeRoute.AI &&
             OmegaAssistantCore.sessions.beginBackground()) {
             capturedCount.value += 1
             runBackgroundReply(text)
             return
         }
-        pendingCommand.value = text
+        if(!offerPending(text)) lastError.value="Review queue full; command not saved"
         capturedCount.value += 1
         lastPartial.value = ""
         status.value = "Command captured; review in JARVIS"
         runCatching { getSystemService(NotificationManager::class.java).notify(RESULT, notification("Command captured. Tap to review.", false)) }
         if (OmegaRecoveryPolicy.keepListeningAfterCapture(OmegaAlwaysReady.enabled.value || OmegaVoicePreferences.continuousWake(this))) {
             if (strictGrammar && !startOfflineStage(false)) { fail("Wake restart failed"); return }
-            status.value = "Wake session active; review command before next wake"
+            status.value = "Wake standby • "+pendingQueueSize.value+" command(s) awaiting review"
             refresh()
         } else stopSelf()
     }
@@ -596,7 +605,7 @@ class OmegaWakeService : Service(), RecognitionListener {
             processing = false
             OmegaAssistantCore.sessions.endBackground()
             OmegaAssistantCore.backgroundPhase.value = "Microphone pause failed"
-            pendingCommand.value = text
+            if(!offerPending(text)) lastError.value="Review queue full; command not saved"
             fail("Could not pause wake microphone; review captured command")
             return
         }
@@ -632,25 +641,25 @@ class OmegaWakeService : Service(), RecognitionListener {
                 answered=true
                 runCatching { getSystemService(NotificationManager::class.java).notify(RESULT, notification("AI reply ready. Open conversation.", false)) }
             } catch (e: TimeoutCancellationException) {
-                pendingCommand.value = text
+                if(!offerPending(text)) lastError.value="Review queue full; command not saved"
                 OmegaAssistantCore.backgroundPhase.value = "AI timed out; review command"
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) {
-                pendingCommand.value = text
+                if(!offerPending(text)) lastError.value="Review queue full; command not saved"
                 OmegaAssistantCore.backgroundPhase.value = "AI failed; review command"
             } finally {
                 assistantTts?.release(); assistantTts = null
                 if (!closed) OmegaAssistantCore.sessions.endBackground()
                 processing = false
                 if (!closed) {
-                    if(strictGrammar && answered && OmegaEliteConversation.canFollowup(OmegaVoicePreferences.followupAfterWake(this@OmegaWakeService),followupTurns,pendingCommand.value)) {
+                    if(strictGrammar && answered && hasReviewRoom() && OmegaEliteConversation.canFollowup(OmegaVoicePreferences.followupAfterWake(this@OmegaWakeService),followupTurns,"")) {
                         followupTurns++;armed=true;commandPhase=true
                         status.value="Follow-up "+followupTurns+"/3 — speak again";refresh()
                         startCommandCapture(false)
                     } else if (!OmegaAlwaysReady.enabled.value && !OmegaVoicePreferences.continuousWake(this@OmegaWakeService)) stopSelf()
                     else if (if (strictGrammar) startOfflineStage(false) else runCatching { speech?.startListening(this@OmegaWakeService) == true }.getOrDefault(false)) {
                         recognitionReady.value = true
-                        status.value = if (pendingCommand.value.isBlank()) "Listening for " + OmegaVoicePreferences.wakePhrase(this@OmegaWakeService).label else "Review captured command before next wake"
+                        status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this@OmegaWakeService).label + " • pending "+pendingQueueSize.value
                         refresh()
                     } else fail("Offline microphone could not resume after reply")
                 }
@@ -660,7 +669,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     override fun onDestroy() {
         closed = true
         val wasProcessing = processing
-        ++enrollmentEpoch;enrollmentActive.value=false;enrollmentSamples.clear()
+        ++enrollmentEpoch;enrollmentRequested=false;enrollmentActive.value=false;enrollmentSamples.clear()
         enrollmentStatus.value="Not recording";enrollmentJob?.cancel()
         clearWakeLive()
         sessionScope.cancel()

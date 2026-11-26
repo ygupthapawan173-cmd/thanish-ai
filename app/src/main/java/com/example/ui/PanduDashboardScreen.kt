@@ -126,6 +126,7 @@ fun PanduDashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val omegaCommand by com.example.omega.OmegaWakeService.pendingCommand.collectAsStateWithLifecycle()
+    val reviewCount by com.example.omega.OmegaWakeService.pendingQueueSize.collectAsStateWithLifecycle()
     val alwaysReady by com.example.omega.OmegaAlwaysReady.enabled.collectAsStateWithLifecycle()
     val wakeActive by com.example.omega.OmegaWakeService.active.collectAsStateWithLifecycle()
     val micOwner by com.example.omega.OmegaAssistantCore.sessions.owner.collectAsStateWithLifecycle()
@@ -250,14 +251,14 @@ fun PanduDashboardScreen(
 
                 if (omegaCommand.isNotBlank()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                        Text("Offline command captured: $omegaCommand")
+                        Text("Voice review queue ($reviewCount/3): $omegaCommand")
                         Row {
                             TextButton(onClick = {
                                 viewModel.onInputTextChanged(omegaCommand)
                                 selectedTab = CyberpunkTab.CHAT
-                                com.example.omega.OmegaWakeService.pendingCommand.value = ""
+                                com.example.omega.OmegaWakeService.resolvePending(omegaCommand)
                             }) { Text("Use in chat") }
-                            TextButton(onClick = { com.example.omega.OmegaWakeService.pendingCommand.value = "" }) { Text("Discard") }
+                            TextButton(onClick = { com.example.omega.OmegaWakeService.resolvePending(omegaCommand) }) { Text("Discard") }
                         }
                     }
                 }

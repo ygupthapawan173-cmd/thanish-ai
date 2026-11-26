@@ -74,7 +74,9 @@ fun OmegaCenter(
     val liveState by OmegaWakeService.liveTelemetry.collectAsState()
     val rejectedWakes by OmegaWakeService.rejectedWakeCount.collectAsState()
     val enrolling by OmegaWakeService.enrollmentActive.collectAsState()
+    val reviewCount by OmegaWakeService.pendingQueueSize.collectAsState()
     val enrollStatus by OmegaWakeService.enrollmentStatus.collectAsState()
+    LaunchedEffect(tab) { if(tab!=1)OmegaWakeService.cancelEnrollment(c) }
     val hasSpeaker by OmegaWakeService.enrolledSpeaker.collectAsState()
     val speakerRejects by OmegaWakeService.speakerRejections.collectAsState()
     var speakerGate by remember { mutableStateOf(OmegaVoicePreferences.speakerGate(c)) }
@@ -337,7 +339,7 @@ fun OmegaCenter(
                             Switch(checked = alwaysReady || continuousWake, enabled = !wakeActive && !alwaysReady,
                                 onCheckedChange = { continuousWake = it; OmegaVoicePreferences.setContinuousWake(c, it) })
                         }
-                        Text("Opt-in. Review or discard pending commands before another wake. Stop microphone ends the session. Offline wake uses the English model.")
+                        Text("Strict mode keeps up to 3 commands for review without blocking each new wake. Review queue: "+reviewCount+"/3. Stop microphone ends the session. Legacy mode still waits for review.")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Answer wake questions with AI", modifier = Modifier.weight(1f))
                             Switch(checked = backgroundAi, enabled = !wakeActive, onCheckedChange = {

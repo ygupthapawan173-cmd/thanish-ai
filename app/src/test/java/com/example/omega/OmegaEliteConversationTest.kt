@@ -20,6 +20,13 @@ class OmegaEliteConversationTest {
   assertFalse(OmegaEliteConversation.retryLive("Playback failed",1))
   assertFalse(OmegaEliteConversation.retryLive("Conversation idle",0))
  }
+ @Test fun reviewQueuePreservesAndBoundsCommands(){
+  val q=OmegaEliteConversation.appendPending(listOf("first","second"),"third")!!
+  assertEquals(listOf("first","second","third"),q)
+  assertNull(OmegaEliteConversation.appendPending(q,"fourth"))
+  assertEquals(q,OmegaEliteConversation.removePending(q,"stale"))
+  assertEquals(listOf("second","third"),OmegaEliteConversation.removePending(q,"first"))
+ }
  @Test fun stopWordsAreExact(){
   assertTrue(OmegaEliteConversation.isEndPhrase("Stop listening"))
   assertFalse(OmegaEliteConversation.isEndPhrase("please explain stop listening"))
