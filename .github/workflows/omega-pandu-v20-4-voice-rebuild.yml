@@ -1,0 +1,71 @@
+name: OMEGA V20.4 Voice Engine Rebuild
+on:
+  push:
+    branches: [build/omega-pandu-v20-4-voice-rebuild]
+    paths: [OMEGA-PANDU-v20.4-VOICE-REBUILD.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and extract V20.4 source
+        run: |
+          echo "89c7ea87d5debebf65fde44d9b84c35d77b90bc8cf403bbe3361bf6c33f615fe  OMEGA-PANDU-v20.4-VOICE-REBUILD.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile,pathlib,stat
+          with zipfile.ZipFile('OMEGA-PANDU-v20.4-VOICE-REBUILD.zip') as z:
+              assert z.testzip() is None
+              assert len(z.namelist()) == 87
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts
+                  assert not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('omega-v204-build')
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Provision pinned English Vosk model
+        working-directory: omega-v204-build
+        run: bash ci/provision-vosk.sh
+      - name: Compile and run voice engine regression tests
+        working-directory: omega-v204-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build test APK
+        working-directory: omega-v204-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify signature package and bundled model
+        run: |
+          mkdir -p out
+          cp omega-v204-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v20.4-VOICE-REBUILD-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/*.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "versionName='20.4-voice-rebuild'"
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('out/OMEGA-PANDU-v20.4-VOICE-REBUILD-TEST.apk') as z:
+              assert z.getinfo('assets/model-en-us/am/final.mdl').file_size > 0
+              assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libvosk.so') for n in z.namelist())
+          PY
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v20.4-VOICE-REBUILD-TEST
+          path: out/
+          if-no-files-found: error
