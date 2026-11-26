@@ -1,0 +1,71 @@
+name: OMEGA PANDU V20.2 VOICE RECOVERY APK
+on:
+  push:
+    branches: [build/omega-pandu-v20-2-voice-recovery]
+    paths: [OMEGA-PANDU-v20.2-VOICE-RECOVERY.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and unpack V20.2 source
+        run: |
+          echo "7a3e972a669a85ce827ebda13fc317525fb87cc4f0f68cf78a6fa7a687c7e7d7  OMEGA-PANDU-v20.2-VOICE-RECOVERY.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile,pathlib,stat
+          with zipfile.ZipFile('OMEGA-PANDU-v20.2-VOICE-RECOVERY.zip') as z:
+              assert z.testzip() is None
+              assert len([i for i in z.infolist() if not i.is_dir()]) == 81
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts
+                  assert not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('omega-v202-build')
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Provision offline English Vosk model
+        working-directory: omega-v202-build
+        run: bash ci/provision-vosk.sh
+      - name: Run voice recovery and existing unit tests
+        working-directory: omega-v202-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build signed debug APK
+        working-directory: omega-v202-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK signature package and offline model
+        run: |
+          mkdir -p out
+          cp omega-v202-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v20.2-VOICE-RECOVERY-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/OMEGA-PANDU-v20.2-VOICE-RECOVERY-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v20.2-VOICE-RECOVERY-TEST.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v20.2-VOICE-RECOVERY-TEST.apk | grep -F "versionName='20.2-voice-recovery'"
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('out/OMEGA-PANDU-v20.2-VOICE-RECOVERY-TEST.apk') as z:
+              assert z.getinfo('assets/model-en-us/am/final.mdl').file_size > 0
+              assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libvosk.so') for n in z.namelist())
+          PY
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v20.2-VOICE-RECOVERY-TEST
+          path: out/
+          if-no-files-found: error
