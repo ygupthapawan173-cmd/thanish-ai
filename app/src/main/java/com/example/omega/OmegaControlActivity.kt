@@ -42,6 +42,7 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
     val lastWakeTime by OmegaWakeService.lastWakeAt.collectAsState()
     var tab by remember { mutableStateOf(0) }
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
+    var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
     var notice by remember { mutableStateOf("") }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         notice = if (it.values.all { granted -> granted }) "Permissions granted. Tap Start." else "Permission denied; microphone remains stopped."
@@ -101,6 +102,18 @@ fun OmegaCenter(embedded: Boolean = false, close: () -> Unit = {}) {
                             RadioButton(selected = item == mode, onClick = { mode = item; OmegaVoicePreferences.set(c, item) })
                             Text(item.label, modifier = Modifier.padding(top = 14.dp))
                         } }
+                        HorizontalDivider()
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Continuous conversation (opt-in)", modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = continuous,
+                                onCheckedChange = {
+                                    continuous = it
+                                    OmegaVoicePreferences.setContinuous(c, it)
+                                }
+                            )
+                        }
+                        Text("When enabled, chat listens for one follow-up after finishing a reply while the app is visible. Stop microphone to cancel. This does not bypass Android permissions.")
                         HorizontalDivider()
                         Text("Offline Hey JARVIS • on-device Vosk")
                         Text(wakeStatus)
