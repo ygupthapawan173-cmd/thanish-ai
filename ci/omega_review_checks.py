@@ -88,7 +88,7 @@ assert 'onOpenPermissions = { selectedTab = CyberpunkTab.SETTINGS }' in screen
 print("PASS OMEGA permission center wiring + Android manifest checks")
 print("PASS OMEGA review UI/slots/branding/voice/privacy regression checks")
 
-assert 'R106 · NEURAL COMMAND' in premium_chrome
+assert 'UNIFIED · NEURAL COMMAND' in premium_chrome
 assert 'r105_orb' in premium_home and 'requestState.collectAsState()' in premium_home
 assert 'recognitionReady' in wake and 'reconnectPending' in wake
 assert 'animateScrollToItem(destination)' in tabs
@@ -99,3 +99,8 @@ assert 'OmegaRecoveryPolicy.keepListeningAfterCapture' in wake
 print('PASS R106 recovery wiring; physical wake still unverified')
 
 assert 'bindingDiagnostic(context)' in premium_chrome
+
+assert 'OmegaAssistantCore.sessions.acquireMic' in voice and 'OmegaAssistantCore.sessions.acquireMic' in wake
+assert 'runBackgroundReply(text)' in wake and 'OmegaAssistantCore.routeWake' in wake
+assert 'promptWithMemory' in viewmodel and 'promptWithMemory' in wake
+print('PASS unified source wiring; functional tests remain separate')

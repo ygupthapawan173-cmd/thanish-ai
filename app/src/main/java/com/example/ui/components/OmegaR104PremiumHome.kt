@@ -32,6 +32,7 @@ import com.example.ai.PanduAiRepository
 import com.example.control.PanduAccessibilityService
 import com.example.data.ChatMessageEntity
 import com.example.omega.OmegaWakeService
+import com.example.omega.OmegaAssistantCore
 import com.example.ui.AiGenState
 import com.example.ui.JarvisStatus
 import com.example.ui.PanduUiState
@@ -71,6 +72,10 @@ fun OmegaR104PremiumHome(
     val lastRoute by PanduAiRepository.lastRoute.collectAsState()
     val requestState by PanduAiRepository.requestState.collectAsState()
     val wakeReady by OmegaWakeService.recognitionReady.collectAsState()
+    val micOwner by OmegaAssistantCore.sessions.owner.collectAsState()
+    val backgroundPhase by OmegaAssistantCore.backgroundPhase.collectAsState()
+    val backgroundBusy by OmegaAssistantCore.sessions.backgroundBusy.collectAsState()
+    val speechEngine by com.example.voice.VoiceInputController.engineStatus.collectAsState()
     val micAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED
     val lastAnswer = uiState.messages.lastOrNull { it.role == ChatMessageEntity.ROLE_ASSISTANT }
@@ -206,6 +211,8 @@ fun OmegaR104PremiumHome(
             }
         }
         item {
+            Text("Mic: " + micOwner.name + " · " + speechEngine, color=Cyan104, style=MaterialTheme.typography.bodySmall, modifier=Modifier.testTag("unified_mic_owner"))
+            if (backgroundBusy) Text(backgroundPhase, color=Purple104, style=MaterialTheme.typography.bodyMedium)
             Text("Wake status: " + wakeStatus,
                 color=Muted104, style=MaterialTheme.typography.bodySmall)
             Text("Actions run through the existing permission-controlled app modules.",

@@ -11,6 +11,15 @@ import android.speech.tts.TextToSpeech
 import java.util.Locale
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
+import com.example.ai.AiStreamEvent
+import com.example.ai.PanduAiRepository
+import com.example.data.AppDatabase
+import com.example.data.ChatRepository
+import com.example.data.TtsPreferencesRepository
+import com.example.voice.TeluguTtsController
+import com.example.voice.TtsReadiness
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import org.vosk.Model
@@ -54,6 +63,10 @@ class OmegaWakeService : Service(), RecognitionListener {
     // Recovery is bounded and only active while the user-started foreground service remains alive.
     private var recognitionRestarts = 0
     private var reconnectPending = false
+    private var ownsMic = false
+    private var processing = false
+    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var assistantTts: TeluguTtsController? = null
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(applicationContext) { result ->
@@ -121,6 +134,11 @@ class OmegaWakeService : Service(), RecognitionListener {
             fail("Microphone and notification permissions required")
             return START_NOT_STICKY
         }
+        if (!OmegaAssistantCore.sessions.acquireMic(MicOwner.WAKE)) {
+            fail("Manual microphone in use; stop it before starting wake listening")
+            return START_NOT_STICKY
+        }
+        ownsMic = true
         try {
             if (Build.VERSION.SDK_INT >= 26) getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(NotificationChannel(CHANNEL, "JARVIS offline listening", NotificationManager.IMPORTANCE_LOW))
@@ -172,7 +190,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         stopSelf()
     }
     override fun onPartialResult(hypothesis: String?) {
-        if (closed || !active.value || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
+        if (closed || !active.value || processing || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
         val partial = runCatching { JSONObject(hypothesis.orEmpty()).optString("partial") }
             .getOrDefault("").trim().take(300)
         if (partial.isEmpty()) return
@@ -185,7 +203,7 @@ class OmegaWakeService : Service(), RecognitionListener {
     override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
     private fun recoverOfflineRecognition(reason: String) {
         handler.post {
-            if (closed || !active.value || reconnectPending) return@post
+            if (closed || !active.value || reconnectPending || processing) return@post
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 fail("Microphone permission revoked; stop offline listening")
                 return@post
@@ -221,7 +239,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         if (!closed) recoverOfflineRecognition("recognizer error")
     }
     override fun onResult(hypothesis: String?) {
-        if (closed || !active.value || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
+        if (closed || !active.value || processing || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
         if (armed && OmegaWakeAck.isEcho(text, OmegaWakeAck.spokenText(
@@ -239,6 +257,12 @@ class OmegaWakeService : Service(), RecognitionListener {
         armed = false
         handler.removeCallbacks(expiry)
         if (pendingCommand.value.isNotBlank()) return
+        if (OmegaAssistantCore.routeWake(text, OmegaVoicePreferences.backgroundAi(this), OmegaVoicePreferences.get(this)) == WakeRoute.AI &&
+            OmegaAssistantCore.sessions.beginBackground()) {
+            capturedCount.value += 1
+            runBackgroundReply(text)
+            return
+        }
         pendingCommand.value = text
         capturedCount.value += 1
         lastPartial.value = ""
@@ -249,8 +273,77 @@ class OmegaWakeService : Service(), RecognitionListener {
             refresh()
         } else stopSelf()
     }
+    private fun runBackgroundReply(text: String) {
+        processing = true
+        recognitionReady.value = false
+        OmegaAssistantCore.backgroundPhase.value = "Processing wake question"
+        status.value = "Processing wake question — microphone paused"
+        refresh()
+        if (!runCatching { speech?.stop() == true }.getOrDefault(false)) {
+            processing = false
+            OmegaAssistantCore.sessions.endBackground()
+            OmegaAssistantCore.backgroundPhase.value = "Microphone pause failed"
+            pendingCommand.value = text
+            fail("Could not pause wake microphone; review captured command")
+            return
+        }
+        sessionScope.launch {
+            try {
+                val chat = ChatRepository(AppDatabase.getInstance(applicationContext).chatMessageDao())
+                val history = chat.messages.first()
+                chat.saveUserMessage(text, true)
+                var answer = ""
+                val prompt = OmegaAssistantCore.promptWithMemory(applicationContext, text)
+                withTimeout(90_000L) {
+                    PanduAiRepository(applicationContext).streamReply(history, prompt).collect { event ->
+                        if (event is AiStreamEvent.Completed) answer = event.fullText
+                    }
+                }
+                check(answer.isNotBlank())
+                val id = chat.saveAssistantMessage(answer)
+                OmegaAssistantCore.backgroundPhase.value = "AI reply saved"
+                val config = TtsPreferencesRepository(applicationContext).ttsConfig.first()
+                if (config.autoSpeakEnabled) {
+                    val speaker = TeluguTtsController(applicationContext)
+                    assistantTts = speaker
+                    speaker.applyConfig(config)
+                    withTimeoutOrNull(8_000L) { speaker.readiness.first { it != TtsReadiness.INITIALIZING } }
+                    if (speaker.speak(answer, id)) {
+                        OmegaAssistantCore.backgroundPhase.value = "Speaking AI reply"
+                        status.value = "Speaking AI reply — microphone paused"; refresh()
+                        withTimeoutOrNull(45_000L) { speaker.isSpeaking.first { !it } }
+                    }
+                    speaker.release(); assistantTts = null
+                }
+                runCatching { getSystemService(NotificationManager::class.java).notify(RESULT, notification("AI reply ready. Open conversation.", false)) }
+            } catch (e: TimeoutCancellationException) {
+                pendingCommand.value = text
+                OmegaAssistantCore.backgroundPhase.value = "AI timed out; review command"
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                pendingCommand.value = text
+                OmegaAssistantCore.backgroundPhase.value = "AI failed; review command"
+            } finally {
+                assistantTts?.release(); assistantTts = null
+                OmegaAssistantCore.sessions.endBackground()
+                processing = false
+                if (!closed) {
+                    if (!OmegaVoicePreferences.continuousWake(this@OmegaWakeService)) stopSelf()
+                    else if (runCatching { speech?.startListening(this@OmegaWakeService) == true }.getOrDefault(false)) {
+                        recognitionReady.value = true
+                        status.value = if (pendingCommand.value.isBlank()) "Listening for " + OmegaVoicePreferences.wakePhrase(this@OmegaWakeService).label else "Review captured command before next wake"
+                        refresh()
+                    } else fail("Offline microphone could not resume after reply")
+                }
+            }
+        }
+    }
     override fun onDestroy() {
         closed = true
+        sessionScope.cancel()
+        assistantTts?.release(); assistantTts = null
+        OmegaAssistantCore.sessions.endBackground()
+        OmegaAssistantCore.backgroundPhase.value = "Idle"
         handler.removeCallbacksAndMessages(null)
         runCatching { tts?.stop(); tts?.shutdown() }
         tts = null
@@ -260,6 +353,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         speech = null
         runCatching { recognizer?.close() }; recognizer = null
         runCatching { model?.close() }; model = null
+        if (ownsMic) { ownsMic = false; OmegaAssistantCore.sessions.releaseMic(MicOwner.WAKE) }
         active.value = false
         recognitionReady.value = false
         reconnectPending = false

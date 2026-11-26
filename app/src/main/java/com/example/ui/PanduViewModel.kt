@@ -25,6 +25,10 @@ import com.example.data.ChatRepository
 import com.example.data.TtsPreferencesRepository
 import com.example.omega.OmegaVoicePreferences
 import com.example.omega.OmegaWakeService
+import com.example.omega.OmegaAssistantCore
+import com.example.omega.MicOwner
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import com.example.voice.SpeechLocaleOption
 import com.example.voice.TeluguTtsConfig
 import com.example.voice.TeluguTtsController
@@ -117,6 +121,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
     private var activeGenerationJob: Job? = null
     private var followupJob: Job? = null
+    private var manualStartJob: Job? = null
+    private var foregroundVisible = false
     private var currentTtsConfig = TeluguTtsConfig()
     private var pendingFromVoiceOrChat = false
 
@@ -316,22 +322,37 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         sendMessageInternal(prompt = prompt, isVoiceInput = false, saveUserTurn = false)
     }
 
+    fun setForegroundVisible(visible: Boolean) {
+        foregroundVisible = visible
+        if (!visible) cancelVoiceListening()
+    }
     fun startVoiceListening() {
+        if (!foregroundVisible) return
         followupJob?.cancel()
+        manualStartJob?.cancel()
         ttsController.stop()
         _bannerError.value = null
         if (_aiGenState.value is AiGenState.Error) {
             _aiGenState.value = AiGenState.Idle
         }
-        voiceInputController.startListening(_speechLocale.value)
+        manualStartJob = viewModelScope.launch {
+            if (OmegaWakeService.active.value || OmegaAssistantCore.sessions.owner.value == MicOwner.WAKE) {
+                OmegaWakeService.stop(getApplication())
+                val released = withTimeoutOrNull(4000L) { OmegaAssistantCore.sessions.owner.first { it != MicOwner.WAKE } } != null
+                if (!released) { _bannerError.value = "Wake microphone did not release; retry."; return@launch }
+            }
+            if (foregroundVisible && _hasMicPermission.value) voiceInputController.startListening(_speechLocale.value)
+        }
     }
 
     fun stopVoiceListening() {
+        manualStartJob?.cancel()
         followupJob?.cancel()
         voiceInputController.stopListening()
     }
 
     fun cancelVoiceListening() {
+        manualStartJob?.cancel()
         followupJob?.cancel()
         voiceInputController.cancel()
     }
@@ -696,6 +717,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val trimmed = prompt.trim()
         if (trimmed.isBlank()) return
+        if (OmegaAssistantCore.sessions.backgroundBusy.value) {
+            _bannerError.value = "Background AI reply is in progress. Stop wake or wait for reply."
+            return
+        }
 
         activeGenerationJob?.cancel()
         followupJob?.cancel()
@@ -714,6 +739,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        val turnToken = OmegaAssistantCore.sessions.beginForeground() ?: return
         activeGenerationJob = viewModelScope.launch {
             val historySnapshot = uiState.value.messages.let { list ->
                 if (!saveUserTurn && list.lastOrNull()?.role == ChatMessageEntity.ROLE_USER) {
@@ -729,7 +755,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
             _aiGenState.value = AiGenState.Thinking
             try {
-                aiRepository.streamReply(historySnapshot, trimmed).collect { event ->
+                val prompt = OmegaAssistantCore.promptWithMemory(getApplication(), trimmed)
+                aiRepository.streamReply(historySnapshot, prompt).collect { event ->
                     when (event) {
                         is AiStreamEvent.Chunk -> {
                             _aiGenState.value = AiGenState.Streaming(event.accumulatedText)
@@ -756,6 +783,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 _bannerError.value = msg
             }
         }
+        activeGenerationJob?.invokeOnCompletion { OmegaAssistantCore.sessions.endForeground(turnToken) }
     }
 
     private fun handlePhoneControlCommand(
@@ -828,7 +856,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Opt-in only. Schedule one follow-up after speech ends; lifecycle ON_STOP cancels. */
     private fun scheduleFollowupIfEnabled(fromVoice: Boolean) {
-        if (!fromVoice || !OmegaVoicePreferences.continuous(getApplication())) return
+        if (!foregroundVisible || !fromVoice || !OmegaVoicePreferences.continuous(getApplication())) return
         followupJob?.cancel()
         followupJob = viewModelScope.launch {
             delay(1200)
@@ -839,7 +867,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (ticks >= 160) return@launch
             delay(500)
-            if (OmegaVoicePreferences.continuous(getApplication()) &&
+            if (foregroundVisible && OmegaVoicePreferences.continuous(getApplication()) &&
                 _hasMicPermission.value &&
                 !OmegaWakeService.active.value &&
                 _pendingSensitiveAction.value == null &&
@@ -850,6 +878,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        manualStartJob?.cancel()
         followupJob?.cancel()
         super.onCleared()
         voiceInputController.release()
