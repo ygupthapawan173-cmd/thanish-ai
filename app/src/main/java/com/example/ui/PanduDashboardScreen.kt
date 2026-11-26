@@ -229,12 +229,6 @@ fun PanduDashboardScreen(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
 
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = {
-                        viewModel.cancelVoiceListening()
-                        context.startActivity(Intent(context, com.example.omega.OmegaControlActivity::class.java))
-                    }) { Text("OMEGA · Advanced engines") }
-                }
                 if (omegaCommand.isNotBlank()) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Text("Offline command captured: $omegaCommand")
@@ -377,6 +371,8 @@ fun PanduDashboardScreen(
                                 onRequestClearChat = { showClearDialog = true },
                                 onOpenChat = { selectedTab = CyberpunkTab.CHAT }
                             )
+
+                            CyberpunkTab.OMEGA -> com.example.omega.OmegaCenter(embedded = true)
 
                             CyberpunkTab.SETTINGS -> SettingsCommandTab(
                                 uiState = uiState,
