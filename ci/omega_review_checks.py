@@ -128,3 +128,7 @@ assert 'AutomaticGainControl' in live and 'checkIdle(id)' in live and 'inputTran
 assert 'elite_auto_live' in omega and 'elite_followup' in omega
 assert 'local.setWords(true)' in wake and 'confidenceAccepted' in wake
 print('PASS ELITE live handoff, confidence rejection, bounded recovery and follow-up wiring')
+
+assert 'SpeakerModel' in wake and 'OmegaSpeakerPolicy.match' in wake and 'setSpeakerModel' in wake
+assert 'elite_enroll_speaker' in omega and 'elite_speaker_gate' in omega
+print('PASS optional local speaker enrollment and matching wiring; not biometric authentication')

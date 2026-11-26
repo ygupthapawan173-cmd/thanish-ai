@@ -73,6 +73,12 @@ fun OmegaCenter(
     var aliases by remember { mutableStateOf(OmegaVoicePreferences.expandedWake(c)) }
     val liveState by OmegaWakeService.liveTelemetry.collectAsState()
     val rejectedWakes by OmegaWakeService.rejectedWakeCount.collectAsState()
+    val enrolling by OmegaWakeService.enrollmentActive.collectAsState()
+    val enrollStatus by OmegaWakeService.enrollmentStatus.collectAsState()
+    val hasSpeaker by OmegaWakeService.enrolledSpeaker.collectAsState()
+    val speakerRejects by OmegaWakeService.speakerRejections.collectAsState()
+    var speakerGate by remember { mutableStateOf(OmegaVoicePreferences.speakerGate(c)) }
+    var enrollConsent by remember { mutableStateOf(false) }
     val acceptedWakes by OmegaWakeService.acceptedWakeCount.collectAsState()
     val recognitionStage by OmegaWakeService.recognitionStage.collectAsState()
     var backgroundAi by remember { mutableStateOf(OmegaVoicePreferences.backgroundAi(c)) }
@@ -96,13 +102,15 @@ fun OmegaCenter(
     }
     DisposableEffect(lifecycle, embedded) {
         val observer = LifecycleEventObserver { _, event ->
+            if(event==Lifecycle.Event.ON_PAUSE) {OmegaWakeService.cancelEnrollment(c);enrollConsent=false}
             if (event == Lifecycle.Event.ON_RESUME) {
+                OmegaWakeService.enrolledSpeaker.value=OmegaSpeakerStore(c).exists()
                 OmegaAlwaysReady.refresh(c, allowRetry = true)
                 if (!embedded) OmegaAlwaysReady.tryStart(c, true)
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose { lifecycle.removeObserver(observer);OmegaWakeService.cancelEnrollment(c) }
     }
     val notebook = remember { OmegaNotebook(c) }
     var entries by remember { mutableStateOf(emptyList<OmegaEntry>()) }
@@ -232,10 +240,21 @@ fun OmegaCenter(
                             Text("Additional ELITE wake phrases",Modifier.weight(1f))
                             Switch(checked=aliases,onCheckedChange={aliases=it;OmegaVoicePreferences.setExpandedWake(c,it)},enabled=!wakeActive)
                         }
+                        Text("Optional local speaker wake filter",style=MaterialTheme.typography.titleLarge)
+                        Text("Experimental convenience filter, not secure authentication or anti-spoofing. Short wake phrases can reject the owner. Only your own voice with explicit consent. No raw audio saved or uploaded; encrypted template can be deleted.")
+                        Row { Checkbox(enrollConsent,{enrollConsent=it;if(!it)OmegaWakeService.cancelEnrollment(c)},enabled=!enrolling);Text("I consent to creating my local voice template") }
+                        Button(enabled=enrollConsent && wakeActive && wakeReady && !enrolling,onClick={if(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))OmegaWakeService.requestEnrollment(c)},modifier=Modifier.testTag("elite_enroll_speaker")){Text("Enroll my voice (3 phrases)")}
+                        if(enrolling)OutlinedButton(onClick={OmegaWakeService.cancelEnrollment(c)}){Text("Cancel enrollment")}
+                        Text(enrollStatus+" · template: "+(if(hasSpeaker)"saved" else "none")+" · rejected: "+speakerRejects)
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Use speaker match before wake (experimental)",Modifier.weight(1f))
+                            Switch(checked=speakerGate,onCheckedChange={speakerGate=it;OmegaVoicePreferences.setSpeakerGate(c,it)},enabled=!wakeActive && (hasSpeaker || speakerGate),modifier=Modifier.testTag("elite_speaker_gate"))
+                        }
+                        OutlinedButton(enabled=!wakeActive && hasSpeaker,onClick={runCatching{OmegaSpeakerStore(c).delete()}.onSuccess{speakerGate=false;OmegaVoicePreferences.setSpeakerGate(c,false);OmegaWakeService.enrolledSpeaker.value=false;enrollConsent=false}.onFailure{notice="Could not delete local voice template"}}){Text("Delete voice template")}
                         Text("ELITE wake engine • offline Vosk · rejected confidence: "+rejectedWakes)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Strict phrase grammar", modifier = Modifier.weight(1f))
-                            Switch(checked = strictGrammar, enabled = !wakeActive, onCheckedChange = {
+                            Switch(checked = strictGrammar || speakerGate, enabled = !wakeActive && !speakerGate, onCheckedChange = {
                                 strictGrammar = it; OmegaVoicePreferences.setStrictWakeGrammar(c, it)
                             }, modifier = Modifier.testTag("elite_strict_grammar"))
                         }

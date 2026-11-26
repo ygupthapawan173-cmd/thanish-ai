@@ -64,6 +64,8 @@ object OmegaVoicePreferences {
     fun setStrictWakeGrammar(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("elite_strict_grammar", enabled).apply() }
     fun bilingualWakeCommand(c: Context): Boolean = prefs(c).getBoolean("elite_bilingual_command_opt_in", false)
     fun setBilingualWakeCommand(c: Context, enabled: Boolean) { prefs(c).edit().putBoolean("elite_bilingual_command_opt_in", enabled).apply() }
+    fun speakerGate(c:Context)=prefs(c).getBoolean("elite_speaker_gate",false)
+    fun setSpeakerGate(c:Context,v:Boolean){prefs(c).edit().putBoolean("elite_speaker_gate",v).apply()}
     fun liveAfterWake(c:Context)=prefs(c).getBoolean("elite_live_after_wake",false)
     fun setLiveAfterWake(c:Context,v:Boolean){prefs(c).edit().putBoolean("elite_live_after_wake",v).apply()}
     fun liveModel(c:Context)=prefs(c).getString("elite_live_model","").orEmpty()

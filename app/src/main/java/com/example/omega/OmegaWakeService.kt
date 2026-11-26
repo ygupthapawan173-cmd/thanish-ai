@@ -28,6 +28,7 @@ import com.example.voice.VoiceInputController
 import com.example.voice.SpeechLocaleOption
 import org.vosk.Model
 import org.vosk.Recognizer
+import org.vosk.SpeakerModel
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 import org.vosk.android.StorageService
@@ -39,6 +40,14 @@ class OmegaWakeService : Service(), RecognitionListener {
         private const val MIC = 7201
         private const val RESULT = 7202
         private const val STOP = "com.example.omega.STOP_WAKE"
+        private const val ENROLL = "com.example.omega.ENROLL_SPEAKER"
+        private const val CANCEL_ENROLL = "com.example.omega.CANCEL_ENROLL_SPEAKER"
+        val enrollmentActive=MutableStateFlow(false)
+        val enrollmentStatus=MutableStateFlow("Not recording")
+        val enrolledSpeaker=MutableStateFlow(false)
+        val speakerRejections=MutableStateFlow(0)
+        fun requestEnrollment(c:Context) { if(active.value) c.startService(Intent(c,OmegaWakeService::class.java).setAction(ENROLL)) }
+        fun cancelEnrollment(c:Context) { if(enrollmentActive.value) runCatching{c.startService(Intent(c,OmegaWakeService::class.java).setAction(CANCEL_ENROLL))} }
         val status = MutableStateFlow("Stopped")
         val active = MutableStateFlow(false)
         val recognitionReady = MutableStateFlow(false)
@@ -86,6 +95,12 @@ class OmegaWakeService : Service(), RecognitionListener {
     private var liveRetries=0
     private var followupTurns=0
     private var liveLock:PowerManager.WakeLock?=null
+    private var speakerModel:SpeakerModel?=null
+    private var ownerTemplate:List<Double>?=null
+    private var ownerGate=false
+    private var enrollmentJob:Job?=null
+    private var enrollmentEpoch=0L
+    private val enrollmentSamples=mutableListOf<List<Double>>()
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(applicationContext) { result ->
@@ -147,6 +162,8 @@ class OmegaWakeService : Service(), RecognitionListener {
             stopSelf()
             return START_NOT_STICKY
         }
+        if(intent?.action==ENROLL){beginEnrollment();return START_NOT_STICKY}
+        if(intent?.action==CANCEL_ENROLL){endEnrollment("Enrollment canceled");return START_NOT_STICKY}
         if (active.value || loading || speech != null) return START_NOT_STICKY
         OmegaAlwaysReady.refresh(this)
         if (!OmegaAlwaysReady.enabled.value) { stopSelf(); return START_NOT_STICKY }
@@ -155,7 +172,10 @@ class OmegaWakeService : Service(), RecognitionListener {
         capturedCount.value = 0
         acceptedWakeCount.value = 0
         rejectedWakeCount.value=0
-        strictGrammar = OmegaVoicePreferences.strictWakeGrammar(this)
+        ownerGate=OmegaVoicePreferences.speakerGate(this)
+        enrolledSpeaker.value=OmegaSpeakerStore(this).exists()
+        speakerRejections.value=0
+        strictGrammar = ownerGate || OmegaVoicePreferences.strictWakeGrammar(this)
         recognitionStage.value = "Loading"
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
             (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
@@ -180,7 +200,18 @@ class OmegaWakeService : Service(), RecognitionListener {
                     loading = false
                     if (closed) loaded.close() else try {
                         model = loaded
-                        check(startOfflineStage(false))
+                        if(ownerGate) {
+                            sessionScope.launch {
+                                try {
+                                    ownerTemplate=OmegaSpeakerStore(this@OmegaWakeService).load()
+                                    check(ownerTemplate!=null)
+                                    prepareSpeakerModel()
+                                    if(!closed)check(startOfflineStage(false))
+                                } catch(e:CancellationException){throw e}
+                                catch(_:Exception){if(!closed)fail("Owner voice model/template unavailable; turn off optional filter or enroll again")}
+                                catch(_:LinkageError){if(!closed)fail("Speaker native model unavailable")}
+                            }
+                        } else check(startOfflineStage(false))
                     } catch (e: Exception) { fail("Offline microphone could not start") }
                     catch (e: LinkageError) { fail("Native library unavailable") }
                 },
@@ -211,6 +242,7 @@ class OmegaWakeService : Service(), RecognitionListener {
                 Recognizer(m, 16000f, grammar)
             } else Recognizer(m, 16000f)
             if(strictGrammar && !command) local.setWords(true)
+            if(enrollmentActive.value || ownerGate && !command) local.setSpeakerModel(requireNotNull(speakerModel))
             recognizer = local
             val recorder = SpeechService(local, 16000f)
             speech = recorder
@@ -224,12 +256,64 @@ class OmegaWakeService : Service(), RecognitionListener {
             }
             check(recorder.startListening(listener))
             recognitionReady.value = true
-            recognitionStage.value = if (command) "Vosk English command" else if (strictGrammar) "Vosk strict phrase grammar" else "Vosk legacy open vocabulary"
-            status.value = if (command) "Say one English command" else "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
+            recognitionStage.value = if(enrollmentActive.value) "Local speaker enrollment" else if (command) "Vosk English command" else if (strictGrammar) "Vosk strict phrase grammar" else "Vosk legacy open vocabulary"
+            status.value = if(enrollmentActive.value) "Speaker enrollment • speak and pause three times" else if (command) "Say one English command" else "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
             refresh()
             true
         } catch (_: Exception) { closeOfflineStage(); false }
           catch (_: LinkageError) { closeOfflineStage(); false }
+    }
+    private suspend fun prepareSpeakerModel(){
+        if(speakerModel!=null)return
+        val path=withContext(Dispatchers.IO){StorageService.sync(this@OmegaWakeService,"model-spk","omega-vosk-speaker")}
+        if(!closed)speakerModel=SpeakerModel(path)
+    }
+    private val enrollmentExpiry=Runnable{if(enrollmentActive.value)endEnrollment("Enrollment timed out; previous template unchanged")}
+    private fun beginEnrollment(){
+        if(closed || !active.value || !recognitionReady.value || processing || commandPhase || armed || reconnectPending || enrollmentActive.value || pendingCommand.value.isNotBlank()){
+            enrollmentStatus.value="Wait for wake standby; review pending commands first";return
+        }
+        ++enrollmentEpoch
+        val epoch=enrollmentEpoch
+        enrollmentActive.value=true
+        enrollmentSamples.clear()
+        enrollmentStatus.value="Preparing local speaker model"
+        closeOfflineStage()
+        enrollmentJob=sessionScope.launch {
+            try {
+                prepareSpeakerModel()
+                if(closed || epoch!=enrollmentEpoch || !enrollmentActive.value)return@launch
+                check(startOfflineStage(true))
+                enrollmentStatus.value="Speak three long phrases in your own voice; pause after each (0/3)"
+                handler.postDelayed(enrollmentExpiry,45000L)
+            }catch(e:CancellationException){throw e}
+            catch(_:Exception){if(!closed && epoch==enrollmentEpoch)endEnrollment("Speaker enrollment unavailable")}
+            catch(_:LinkageError){if(!closed && epoch==enrollmentEpoch)endEnrollment("Speaker native library unavailable")}
+        }
+    }
+    private fun endEnrollment(message:String){
+        if(!enrollmentActive.value)return
+        ++enrollmentEpoch
+        enrollmentJob?.cancel();enrollmentJob=null
+        handler.removeCallbacks(enrollmentExpiry)
+        enrollmentActive.value=false;enrollmentSamples.clear()
+        enrollmentStatus.value=message
+        enrolledSpeaker.value=OmegaSpeakerStore(this).exists()
+        restoreWake()
+    }
+    private fun enrollmentResult(json:JSONObject){
+        val vector=OmegaSpeakerPolicy.fromResult(json,150)?:return
+        enrollmentSamples.add(vector)
+        enrollmentStatus.value="Speaker samples: "+enrollmentSamples.size+"/3"
+        if(enrollmentSamples.size==3){
+            try {
+                val centroid=requireNotNull(OmegaSpeakerPolicy.centroid(enrollmentSamples))
+                check(enrollmentSamples.all{OmegaSpeakerPolicy.match(centroid,it)})
+                OmegaSpeakerStore(this).save(centroid)
+                if(ownerGate)ownerTemplate=centroid
+                endEnrollment("Local template saved. No audio stored.")
+            } catch(_:Exception){endEnrollment("Enrollment failed; speak clearly in a quiet room")}
+        }
     }
     private fun restoreWake() {
         captureJob?.cancel(); captureJob = null
@@ -385,7 +469,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         stopSelf()
     }
     override fun onPartialResult(hypothesis: String?) {
-        if (closed || !active.value || processing || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
+        if (closed || !active.value || processing || enrollmentActive.value || !OmegaRecoveryPolicy.mayAcceptWake(pendingCommand.value)) return
         val partial = runCatching { JSONObject(hypothesis.orEmpty()).optString("partial") }
             .getOrDefault("").trim().take(300)
         if (partial.isEmpty()) return
@@ -429,14 +513,17 @@ class OmegaWakeService : Service(), RecognitionListener {
         }
     }
     override fun onTimeout() {
+        if(enrollmentActive.value){endEnrollment("Enrollment timed out");return}
         if (!closed && strictGrammar && commandPhase) restoreWake()
         else if (!closed) recoverOfflineRecognition("timeout")
     }
     override fun onError(exception: Exception?) {
+        if(enrollmentActive.value){endEnrollment("Enrollment microphone error");return}
         if (!closed) recoverOfflineRecognition("recognizer error")
     }
     override fun onResult(hypothesis: String?) {
         if (closed || !active.value || processing) return
+        if(enrollmentActive.value){runCatching{JSONObject(hypothesis.orEmpty())}.getOrNull()?.let{enrollmentResult(it)};return}
         val text = runCatching { JSONObject(hypothesis.orEmpty()).optString("text") }.getOrDefault("").trim()
         if (text.isEmpty()) return
         if (strictGrammar && !commandPhase) {
@@ -445,6 +532,12 @@ class OmegaWakeService : Service(), RecognitionListener {
                 val conf=if(words==null) emptyList() else (0 until words.length()).map{words.optJSONObject(it)?.optDouble("conf",Double.NaN)?:Double.NaN}
                 val count=OmegaPolicy.normalize(text).split(" ").size
                 if(OmegaEliteConversation.confidenceAccepted(conf,count)) {
+                    if(ownerGate){
+                        val vector=runCatching{OmegaSpeakerPolicy.fromResult(JSONObject(hypothesis.orEmpty()),50)}.getOrNull()
+                        if(vector==null || ownerTemplate?.let{OmegaSpeakerPolicy.match(it,vector)}!=true){
+                            speakerRejections.value++;lastError.value="Optional speaker filter rejected wake; short phrase or mismatch";return
+                        }
+                    }
                     if(pendingCommand.value.isNotBlank()) {status.value="Wake heard — review or discard previous command";refresh();return}
                     startStrictCommand()
                 }else{rejectedWakeCount.value+=1;lastError.value="Wake rejected: insufficient word confidence"}
@@ -567,6 +660,8 @@ class OmegaWakeService : Service(), RecognitionListener {
     override fun onDestroy() {
         closed = true
         val wasProcessing = processing
+        ++enrollmentEpoch;enrollmentActive.value=false;enrollmentSamples.clear()
+        enrollmentStatus.value="Not recording";enrollmentJob?.cancel()
         clearWakeLive()
         sessionScope.cancel()
         platformCommand?.release(); platformCommand = null
@@ -578,6 +673,7 @@ class OmegaWakeService : Service(), RecognitionListener {
         tts = null
         ttsReady = false
         closeOfflineStage()
+        runCatching{speakerModel?.close()};speakerModel=null;ownerTemplate=null
         runCatching { model?.close() }; model = null
         if (ownsMic) { ownsMic = false; OmegaAssistantCore.sessions.releaseMic(MicOwner.WAKE) }
         active.value = false
