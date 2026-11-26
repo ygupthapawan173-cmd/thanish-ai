@@ -95,7 +95,7 @@ fun AiProviderSettingsCard() {
             }
             Text(
                 if (hasKey) "Encrypted key stored • " +
-                    (if (active == provider) "Active" else "Not active")
+                    (if (active == provider) "Selected, not yet verified" else "Not selected")
                 else "No key saved for this service",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (hasKey) Color(0xFF27D1AC) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -109,6 +109,11 @@ fun AiProviderSettingsCard() {
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None,
                     keyboardType = KeyboardType.Ascii)
             )
+            if (provider == AiProvider.GEMINI) {
+                Text("Model ID example: gemini-3.6-flash. Check the model is available in your AI Studio project.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             OutlinedTextField(
                 value = keyInput,
                 onValueChange = { keyInput = it.take(1000) },
@@ -137,13 +142,17 @@ fun AiProviderSettingsCard() {
                     scope.launch {
                         try {
                             val result = withContext(Dispatchers.IO) {
-                                val key = if (secret.isNotBlank()) {
+                                val key = secret.ifBlank {
+                                    store.getApiKey(candidate) ?: error("Enter a key to connect")
+                                }
+                                val verified = PanduAiRepository(context)
+                                    .testProvider(candidate, key, newModel)
+                                // Commit credentials and model only AFTER the real API test succeeds.
+                                if (secret.isNotBlank()) {
                                     check(store.saveApiKey(candidate, secret)) { "Secure save failed" }
-                                    secret
-                                } else store.getApiKey(candidate)
-                                    ?: error("Enter a key to connect")
+                                }
                                 store.setModel(candidate, newModel)
-                                PanduAiRepository(context).testProvider(candidate, key, newModel)
+                                verified
                             }
                             if (provider == candidate) {
                                 hasKey = true
@@ -156,7 +165,8 @@ fun AiProviderSettingsCard() {
                         } catch (e: Exception) {
                             if (provider == candidate) {
                                 hasKey = store.hasApiKey(candidate)
-                                status = "Connection test failed. Check key, model and network."
+                                status = (e as? AiConnectionTestException)?.message
+                                    ?: "Connection could not be verified. Check device network and retry."
                             }
                         } finally {
                             busy = false
@@ -203,8 +213,8 @@ fun AiProviderSettingsCard() {
                 Text(status, style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                "If a saved connection fails before replying, other saved providers may be tried. " +
-                    "Cloud requests can use data and incur API charges.",
+                "Saved/Selected does not mean Connected. Use Save & Test to verify the actual API. " +
+                    "Other encrypted providers remain available for fallback. Cloud usage may incur charges.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
