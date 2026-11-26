@@ -1,0 +1,68 @@
+name: OMEGA PANDU V20.1 VOICE AI FIXED APK
+on:
+  push:
+    branches: [build/omega-pandu-v20-1-voice-ai-fixed]
+    paths:
+      - 'OMEGA-PANDU-v20.1-VOICE-AI-FIXED (1).zip'
+      - 'OMEGA-PANDU-v20.1-VOICE-AI-FIXED.zip'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and extract exact V20.1 source
+        run: |
+          python3 - <<'PY'
+          import zipfile, pathlib, stat, hashlib
+          names = ['OMEGA-PANDU-v20.1-VOICE-AI-FIXED (1).zip', 'OMEGA-PANDU-v20.1-VOICE-AI-FIXED.zip']
+          matches = [pathlib.Path(n) for n in names if pathlib.Path(n).is_file()]
+          assert len(matches) == 1, 'Upload exactly one V20.1 archive'
+          src = matches[0]
+          assert hashlib.sha256(src.read_bytes()).hexdigest() == '02d1da87487a55c51193921d8a70c3c25723609b262b8217eac56bc030a9a4b6', 'ZIP checksum mismatch'
+          with zipfile.ZipFile(src) as z:
+              assert z.testzip() is None
+              assert len([i for i in z.infolist() if not i.is_dir()]) == 77
+              for i in z.infolist():
+                  p = pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts
+                  assert not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('omega-v201-build')
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Run original unit tests
+        working-directory: omega-v201-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build original debug APK
+        working-directory: omega-v201-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK signature package and version
+        run: |
+          mkdir -p out
+          cp omega-v201-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v20.1-VOICE-AI-FIXED-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/OMEGA-PANDU-v20.1-VOICE-AI-FIXED-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v20.1-VOICE-AI-FIXED-TEST.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v20.1-VOICE-AI-FIXED-TEST.apk | grep -F "versionName='20.1-voice-fixed'"
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v20.1-VOICE-AI-FIXED-TEST
+          path: out/
+          if-no-files-found: error
