@@ -94,7 +94,6 @@ import com.example.ui.components.JarvisAlertBanner
 import com.example.ui.components.JarvisArcCoreHero
 import com.example.ui.components.JarvisAtmosphericBackdrop
 import com.example.ui.components.JarvisMicOrb
-import com.example.ui.components.JarvisTopBar
 import com.example.ui.components.LiveVoiceTranscriptChip
 import com.example.ui.components.PhoneControlDashboard
 import com.example.ui.components.SettingsCommandTab
@@ -865,7 +864,7 @@ fun PanduCyberpunkCommandCenterPreview() {
         Box(modifier = Modifier.fillMaxSize()) {
             JarvisAtmosphericBackdrop()
             Column(modifier = Modifier.fillMaxSize()) {
-                JarvisTopBar(
+                OmegaR104TopBar(
                     status = JarvisStatus.ONLINE,
                     speechLocaleLabel = "తెలుగు",
                     ttsPresetLabel = "WITTY",
@@ -893,7 +892,7 @@ fun PanduCyberpunkCommandCenterPreview() {
                         onSpeakBattery = {}
                     )
                 }
-                CyberpunkBottomNavBar(
+                OmegaR104BottomNavBar(
                     selectedTab = CyberpunkTab.HOME,
                     onSelectTab = {}
                 )
