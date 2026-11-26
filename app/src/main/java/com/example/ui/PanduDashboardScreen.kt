@@ -372,7 +372,10 @@ fun PanduDashboardScreen(
                                 onOpenChat = { selectedTab = CyberpunkTab.CHAT }
                             )
 
-                            CyberpunkTab.OMEGA -> com.example.omega.OmegaCenter(embedded = true)
+                            CyberpunkTab.OMEGA -> com.example.omega.OmegaCenter(
+                                embedded = true,
+                                onOpenPermissions = { selectedTab = CyberpunkTab.SETTINGS }
+                            )
 
                             CyberpunkTab.SETTINGS -> SettingsCommandTab(
                                 uiState = uiState,
@@ -394,7 +397,11 @@ fun PanduDashboardScreen(
                                     }
                                 },
                                 onOpenHelp = { showHelpSheet = true },
-                                onRequestClearChat = { showClearDialog = true }
+                                onRequestClearChat = { showClearDialog = true },
+                                onMicPermissionChanged = { granted -> 
+                                    viewModel.updateMicPermissionStatus(granted)
+                                },
+                                onRefreshDeviceState = { viewModel.refreshDeviceControls() }
                             )
                         }
                     }
