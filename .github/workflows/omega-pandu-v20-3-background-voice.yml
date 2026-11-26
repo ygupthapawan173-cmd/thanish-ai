@@ -1,0 +1,70 @@
+name: OMEGA V20.3 Background Voice Master
+on:
+  push:
+    branches: [build/omega-pandu-v20-3-background-voice]
+    paths: [OMEGA-PANDU-v20.3-BACKGROUND-VOICE-MASTER.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and extract source
+        run: |
+          echo "49bbed2cbd856041484cdc08a56deec2898ca48c93a810031c9923aef0eebf2e  OMEGA-PANDU-v20.3-BACKGROUND-VOICE-MASTER.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile,pathlib,stat
+          with zipfile.ZipFile('OMEGA-PANDU-v20.3-BACKGROUND-VOICE-MASTER.zip') as z:
+              assert z.testzip() is None
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts
+                  assert not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('omega-v203-build')
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Provision pinned English Vosk model
+        working-directory: omega-v203-build
+        run: bash ci/provision-vosk.sh
+      - name: Run unit tests
+        working-directory: omega-v203-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build debug APK
+        working-directory: omega-v203-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify signature, package and offline model
+        run: |
+          mkdir -p out
+          cp omega-v203-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v20.3-BACKGROUND-VOICE-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/*.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "versionName='20.3-background-voice'"
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('out/OMEGA-PANDU-v20.3-BACKGROUND-VOICE-TEST.apk') as z:
+              assert z.getinfo('assets/model-en-us/am/final.mdl').file_size > 0
+              assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libvosk.so') for n in z.namelist())
+          PY
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v20.3-BACKGROUND-VOICE-TEST
+          path: out/
+          if-no-files-found: error
