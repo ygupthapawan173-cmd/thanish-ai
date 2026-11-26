@@ -7,3 +7,5 @@ Base: Pandu Babu Kotlin/Compose project, 5883e5a7c0a647c5ac3fe400c3a7cb761e98462
 - HTTP redirect blocking, model validation, provider cooldown and streaming backpressure.
 - Not delivered: Porcupine/Sherpa-ONNX, Vosk Telugu, continuous follow-up, Aider/multi-agent, automated PR and tested repairs, secure installer, vision/document AI, new 3D renderer, full workflow scheduler, full battery tuning and original feature parity.
 - APK build and device tests required. Existing Pandu application ID retained; do not uninstall a working app if signing conflicts.
+
+Build hardening: official Vosk small English 0.15 archive pinned to SHA256 observed in successful provisioning run 45789879372. Maven model placeholder AAR removed. CI retries transient dependency errors, verifies signature, packaged model and ARM64 libraries. APK runtime remains unverified. Android Studio local builds must provision the same model in app/src/main/assets/model-en-us (CI workflow documents extraction).

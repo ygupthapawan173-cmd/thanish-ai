@@ -57,6 +57,7 @@ jobs:
           MODEL=vosk-model-small-en-us-0.15
           curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --max-time 180 \
             "https://alphacephei.com/vosk/models/${MODEL}.zip" -o "$RUNNER_TEMP/vosk-model.zip"
+          echo "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498  $RUNNER_TEMP/vosk-model.zip" | sha256sum -c -
           unzip -tq "$RUNNER_TEMP/vosk-model.zip"
           python3 - <<'PY'
           import hashlib, pathlib, zipfile, shutil
@@ -85,10 +86,29 @@ jobs:
           PY
 
       - name: Run unit tests
-        run: gradle --no-daemon testDebugUnitTest
+        run: bash ci/omega-gradle-retry.sh testDebugUnitTest
 
       - name: Build APK
-        run: gradle --no-daemon assembleDebug
+        run: bash ci/omega-gradle-retry.sh assembleDebug
+
+      - name: Verify APK signature and bundled model
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          python3 - "$APK" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              for path in ("assets/model-en-us/am/final.mdl", "assets/model-en-us/conf/model.conf",
+                           "assets/model-en-us/graph/phones/word_boundary.int", "assets/model-en-us/uuid"):
+                  assert apk.getinfo(path).file_size > 0, path
+              names = apk.namelist()
+              assert any(n.startswith("lib/arm64-v8a/") and n.endswith("/libvosk.so") for n in names), "Vosk ARM64 library missing"
+              assert any(n.startswith("lib/arm64-v8a/") and n.endswith("/libjnidispatch.so") for n in names), "JNA ARM64 library missing"
+              print("Offline model and ARM64 libraries verified")
+          PY
+          sha256sum "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

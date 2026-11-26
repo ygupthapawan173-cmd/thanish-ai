@@ -241,6 +241,7 @@ fun PanduDashboardScreen(
                         Row {
                             TextButton(onClick = {
                                 viewModel.onInputTextChanged(omegaCommand)
+                                selectedTab = CyberpunkTab.CHAT
                                 com.example.omega.OmegaWakeService.pendingCommand.value = ""
                             }) { Text("Use in chat") }
                             TextButton(onClick = { com.example.omega.OmegaWakeService.pendingCommand.value = "" }) { Text("Discard") }
