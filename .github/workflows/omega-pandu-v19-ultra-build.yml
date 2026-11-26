@@ -1,0 +1,59 @@
+name: OMEGA PANDU V19 ULTRA VOICE UI APK
+on:
+  push:
+    branches: [build/omega-pandu-v19-ultra]
+    paths: [OMEGA-PANDU-v19-ULTRA-VOICE-UI.zip]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and extract unchanged V19 source
+        run: |
+          echo "45120149dc2b8f1d418334fb9a1bbe15e25e3db252abf41e6c37d1931e699a63  OMEGA-PANDU-v19-ULTRA-VOICE-UI.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile, pathlib, stat
+          with zipfile.ZipFile('OMEGA-PANDU-v19-ULTRA-VOICE-UI.zip') as z:
+              assert z.testzip() is None
+              assert len([i for i in z.infolist() if not i.is_dir()]) == 68
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts
+                  assert not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('omega-v19-build')
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Run original unit tests
+        working-directory: omega-v19-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build original signed debug APK without embedded API secrets
+        working-directory: omega-v19-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK signature and package
+        run: |
+          mkdir -p out
+          cp omega-v19-build/app/build/outputs/apk/debug/app-debug.apk out/OMEGA-PANDU-v19-ULTRA-VOICE-UI-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/OMEGA-PANDU-v19-ULTRA-VOICE-UI-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/OMEGA-PANDU-v19-ULTRA-VOICE-UI-TEST.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OMEGA-PANDU-v19-ULTRA-VOICE-UI-TEST
+          path: out/
+          if-no-files-found: error
