@@ -3,9 +3,9 @@ name: THANISH AI APK Build
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, omega-native-master]
   push:
-    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master]
+    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126']
 
 jobs:
   build:
@@ -85,6 +85,9 @@ jobs:
           print("Model files:", sum(p.is_file() for p in target.rglob("*")))
           PY
 
+      - name: OMEGA premium review gates
+        run: python3 ci/omega_review_checks.py
+
       - name: Run unit tests
         run: bash ci/omega-gradle-retry.sh testDebugUnitTest
 
@@ -113,6 +116,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: PANDU-BABU-JARVIS-APK
+          name: OMEGA-PREMIUM-REVIEW-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
