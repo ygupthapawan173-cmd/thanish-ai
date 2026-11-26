@@ -4,6 +4,7 @@ on:
     branches: [build/omega-pandu-v15-pro]
     paths:
       - OMEGA-PANDU-v15-PRO-READY.zip
+      - OMEGA-PANDU-v15-PRO-FIXED.zip
       - .github/workflows/omega-pandu-v15-build.yml
   workflow_dispatch:
 permissions:
@@ -24,15 +25,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Verify and unpack original V15 source ZIP
+      - name: Verify and unpack V15 fixed source
         run: |
-          echo "8952cffe6d891cab4d7b39b047e6692d29ebe41279cbcddfdeb9bd03454d7dc6  OMEGA-PANDU-v15-PRO-READY.zip" | sha256sum -c -
           python3 - <<'PY'
-          import zipfile, pathlib
-          with zipfile.ZipFile('OMEGA-PANDU-v15-PRO-READY.zip') as z:
+          import zipfile, pathlib, hashlib
+          fixed = pathlib.Path('OMEGA-PANDU-v15-PRO-FIXED.zip')
+          original = pathlib.Path('OMEGA-PANDU-v15-PRO-READY.zip')
+          src = fixed if fixed.is_file() else original
+          expected = 'ee9e682686293d4cb988cb715418930dae53bea3fcb75d9ca0deb2800fafc2ee' if src == fixed else '8952cffe6d891cab4d7b39b047e6692d29ebe41279cbcddfdeb9bd03454d7dc6'
+          assert hashlib.sha256(src.read_bytes()).hexdigest() == expected, 'ZIP checksum mismatch'
+          with zipfile.ZipFile(src) as z:
               assert z.testzip() is None
               assert all(not pathlib.PurePosixPath(n).is_absolute() and '..' not in pathlib.PurePosixPath(n).parts for n in z.namelist())
               z.extractall('omega-v15-build')
+          p=pathlib.Path('omega-v15-build/app/src/main/java/com/example/control/DeviceActionExecutor.kt')
+          data=p.read_bytes()
+          old=b'Regex("('+bytes([92])+b'd+)%")'
+          new=b'Regex("('+bytes([92,92])+b'd+)%")'
+          if src == original:
+              assert data.count(old)==1, 'Expected original Kotlin regex not found'
+              p.write_bytes(data.replace(old,new,1))
+          assert new in p.read_bytes() and old not in p.read_bytes(), 'Fixed Kotlin regex not present'
+          print('Verified V15 archive; exact user-supplied regex fix applied/verified.')
           PY
       - name: Install Android SDK
         run: |
