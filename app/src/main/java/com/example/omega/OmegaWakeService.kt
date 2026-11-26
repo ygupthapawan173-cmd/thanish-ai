@@ -49,6 +49,8 @@ class OmegaWakeService : Service(), RecognitionListener {
     private val wakeGate = WakeGate(1600L)
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    // Recovery is bounded and only active while the user-started foreground service remains alive.
+    private var recognitionRestarts = 0
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(applicationContext) { result ->
@@ -69,8 +71,14 @@ class OmegaWakeService : Service(), RecognitionListener {
             }
         } else if (ttsReady && text != null) {
             runCatching {
-                tts?.language = if (OmegaWakeAck.isTelugu(text)) Locale("te", "IN") else Locale.US
-                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack")
+                val wanted = if (OmegaWakeAck.isTelugu(text)) Locale("te", "IN") else Locale.US
+                val supported = (tts?.isLanguageAvailable(wanted) ?: TextToSpeech.LANG_NOT_SUPPORTED) >= 0
+                val selected = if (supported) wanted else Locale.US
+                if (!supported) lastError.value = "Telugu TTS voice unavailable; English acknowledgement used"
+                tts?.language = selected
+                val line = if (supported) text else "Yes, Sir!"
+                val spoken = tts?.speak(line, TextToSpeech.QUEUE_FLUSH, null, "omega_wake_ack")
+                if (spoken == TextToSpeech.ERROR) lastError.value = "Wake TTS failed; microphone still active"
             }
         }
     }
@@ -163,14 +171,44 @@ class OmegaWakeService : Service(), RecognitionListener {
             .getOrDefault("").trim().take(300)
         if (partial.isEmpty()) return
         lastPartial.value = partial
+        recognitionRestarts = 0
         // A partial hypothesis may wake the assistant, but only a final result commits a command.
         if (!armed && OmegaWakeEngine.match(partial, OmegaVoicePreferences.activeWakePhrases(this),
                 OmegaVoicePreferences.sensitivity(this)) != null) armWake()
     }
     override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
-    override fun onTimeout() { if (!closed) fail("Offline recognition timed out; start listening again") }
+    private fun recoverOfflineRecognition(reason: String) {
+        handler.post {
+            if (closed || !active.value) return@post
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                fail("Microphone permission revoked; stop offline listening")
+                return@post
+            }
+            if (recognitionRestarts >= 2) {
+                fail("Offline recognition failed after two reconnect attempts: " + reason)
+                return@post
+            }
+            recognitionRestarts++
+            status.value = "Reconnecting offline recognition (" + recognitionRestarts + "/2)"
+            refresh()
+            runCatching { speech?.stop() }
+            handler.postDelayed({
+                if (closed || !active.value) return@postDelayed
+                val resumed = runCatching { speech?.startListening(this) == true }.getOrDefault(false)
+                if (resumed) {
+                    status.value = "Listening for " + OmegaVoicePreferences.wakePhrase(this).label
+                    refresh()
+                } else {
+                    fail("Offline voice engine could not restart")
+                }
+            }, 350L)
+        }
+    }
+    override fun onTimeout() {
+        if (!closed) recoverOfflineRecognition("timeout")
+    }
     override fun onError(exception: Exception?) {
-        if (!closed) fail("Offline recognition stopped; check microphone permission and model")
+        if (!closed) recoverOfflineRecognition("recognizer error")
     }
     override fun onResult(hypothesis: String?) {
         if (closed || !active.value) return
