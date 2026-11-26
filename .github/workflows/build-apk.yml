@@ -3,9 +3,9 @@ name: THANISH AI APK Build
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, omega-native-master, 'review/omega-r100-single-master-patch', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master']
+    branches: [main, omega-native-master, 'review/omega-r100-single-master-patch', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture']
   push:
-    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture']
+    branches: [main, pandu-babu-accessibility-gemini, pandu-babu-v1.2-multi-ai, omega-native-master, 'review/omega-premium-no-slots-20261126', 'review/omega-r103-safe-integrated-build', 'review/omega-r104-complete-premium-master', 'review/omega-r105-architecture', 'review/omega-r106-recovery']
 
 concurrency:
   group: omega-apk-${{ github.head_ref || github.ref_name }}
@@ -141,13 +141,13 @@ jobs:
           if-no-files-found: error
 
       - name: Enable KVM for Android 16 runtime review
-        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture'
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture' || github.ref_name == 'review/omega-r106-recovery' || github.head_ref == 'review/omega-r106-recovery'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Android 16 emulator runtime UI tests
-        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture'
+        if: github.ref_name == 'review/omega-r105-architecture' || github.head_ref == 'review/omega-r105-architecture' || github.ref_name == 'review/omega-r106-recovery' || github.head_ref == 'review/omega-r106-recovery'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36

@@ -58,7 +58,11 @@ assert 'OMEGA JARVIS' in strings and 'com.example.omega.OmegaWakeService' in scr
 assert 'override fun onPartialResult(hypothesis: String?)' in wake
 assert 'TextToSpeech.QUEUE_FLUSH' in wake and 'lastWakeAt' in wake
 assert 'RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH' in voice
-assert 'forcePlatform = true' in voice and 'OmegaVoiceMode.HYBRID' in voice
+recovery = read("java/com/example/omega/OmegaRecoveryPolicy.kt")
+assert 'forcePlatform = true' in voice and 'OmegaRecoveryPolicy.platformFallback' in voice
+assert 'mode == OmegaVoiceMode.HYBRID' in recovery and '!alreadyFallback' in recovery
+assert 'mode == OmegaVoiceMode.LOCAL' in voice
+assert 'available &&' in recovery
 assert 'setContinuous' in omega and 'scheduleFollowupIfEnabled' in viewmodel
 assert 'Lifecycle.Event.ON_STOP' in screen and 'viewModel.cancelVoiceListening()' in screen
 permissions = read("java/com/example/ui/components/OmegaPermissionCenter.kt")
@@ -84,8 +88,14 @@ assert 'onOpenPermissions = { selectedTab = CyberpunkTab.SETTINGS }' in screen
 print("PASS OMEGA permission center wiring + Android manifest checks")
 print("PASS OMEGA review UI/slots/branding/voice/privacy regression checks")
 
-assert 'R105 · NEURAL COMMAND' in premium_chrome
+assert 'R106 · NEURAL COMMAND' in premium_chrome
 assert 'r105_orb' in premium_home and 'requestState.collectAsState()' in premium_home
 assert 'recognitionReady' in wake and 'reconnectPending' in wake
 assert 'animateScrollToItem(destination)' in tabs
 print('PASS R105 source wiring; runtime and visual verification are separate')
+
+assert 'OmegaRecoveryPolicy.platformFallback' in recognizer
+assert 'OmegaRecoveryPolicy.keepListeningAfterCapture' in wake
+print('PASS R106 recovery wiring; physical wake still unverified')
+
+assert 'bindingDiagnostic(context)' in premium_chrome

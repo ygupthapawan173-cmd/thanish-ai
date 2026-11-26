@@ -54,6 +54,11 @@ fun OmegaCenter(
     var replyStyle by remember { mutableStateOf(ReplyPreferences.get(c)) }
     var mode by remember { mutableStateOf(OmegaVoicePreferences.get(c)) }
     var continuous by remember { mutableStateOf(OmegaVoicePreferences.continuous(c)) }
+    var continuousWake by remember { mutableStateOf(OmegaVoicePreferences.continuousWake(c)) }
+    val capturedCount by OmegaWakeService.capturedCount.collectAsState()
+    val voiceEngine by com.example.voice.VoiceInputController.engineStatus.collectAsState()
+    val voiceLanguage by com.example.voice.VoiceInputController.detectedLanguage.collectAsState()
+    val speechError by com.example.voice.VoiceInputController.lastSpeechError.collectAsState()
     var notice by remember { mutableStateOf("") }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         notice = if (it.values.all { granted -> granted }) "Permissions granted. Tap Start." else "Permission denied; microphone remains stopped."
@@ -210,6 +215,12 @@ fun OmegaCenter(
                         }
                         Text("Reply styles apply to direct Gemini/OpenAI-compatible API requests; Firebase fallback retains its existing configuration.")
                         Text(wakeStatus)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Keep wake session active after capture", modifier = Modifier.weight(1f))
+                            Switch(checked = continuousWake, enabled = !wakeActive,
+                                onCheckedChange = { continuousWake = it; OmegaVoicePreferences.setContinuousWake(c, it) })
+                        }
+                        Text("Opt-in. Review or discard the pending command before another wake. Stop microphone ends the session. English offline model only.")
                         Text("Bundled English acoustic model. Selected phrase: " +
                             wakePhrase.label + ". Stop listening before changing the phrase. " +
                             "No wake audio is uploaded. Custom trained phrase models and " +
@@ -260,6 +271,10 @@ fun OmegaCenter(
                         Text("Last wake error: " + wakeError.ifBlank { "None reported" })
                         Text("Foreground microphone service active: " + wakeActive)
                         Text("Offline recognizer started: " + wakeReady)
+                        Text("Captured commands this session: " + capturedCount)
+                        Text("Speech engine: " + voiceEngine)
+                        Text("Detected language: " + voiceLanguage)
+                        Text("Speech error: " + speechError)
                         Button(onClick = { measure() }) { Text("Refresh measurements") }
                         Text("Microphone permissions, accessibility controls and voice configuration remain under user control. AI connections are managed in one Settings panel.")
                     }
