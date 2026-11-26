@@ -65,6 +65,14 @@ fun OmegaCenter(
     var continuousWake by remember { mutableStateOf(OmegaVoicePreferences.continuousWake(c)) }
     var strictGrammar by remember { mutableStateOf(OmegaVoicePreferences.strictWakeGrammar(c)) }
     var bilingualCommand by remember { mutableStateOf(OmegaVoicePreferences.bilingualWakeCommand(c)) }
+    var autoLive by remember { mutableStateOf(OmegaVoicePreferences.liveAfterWake(c)) }
+    var liveModel by remember { mutableStateOf(OmegaVoicePreferences.liveModel(c)) }
+    var liveVoice by remember { mutableStateOf(OmegaVoicePreferences.liveVoice(c)) }
+    var route by remember { mutableStateOf(OmegaVoicePreferences.liveRoute(c)) }
+    var followup by remember { mutableStateOf(OmegaVoicePreferences.followupAfterWake(c)) }
+    var aliases by remember { mutableStateOf(OmegaVoicePreferences.expandedWake(c)) }
+    val liveState by OmegaWakeService.liveTelemetry.collectAsState()
+    val rejectedWakes by OmegaWakeService.rejectedWakeCount.collectAsState()
     val acceptedWakes by OmegaWakeService.acceptedWakeCount.collectAsState()
     val recognitionStage by OmegaWakeService.recognitionStage.collectAsState()
     var backgroundAi by remember { mutableStateOf(OmegaVoicePreferences.backgroundAi(c)) }
@@ -202,14 +210,36 @@ fun OmegaCenter(
                         if (alwaysReady && !wakeActive && OmegaAlwaysReady.missingPermissions(c).isNotEmpty()) {
                             OutlinedButton(onClick = { permissions.launch(OmegaAlwaysReady.missingPermissions(c).toTypedArray()) }) { Text("Grant required permissions") }
                         }
-                        Text("ELITE wake engine • offline Vosk")
+                        Text("ELITE Live Conversation", style = MaterialTheme.typography.titleLarge)
+                        Text("After Hey JARVIS, optionally stream conversation audio to Gemini using your key. Wake audio stays local. Stop notification ends capture. Live session closes after 45 seconds idle or 10 minutes total. No device actions in Live.")
+                        OutlinedTextField(liveModel,{liveModel=it.take(120);OmegaVoicePreferences.setLiveModel(c,liveModel)},label={Text("Gemini Live model ID")},enabled=!wakeActive,singleLine=true,modifier=Modifier.fillMaxWidth())
+                        OutlinedTextField(liveVoice,{liveVoice=it.take(40);OmegaVoicePreferences.setLiveVoice(c,liveVoice)},label={Text("Live voice name (optional)")},enabled=!wakeActive,singleLine=true,modifier=Modifier.fillMaxWidth())
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Wake → Gemini Live (cloud audio consent)",Modifier.weight(1f))
+                            Switch(checked=autoLive,onCheckedChange={autoLive=it;OmegaVoicePreferences.setLiveAfterWake(c,it)},enabled=!wakeActive && strictGrammar && GeminiLiveDuplexEngine.validModel(liveModel) && mode!=OmegaVoiceMode.LOCAL,modifier=Modifier.testTag("elite_auto_live"))
+                        }
+                        Text("Live state: "+liveState.stateLabel)
+                        if(liveState.connected){Text("Input: "+liveState.inputTranscript);Text("Reply: "+liveState.lastTranscript)}
+                        OmegaLiveRoute.entries.forEach { item -> Row {
+                            RadioButton(selected=route==item,enabled=!wakeActive,onClick={route=item;OmegaVoicePreferences.setLiveRoute(c,item)})
+                            Text(item.label,Modifier.padding(top=14.dp))
+                        }}
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Follow-up listening after spoken AI reply (up to 3)",Modifier.weight(1f))
+                            Switch(checked=followup,onCheckedChange={followup=it;OmegaVoicePreferences.setFollowupAfterWake(c,it)},enabled=!wakeActive,modifier=Modifier.testTag("elite_followup"))
+                        }
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                            Text("Additional ELITE wake phrases",Modifier.weight(1f))
+                            Switch(checked=aliases,onCheckedChange={aliases=it;OmegaVoicePreferences.setExpandedWake(c,it)},enabled=!wakeActive)
+                        }
+                        Text("ELITE wake engine • offline Vosk · rejected confidence: "+rejectedWakes)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Strict phrase grammar", modifier = Modifier.weight(1f))
                             Switch(checked = strictGrammar, enabled = !wakeActive, onCheckedChange = {
                                 strictGrammar = it; OmegaVoicePreferences.setStrictWakeGrammar(c, it)
                             }, modifier = Modifier.testTag("elite_strict_grammar"))
                         }
-                        Text("Strict: say the complete wake phrase, wait for the acknowledgement, then speak a separate command. Turn off for the older combined phrase mode. Custom phrases depend on the English model vocabulary.")
+                        Text("Strict: complete final phrase and word confidence required. Wait for the acknowledgement or Live connected status. Turn off for legacy combined-phrase mode. Custom phrases depend on model vocabulary.")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Telugu + English AUTO after wake", modifier = Modifier.weight(1f))
                             Switch(checked = bilingualCommand, enabled = !wakeActive && strictGrammar, onCheckedChange = {

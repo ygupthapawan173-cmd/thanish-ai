@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.media.*
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
+import android.media.audiofx.AutomaticGainControl
+import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -23,10 +25,11 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.sqrt
 
-/** Foreground, user-started Gemini Live session. No tools, background recording or hidden capture. */
-class GeminiLiveDuplexEngine(private val context: Context) {
+/** Explicit Live consent required. Wake-owned sessions borrow an existing visible microphone FGS lease. */
+class GeminiLiveDuplexEngine(private val context: Context, private val wakeOwned:Boolean=false,
+    private val onTerminal:(String)->Unit={}, private val onReady:()->Unit={}) {
     data class Telemetry(val connected:Boolean=false,val stateLabel:String="Standby",
-        val micAmplitude:Float=0f,val speakerAmplitude:Float=0f,val lastTranscript:String="")
+        val micAmplitude:Float=0f,val speakerAmplitude:Float=0f,val lastTranscript:String="",val inputTranscript:String="")
     private val _telemetry=MutableStateFlow(Telemetry())
     val telemetry=_telemetry.asStateFlow()
     private val handler=Handler(Looper.getMainLooper())
@@ -40,6 +43,13 @@ class GeminiLiveDuplexEngine(private val context: Context) {
     private var track:AudioTrack?=null
     private var aec:AcousticEchoCanceler?=null
     private var ns:NoiseSuppressor?=null
+    private var agc:AutomaticGainControl?=null
+    private var previousMode:Int?=null
+    private var selectedRoute=false
+    private var attemptActive=false
+    private var audioRoute=OmegaLiveRoute.SYSTEM
+    private var lastActivity=0L
+    private var utterance=""
     private var audioQueue:Channel<ByteArray>?=null
     private val manager=context.getSystemService(AudioManager::class.java)
     private var focus:AudioFocusRequest?=null
@@ -48,16 +58,24 @@ class GeminiLiveDuplexEngine(private val context: Context) {
             handler.post { disconnect("Audio focus lost") }
     }
     private fun state(label:String) { _telemetry.value=_telemetry.value.copy(stateLabel=label) }
-    fun connect(model:String) {
-        disconnect()
-        if (OmegaVoicePreferences.get(context)==OmegaVoiceMode.LOCAL) { state("On-device-only mode: Live disabled");return }
-        if (ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) { state("Microphone permission required");return }
+    fun connect(model:String, voiceName:String="", route:OmegaLiveRoute=OmegaLiveRoute.SYSTEM) {
+        disconnect(notify=false)
+        attemptActive=true
+        utterance=""
+        lastActivity=SystemClock.elapsedRealtime()
+        if (OmegaVoicePreferences.get(context)==OmegaVoiceMode.LOCAL) { disconnect("On-device-only mode: Live disabled");return }
+        if (ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) { disconnect("Microphone permission required");return }
         val key=EncryptedApiKeyStore(context).getApiKey(AiProvider.GEMINI)
-        if(key.isNullOrBlank()) { state("Configure Gemini key in Settings");return }
-        if(!validModel(model)) { state("Enter a valid Live model ID");return }
-        if(!OmegaAssistantCore.sessions.acquireMic(MicOwner.LIVE)) { state("Stop current voice/AI session first");return }
-        lease=true
+        if(key.isNullOrBlank()) { disconnect("Configure Gemini key in Settings");return }
+        if(!validModel(model)) { disconnect("Enter a valid Live model ID");return }
+        if(wakeOwned) {
+            if(!OmegaWakeService.active.value || OmegaAssistantCore.sessions.owner.value!=MicOwner.WAKE || !OmegaAssistantCore.sessions.backgroundBusy.value || !OmegaVoicePreferences.liveAfterWake(context)) { disconnect("Wake Live consent or microphone lease unavailable");return }
+        } else {
+            if(!OmegaAssistantCore.sessions.acquireMic(MicOwner.LIVE)) { disconnect("Stop current voice/AI session first");return }
+            lease=true
+        }
         val id=++generation
+        audioRoute=route
         state("Connecting")
         val request=Request.Builder().url("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
             .header("x-goog-api-key",key).build()
@@ -68,6 +86,9 @@ class GeminiLiveDuplexEngine(private val context: Context) {
                         .put("generationConfig",JSONObject().put("responseModalities",JSONArray().put("AUDIO")))
                         .put("inputAudioTranscription",JSONObject()).put("outputAudioTranscription",JSONObject())
                         .put("systemInstruction",JSONObject().put("parts",JSONArray().put(JSONObject().put("text","You are JARVIS OMEGA. Reply in Telugu or English matching the user. Do not claim to control devices.")))))
+                    if(voiceName.matches(Regex("[A-Za-z0-9_-]{2,40}"))){
+                        setup.getJSONObject("setup").getJSONObject("generationConfig").put("speechConfig",JSONObject().put("voiceConfig",JSONObject().put("prebuiltVoiceConfig",JSONObject().put("voiceName",voiceName))))
+                    }
                     if(!socket.send(setup.toString())) disconnect("Setup send failed") else state("Awaiting server setup")
                 } }
             }
@@ -81,6 +102,15 @@ class GeminiLiveDuplexEngine(private val context: Context) {
         })
         handler.postDelayed({if(id==generation && !_telemetry.value.connected) disconnect("Setup timed out")},15000)
         handler.postDelayed({if(id==generation) disconnect("Session time limit reached; start again if needed")},600000)
+        if(wakeOwned) checkIdle(id)
+    }
+    private fun checkIdle(id:Long) {
+        handler.postDelayed({
+            if(id==generation && attemptActive) {
+                if(_telemetry.value.connected && SystemClock.elapsedRealtime()-lastActivity>45000L) disconnect("Conversation idle")
+                else checkIdle(id)
+            }
+        },5000L)
     }
     @SuppressLint("MissingPermission")
     private fun startAudio(id:Long) {
@@ -92,6 +122,11 @@ class GeminiLiveDuplexEngine(private val context: Context) {
                 focus=request
                 check(manager.requestAudioFocus(request)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
             }
+            previousMode=manager.mode
+            manager.mode=AudioManager.MODE_IN_COMMUNICATION
+            if(android.os.Build.VERSION.SDK_INT>=31 && audioRoute==OmegaLiveRoute.SPEAKER) {
+                selectedRoute=manager.availableCommunicationDevices.firstOrNull{it.type==AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}?.let{manager.setCommunicationDevice(it)}==true
+            }
             val rb=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
             val tb=AudioTrack.getMinBufferSize(24000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT)
             check(rb>0 && tb>0)
@@ -99,6 +134,7 @@ class GeminiLiveDuplexEngine(private val context: Context) {
             record=mic;check(mic.state==AudioRecord.STATE_INITIALIZED)
             if(AcousticEchoCanceler.isAvailable()) aec=runCatching{AcousticEchoCanceler.create(mic.audioSessionId)?.apply{enabled=true}}.getOrNull()
             if(NoiseSuppressor.isAvailable()) ns=runCatching{NoiseSuppressor.create(mic.audioSessionId)?.apply{enabled=true}}.getOrNull()
+            if(AutomaticGainControl.isAvailable()) agc=runCatching{AutomaticGainControl.create(mic.audioSessionId)?.apply{enabled=true}}.getOrNull()
             val speaker=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 .setAudioFormat(AudioFormat.Builder().setSampleRate(24000).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                 .setBufferSizeInBytes(tb.coerceAtLeast(4800)).setTransferMode(AudioTrack.MODE_STREAM).build()
@@ -107,7 +143,9 @@ class GeminiLiveDuplexEngine(private val context: Context) {
             val session=CoroutineScope(SupervisorJob()+Dispatchers.IO);scope=session
             val queue=Channel<ByteArray>(32);audioQueue=queue
             val socket=ws?:error("Socket lost")
-            _telemetry.value=Telemetry(true,"Live • AEC "+(aec?.enabled==true)+" • NS "+(ns?.enabled==true))
+            lastActivity=SystemClock.elapsedRealtime()
+            _telemetry.value=Telemetry(true,"Live • AEC "+(aec?.enabled==true)+" • NS "+(ns?.enabled==true)+" • AGC "+(agc?.enabled==true))
+            onReady()
             session.launch {
                 val buf=ByteArray(1600)
                 while(isActive) {
@@ -143,17 +181,31 @@ class GeminiLiveDuplexEngine(private val context: Context) {
                 _telemetry.value=_telemetry.value.copy(speakerAmplitude=0f,stateLabel="Interrupted")
                 return
             }
+            val input=content.optJSONObject("inputTranscription")
+            val spoken=input?.optString("text").orEmpty()
+            if(spoken.isNotBlank()) {
+                lastActivity=SystemClock.elapsedRealtime()
+                utterance=(utterance+" "+spoken).trim().takeLast(500)
+                _telemetry.value=_telemetry.value.copy(inputTranscript=utterance)
+                if(wakeOwned && input?.optBoolean("finished")==true && OmegaEliteConversation.isEndPhrase(utterance)) {disconnect("Conversation ended");return}
+            }
             val transcript=content.optJSONObject("outputTranscription")?.optString("text").orEmpty()
-            if(transcript.isNotBlank()) _telemetry.value=_telemetry.value.copy(lastTranscript=(_telemetry.value.lastTranscript+" "+transcript).takeLast(1000))
+            if(transcript.isNotBlank()) {lastActivity=SystemClock.elapsedRealtime();_telemetry.value=_telemetry.value.copy(lastTranscript=(_telemetry.value.lastTranscript+" "+transcript).takeLast(1000))}
             val parts=content.optJSONObject("modelTurn")?.optJSONArray("parts")
             if(parts!=null) for(i in 0 until parts.length()) {
                 val item=parts.optJSONObject(i)?.optJSONObject("inlineData")?:continue
                 if(item.optString("mimeType").startsWith("audio/pcm")) {
+                    lastActivity=SystemClock.elapsedRealtime()
                     val data=Base64.decode(item.getString("data"),Base64.DEFAULT)
                     if(data.size>256000 || audioQueue?.trySend(data)?.isSuccess!=true) {disconnect("Playback buffer overflow");return}
                 }
             }
-            if(content.optBoolean("turnComplete")) _telemetry.value=_telemetry.value.copy(stateLabel="Live • listening",speakerAmplitude=0f)
+            if(content.optBoolean("turnComplete")) {
+                lastActivity=SystemClock.elapsedRealtime()
+                if(wakeOwned && OmegaEliteConversation.isEndPhrase(utterance)) {disconnect("Conversation ended");return}
+                utterance=""
+                _telemetry.value=_telemetry.value.copy(stateLabel="Live • listening",speakerAmplitude=0f)
+            }
         } catch(_:Exception) {disconnect("Invalid server payload")}
     }
     fun sendTextTurn(text:String) {
@@ -167,18 +219,24 @@ class GeminiLiveDuplexEngine(private val context: Context) {
         return ws?.send(JSONObject().put("realtimeInput",JSONObject().put("video",JSONObject().put("mimeType","image/jpeg")
             .put("data",Base64.encodeToString(jpeg,Base64.NO_WRAP)))).toString())==true
     }
-    fun disconnect(label:String="Standby") {
+    fun disconnect(label:String="Standby",notify:Boolean=true) {
+        val report=attemptActive && notify
+        attemptActive=false
         ++generation;ws?.cancel();ws=null
         scope?.cancel();scope=null;audioQueue?.close();audioQueue=null
         runCatching{record?.stop()};runCatching{track?.pause();track?.flush();track?.stop()}
-        runCatching{aec?.release()};runCatching{ns?.release()};aec=null;ns=null
+        runCatching{aec?.release()};runCatching{ns?.release()};runCatching{agc?.release()};aec=null;ns=null;agc=null
         runCatching{record?.release()};record=null;runCatching{track?.release()};track=null
         if(android.os.Build.VERSION.SDK_INT>=26) focus?.let{runCatching{manager.abandonAudioFocusRequest(it)}}
         focus=null
+        if(android.os.Build.VERSION.SDK_INT>=31 && selectedRoute) runCatching{manager.clearCommunicationDevice()}
+        selectedRoute=false
+        previousMode?.let{runCatching{manager.mode=it}};previousMode=null
         if(lease){lease=false;OmegaAssistantCore.sessions.releaseMic(MicOwner.LIVE)}
         _telemetry.value=Telemetry(stateLabel=label)
+        if(report) onTerminal(label)
     }
-    fun release(){disconnect();client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
+    fun release(){disconnect(notify=false);client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
     companion object {
         fun validModel(model:String)=model.removePrefix("models/").matches(Regex("[A-Za-z0-9._-]{3,100}"))
         fun pcmRms(pcm:ByteArray,length:Int):Float {

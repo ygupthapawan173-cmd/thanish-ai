@@ -1,0 +1,11 @@
+package com.example.omega
+
+enum class OmegaLiveRoute(val label:String){SYSTEM("System / connected headset"),SPEAKER("Phone speaker")}
+object OmegaEliteConversation {
+    fun isEndPhrase(text:String):Boolean = OmegaPolicy.normalize(text) in setOf("stop listening","end conversation","go to sleep","goodbye jarvis","stop jarvis","conversation over","ఆపు","వినడం ఆపు","చాలు జార్విస్")
+    fun retryLive(reason:String,retries:Int):Boolean = retries<1 &&
+        (reason.startsWith("Live connection failed") && !reason.contains("HTTP 4") || reason=="Setup timed out" || reason=="Network too slow" || reason=="Microphone read failed" || reason=="Playback failed")
+    fun canFollowup(enabled:Boolean,turns:Int,pending:String)=enabled && turns<3 && pending.isBlank()
+    fun confidenceAccepted(confidences:List<Double>,expectedWords:Int,threshold:Double=0.65):Boolean =
+        expectedWords>0 && confidences.size==expectedWords && confidences.all{it.isFinite() && it in threshold..1.0}
+}

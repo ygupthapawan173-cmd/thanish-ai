@@ -122,3 +122,9 @@ print('PASS ELITE strict grammar and command handoff wiring')
 assert 'always_ready_switch' in omega and 'Start offline listening' not in omega
 assert 'OmegaAlwaysReady.tryStart' in screen and 'OmegaAlwaysReady.setEnabled(this, false)' in wake
 print('PASS Always Ready opt-in, automatic foreground startup and notification stop wiring')
+
+assert 'beginWakeLive()' in wake and 'wakeOwned=true' in wake and 'finishWakeLive' in wake
+assert 'AutomaticGainControl' in live and 'checkIdle(id)' in live and 'inputTranscription' in live
+assert 'elite_auto_live' in omega and 'elite_followup' in omega
+assert 'local.setWords(true)' in wake and 'confidenceAccepted' in wake
+print('PASS ELITE live handoff, confidence rejection, bounded recovery and follow-up wiring')
