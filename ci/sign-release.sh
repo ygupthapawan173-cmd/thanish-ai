@@ -22,8 +22,11 @@ test -s app/build/outputs/apk/release/app-release-unsigned.apk
 actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$T/cert.txt" | tr '[:upper:]' '[:lower:]')
 [[ "$actual" == "${RELEASE_CERT_SHA256,,}" ]]
 [[ $(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' "$T/cert.txt") == 1 ]]
+VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)
+: "${VERSION_NAME:?Missing versionName in app/build.gradle.kts}"
 "$BT/aapt" dump badging "$T/signed.apk" | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
-"$BT/aapt" dump badging "$T/signed.apk" | grep -F "versionName='100.2-voice-choice-candidate'"
+"$BT/aapt" dump badging "$T/signed.apk" | grep -F "versionName='$VERSION_NAME'"
 mkdir -p "${1:?Specify output directory}"
-cp "$T/signed.apk" "$1/JARVIS-INFINITY-V100.2-VOICE-COLLECTION-RELEASE.apk"
-(cd "$1"; sha256sum JARVIS-INFINITY-V100.2-VOICE-COLLECTION-RELEASE.apk > SHA256SUMS.txt)
+OUT_APK="JARVIS-INFINITY-${VERSION_NAME}-RELEASE.apk"
+cp "$T/signed.apk" "$1/$OUT_APK"
+(cd "$1"; sha256sum "$OUT_APK" > "$OUT_APK.sha256"; cp "$OUT_APK.sha256" SHA256SUMS.txt)

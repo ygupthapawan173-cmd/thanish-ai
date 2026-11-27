@@ -102,4 +102,37 @@ class V108UltimateMasterTest {
         VoiceResponseCache.clear()
         assertEquals(0, VoiceResponseCache.size())
     }
+
+    @Test
+    fun v1082FallbackCooldownSelfCodingAndResumeAreReliable() {
+        val policy = com.example.autonomous.CodingModelSwitchPolicy()
+        listOf("HTTP 429", "HTTP 404", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504").forEach { err ->
+            assertTrue("Expected switchable: $err", com.example.autonomous.CodingModelSwitchPolicy.isSwitchableError(err))
+            assertTrue(com.example.autonomous.CodingModelSwitchPolicy.cooldownForError(err) >= 90_000L)
+        }
+        val t0 = 5_000_000L
+        policy.markQuotaExhausted("scope", "gemini-2.5-flash", t0, customCooldownMs = 90_000L)
+        assertFalse("gemini-2.5-flash" in policy.nextAvailable("scope", listOf("gemini-2.5-flash", "gemini-2.5-pro"), t0 + 10_000L))
+        assertTrue("gemini-2.5-flash" in policy.nextAvailable("scope", listOf("gemini-2.5-flash", "gemini-2.5-pro"), t0 + 91_000L))
+
+        assertTrue(com.example.ai.ConnectionRecoveryManager.isTransientError("HTTP 500 Internal Server Error"))
+        assertTrue(com.example.ai.ConnectionRecoveryManager.isTransientError("HTTP 503 high demand"))
+
+        val extracted = com.example.autonomous.SelfCodingEngine.extractCodeBlock(
+            "Here is the fix:\r\n```kotlin\r\npackage com.example.ai\r\nclass Fixed\r\n```\r\nDone."
+        )
+        assertNotNull(extracted)
+        assertTrue(extracted!!.startsWith("package com.example.ai"))
+
+        val b1 = com.example.autonomous.AutonomousUpgradeOrchestrator.stableUpgradeBranchName(
+            "Fix fallback",
+            listOf("app/src/main/java/com/example/ai/PanduAiRepository.kt", "app/src/main/java/com/example/ai/ConnectionRecoveryManager.kt")
+        )
+        val b2 = com.example.autonomous.AutonomousUpgradeOrchestrator.stableUpgradeBranchName(
+            "  Fix fallback ",
+            listOf("app/src/main/java/com/example/ai/ConnectionRecoveryManager.kt", "app/src/main/java/com/example/ai/PanduAiRepository.kt")
+        )
+        assertEquals(b1, b2)
+        assertTrue(b1.startsWith("omega-auto/upgrade-"))
+    }
 }

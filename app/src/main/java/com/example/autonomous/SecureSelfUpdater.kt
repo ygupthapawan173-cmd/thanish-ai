@@ -152,7 +152,7 @@ class SecureSelfUpdater(
             val downloadedCerts = getApkArchiveCertFingerprints(apkFile.absolutePath)
             if (downloadedCerts.isEmpty() || installedCerts != downloadedCerts) {
                 apkFile.delete()
-                throw SecurityException("Signing certificate mismatch! APK is not signed with the same certificate as installed app.")
+                throw SecurityException("Signing certificate mismatch! Blocked to prevent signature conflicts and protect saved API keys, GitHub config, and user data.")
             }
 
             // 6. Launch Android OS user-approved installation screen

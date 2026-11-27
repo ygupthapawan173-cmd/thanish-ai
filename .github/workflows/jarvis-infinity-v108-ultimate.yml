@@ -80,7 +80,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "versionName='V108.1'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "versionName='V108.2'"
           (cd out && sha256sum JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk > JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk.sha256)
           cat out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk.sha256
 
@@ -89,4 +89,24 @@ jobs:
         with:
           name: JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI
           path: out/
+          if-no-files-found: error
+
+      - name: Build & Sign Permanent Owner Release APK (when owner keystore secrets are configured)
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' && secrets.RELEASE_KEYSTORE_PASSWORD != '' && secrets.RELEASE_KEY_ALIAS != '' && secrets.RELEASE_KEY_PASSWORD != '' && secrets.RELEASE_CERT_SHA256 != '' }}
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: |
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          bash ci/sign-release.sh release-out
+
+      - name: Upload Owner-Signed Release APK
+        if: ${{ hashFiles('release-out/*.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V108.2-OWNER-RELEASE
+          path: release-out/
           if-no-files-found: error

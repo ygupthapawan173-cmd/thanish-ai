@@ -24,8 +24,8 @@ checks = [
     'applicationId = "com.aistudio.pandubabu.omega.v19ultra"' in gradle,
     'minSdk = 24' in gradle,
     'targetSdk = 36' in gradle,
-    ('versionCode = 113' in gradle or 'versionCode = 114' in gradle or 'versionCode = 115' in gradle or 'versionCode = 116' in gradle),
-    ('versionName = "v107.1"' in gradle or 'versionName = "v107.2"' in gradle or 'versionName = "V108 ULTIMATE MASTER AI"' in gradle or 'versionName = "V108.1"' in gradle),
+    ('versionCode = 113' in gradle or 'versionCode = 114' in gradle or 'versionCode = 115' in gradle or 'versionCode = 116' in gradle or 'versionCode = 117' in gradle),
+    ('versionName = "v107.1"' in gradle or 'versionName = "v107.2"' in gradle or 'versionName = "V108 ULTIMATE MASTER AI"' in gradle or 'versionName = "V108.1"' in gradle or 'versionName = "V108.2"' in gradle),
     'android:usesCleartextTraffic="false"' in manifest,
 
     # V107.1 Auto-connect, recovery, and live indicators

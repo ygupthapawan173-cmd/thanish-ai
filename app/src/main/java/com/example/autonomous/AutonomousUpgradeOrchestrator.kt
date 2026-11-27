@@ -64,7 +64,7 @@ class AutonomousUpgradeOrchestrator(
         }
         if (activeJob?.isCompleted == false) return
         activeJob = scope.launch {
-            val branchName = "omega-auto/upgrade-${UUID.randomUUID()}"
+            val branchName = stableUpgradeBranchName(featureRequest, paths)
             _state.value = AutonomousUpgradeState(
                 isRunning = true,
                 currentStage = "Planning Upgrade...",
@@ -75,13 +75,16 @@ class AutonomousUpgradeOrchestrator(
             database.logAudit("SELF_UPGRADE", "Started: ${featureRequest.take(80)}", "RUNNING")
 
             try {
-                // Step 1: Resolve base branch HEAD SHA
-                logStep("2. Fetching base branch '$baseBranch' HEAD...", 20)
-                val baseSha = github.getBranchHeadSha(repo, baseBranch, token).getOrThrow()
-
-                // Step 2: Create isolated development branch
-                logStep("3. Creating isolated branch '$branchName'...", 32)
-                github.createIsolatedBranch(repo, branchName, baseSha, token).getOrThrow()
+                // Step 1: Resume existing isolated branch if present, otherwise create from base branch HEAD
+                val existingSha = github.getBranchHeadSha(repo, branchName, token).getOrNull()
+                if (existingSha != null) {
+                    logStep("2. Resuming existing isolated branch '$branchName' (${existingSha.take(7)})...", 32)
+                } else {
+                    logStep("2. Fetching base branch '$baseBranch' HEAD...", 20)
+                    val baseSha = github.getBranchHeadSha(repo, baseBranch, token).getOrThrow()
+                    logStep("3. Creating isolated branch '$branchName'...", 32)
+                    github.createIsolatedBranch(repo, branchName, baseSha, token).getOrThrow()
+                }
 
                 var lastBuildError: String? = null
                 var ciStatus = "Not verified"
@@ -201,5 +204,14 @@ class AutonomousUpgradeOrchestrator(
 
     companion object {
         const val MAX_REPAIR_ATTEMPTS = 3
+
+        fun stableUpgradeBranchName(featureRequest: String, paths: List<String>): String {
+            val key = "${featureRequest.trim()}|${paths.sorted().joinToString(",")}"
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(key.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+                .take(12)
+            return "omega-auto/upgrade-$digest"
+        }
     }
 }

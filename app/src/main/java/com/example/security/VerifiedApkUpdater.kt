@@ -15,6 +15,13 @@ import java.security.MessageDigest
  */
 object VerifiedApkUpdater {
 
+    fun installedSigningCertSha256(context: Context): String? = runCatching {
+        val pm = context.packageManager
+        @Suppress("DEPRECATION")
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+        signers(pm.getPackageInfo(context.packageName, flags)).firstOrNull()
+    }.getOrNull()
+
     fun sha256OfFile(file: File): String {
         val md = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->

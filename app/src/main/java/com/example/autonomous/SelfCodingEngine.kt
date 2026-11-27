@@ -85,8 +85,10 @@ class SelfCodingEngine(private val aiRepository: PanduAiRepository) {
 
     companion object {
         fun extractCodeBlock(raw: String): String? {
-            val regex = Regex("```(?:kotlin|kt|xml|gradle)?\\s*\n([\\s\\S]*?)```")
-            return regex.matchEntire(raw.trim())?.groupValues?.getOrNull(1)?.trim()?.ifBlank { null }
+            val regex = Regex("```(?:kotlin|kts|kt|xml|gradle)?\\s*\\r?\\n([\\s\\S]*?)```")
+            return regex.findAll(raw.trim())
+                .mapNotNull { it.groupValues.getOrNull(1)?.trim()?.ifBlank { null } }
+                .firstOrNull()
         }
 
         fun scanForSecurityAndSyntax(path: String, code: String): SecurityScanResult {

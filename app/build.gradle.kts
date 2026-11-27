@@ -16,8 +16,8 @@ android {
         applicationId = "com.aistudio.pandubabu.omega.v19ultra"
         minSdk = 24
         targetSdk = 36
-        versionCode = 116
-        versionName = "V108.1"
+        versionCode = 117
+        versionName = "V108.2"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -27,11 +27,35 @@ android {
         buildConfigField("String", "OPENROUTER_API_KEY", "\"$openRouterApiKey\"")
     }
 
+    val ownerKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")?.trim().orEmpty()
+    val ownerKeystorePass = System.getenv("RELEASE_KEYSTORE_PASSWORD").orEmpty()
+    val ownerKeyAlias = System.getenv("RELEASE_KEY_ALIAS")?.trim().orEmpty()
+    val ownerKeyPass = System.getenv("RELEASE_KEY_PASSWORD").orEmpty()
+    val hasOwnerSigning = ownerKeystorePath.isNotEmpty() && file(ownerKeystorePath).isFile &&
+        ownerKeystorePass.isNotEmpty() && ownerKeyAlias.isNotEmpty() && ownerKeyPass.isNotEmpty()
+
+    signingConfigs {
+        if (hasOwnerSigning) {
+            create("ownerRelease") {
+                storeFile = file(ownerKeystorePath)
+                storePassword = ownerKeystorePass
+                keyAlias = ownerKeyAlias
+                keyPassword = ownerKeyPass
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
+            if (hasOwnerSigning) {
+                signingConfig = signingConfigs.getByName("ownerRelease")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

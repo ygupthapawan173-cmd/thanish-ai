@@ -30,8 +30,8 @@ object ConnectionRecoveryManager {
 
     fun isTransientError(message: String?): Boolean {
         val m = message?.lowercase().orEmpty()
-        return "timeout" in m || "timed out" in m || "502" in m || "503" in m || "504" in m ||
-            "connect" in m || "reset" in m || "unavailable" in m
+        return "timeout" in m || "timed out" in m || "500" in m || "502" in m || "503" in m || "504" in m ||
+            "high demand" in m || "overloaded" in m || "connect" in m || "reset" in m || "unavailable" in m
     }
 
     fun isQuotaError(message: String?): Boolean {

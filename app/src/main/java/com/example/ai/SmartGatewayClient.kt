@@ -103,6 +103,7 @@ internal class SmartGatewayClient(private val networkAllowed: () -> Boolean = { 
                     val model400 = r.code == 400 && GatewayRetryPolicy.modelSpecific400(runCatching { JSONObject(r.peekBody(8192L).string()).optJSONObject("error")?.optString("code").orEmpty() }.getOrDefault(""))
                     if (!SmartModelPolicy.mayTryAnother(r.code) && !model400) throw IOException(error)
                     val cooldown = GatewayRetryPolicy.cooldownMs(r.code, r.header("Retry-After"))
+                        .let { if (it > 0L) it else if (r.code in 500..504) 90_000L else 0L }
                     if (cooldown > 0) cooldowns.mark(scope, m.id, now(), cooldown)
                     if (r.code == 404 || model400) cache = null
                     ApiQuotaTracker.recordFailure()

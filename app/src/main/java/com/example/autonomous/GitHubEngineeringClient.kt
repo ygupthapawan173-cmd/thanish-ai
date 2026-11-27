@@ -240,10 +240,27 @@ class GitHubEngineeringClient {
                 .build()
             client.newCall(req).execute().use { resp ->
                 val raw = resp.boundedJsonText(2L * 1024 * 1024)
+                if (resp.code == 422) {
+                    val existingUrl = findOpenPullRequest(repoSlug, headBranch, baseBranch, token)
+                    if (existingUrl != null) return@use existingUrl
+                }
                 if (!resp.isSuccessful) throw IOException("PR create HTTP ${resp.code}: ${extractErr(raw)}")
                 JSONObject(raw).getString("html_url")
             }
         }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    private fun findOpenPullRequest(repoSlug: String, headBranch: String, baseBranch: String, token: String): String? {
+        val owner = repoSlug.substringBefore('/')
+        val url = "https://api.github.com/repos/$repoSlug/pulls?state=open&head=$owner:$headBranch&base=$baseBranch"
+        val req = baseReq(url, token).get().build()
+        return runCatching {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val arr = JSONArray(resp.boundedJsonText(2L * 1024 * 1024))
+                if (arr.length() > 0) arr.getJSONObject(0).optString("html_url").ifBlank { null } else null
+            }
+        }.getOrNull()
     }
 
     private fun extractErr(raw: String): String =

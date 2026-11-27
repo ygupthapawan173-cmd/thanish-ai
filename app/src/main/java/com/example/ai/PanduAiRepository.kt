@@ -72,6 +72,7 @@ class PanduAiRepository(
     fun clearHistory() { synchronized(conversationHistory) { conversationHistory.clear() } }
 
     private val codingModelPolicy = com.example.autonomous.CodingModelSwitchPolicy()
+    private val chatModelCooldowns = ModelCooldownLedger(limit = 64)
     @Volatile var lastBrainPlan: BrainTaskPlan? = null
         private set
     @Volatile var lastRouteResult: SmartRouteResult? = null
@@ -95,7 +96,7 @@ class PanduAiRepository(
             }
             var lastErr: Exception? = null
             for (model in available) {
-                val attempt = ConnectionRecoveryManager.runWithAutoRecovery(maxAttempts = 2) {
+                val attempt = ConnectionRecoveryManager.runWithAutoRecovery(maxAttempts = 1) {
                     runCatching {
                         val payload = JSONObject().put(
                             "contents",
@@ -112,8 +113,12 @@ class PanduAiRepository(
                 val err = attempt.exceptionOrNull() as? Exception
                 lastErr = err
                 val msg = err?.message.orEmpty()
-                if (ConnectionRecoveryManager.isQuotaError(msg) || "404" in msg || "not found" in msg.lowercase()) {
-                    codingModelPolicy.markQuotaExhausted(scope, model)
+                if (com.example.autonomous.CodingModelSwitchPolicy.isSwitchableError(msg)) {
+                    codingModelPolicy.markQuotaExhausted(
+                        scope = scope,
+                        model = model,
+                        customCooldownMs = com.example.autonomous.CodingModelSwitchPolicy.cooldownForError(msg)
+                    )
                     continue
                 }
                 return@withContext attempt
@@ -467,7 +472,14 @@ class PanduAiRepository(
                 part?.has("functionCall") == true || part?.has("functionResponse") == true
             }
         }
-        for (model in models.map { it.removePrefix("models/") }.distinct()) {
+        val scope = "chat_${apiKey.trim().takeLast(6)}"
+        val distinctModels = models.map { it.removePrefix("models/") }.distinct()
+        val nowMs = System.currentTimeMillis()
+        val eligibleModels = distinctModels.filter { !chatModelCooldowns.blocked(scope, it, nowMs) }
+        if (eligibleModels.isEmpty()) {
+            throw IOException("All Gemini models are in temporary cooldown; they will recover automatically shortly.")
+        }
+        for (model in eligibleModels) {
             try { return postGemini(apiKey, model, payload) to model }
             catch (e: IOException) {
                 lastErr = e
@@ -478,8 +490,17 @@ class PanduAiRepository(
                     val system = textOnly.optJSONObject("system_instruction") ?: textOnly.optJSONObject("systemInstruction")
                     system?.optJSONArray("parts")?.put(JSONObject().put("text", "Tools are unavailable. Answer only in text. Never claim to perform device actions."))
                     try { return postGemini(apiKey, model, textOnly) to model }
-                    catch (retry: IOException) { lastErr = retry; if (!GeminiCompatibility.tryAnotherModel(retry.message.orEmpty())) throw retry }
-                } else if (!GeminiCompatibility.tryAnotherModel(msg)) throw e
+                    catch (retry: IOException) {
+                        lastErr = retry
+                        val retryMsg = retry.message.orEmpty()
+                        if (!GeminiCompatibility.tryAnotherModel(retryMsg)) throw retry
+                        chatModelCooldowns.mark(scope, model, System.currentTimeMillis(), com.example.autonomous.CodingModelSwitchPolicy.cooldownForError(retryMsg))
+                    }
+                } else if (!GeminiCompatibility.tryAnotherModel(msg)) {
+                    throw e
+                } else {
+                    chatModelCooldowns.mark(scope, model, System.currentTimeMillis(), com.example.autonomous.CodingModelSwitchPolicy.cooldownForError(msg))
+                }
             }
         }
         throw lastErr ?: IOException("All Gemini fallback models failed.")
