@@ -16,8 +16,8 @@ android {
         applicationId = "com.aistudio.pandubabu.omega.v19ultra"
         minSdk = 24
         targetSdk = 36
-        versionCode = 115
-        versionName = "V108 ULTIMATE MASTER AI"
+        versionCode = 116
+        versionName = "V108.1 WAKE RECOVERY"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

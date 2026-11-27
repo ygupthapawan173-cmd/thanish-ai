@@ -769,6 +769,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(voiceSession=false) }
         voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop()
         OmegaWakeService.requestIdleRearm()
+        com.example.omega.OnlineBackgroundVoiceService.foregroundReleased()
     }
 
     fun stopVoiceListening() {

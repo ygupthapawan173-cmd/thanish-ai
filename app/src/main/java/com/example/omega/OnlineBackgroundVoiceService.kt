@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 
-/** Explicitly started, bounded online conversation; no boot restart, no screen-lock capture, no autonomous tools. */
+/** Explicitly started, bounded online conversation; no boot restart, local keyword only while locked, no autonomous tools. */
 class OnlineBackgroundVoiceService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var prefs: OmegaPreferences
@@ -57,7 +57,23 @@ class OnlineBackgroundVoiceService : Service() {
     private var wakeFailures = 0
     private var sessionDeadline = 0L
     private var ackDeadline = 0L
-    private fun foregroundBusy() = AgentHudBus.isMainMicBusy.value || AgentHudBus.isTtsBusy.value || (AgentHudBus.state.value as? AgentHudState.Active)?.isThinking == true
+    private fun foregroundBusy() = HandsFreeWakePolicy.foregroundBusy(
+        AgentHudBus.isAppInForeground.value, AgentHudBus.isMainMicBusy.value, AgentHudBus.isTtsBusy.value,
+        (AgentHudBus.state.value as? AgentHudState.Active)?.isThinking == true)
+    private fun screenReady() = getSystemService(PowerManager::class.java).isInteractive &&
+        !getSystemService(KeyguardManager::class.java).isDeviceLocked
+    private fun wakeAllowed() = started && !closed && !prefs.settings.value.micPrivacyMuted &&
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+        getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+    private fun lockedWakeCue() {
+        val tone = runCatching { android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 60) }.getOrNull() ?: return
+        if (!runCatching { tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 180) }.getOrDefault(false)) tone.release()
+        else main.postDelayed({ runCatching { tone.release() } }, 250L)
+    }
+    private fun resumeAfterForeground() {
+        if (!started || !wakeMode || phase != "Wake idle") return
+        retryAt = SystemClock.elapsedRealtime() + 250L
+    }
     private fun releaseWake() {
         ++wakeGeneration
         val old = wakeSpeech; wakeSpeech = null
@@ -66,18 +82,21 @@ class OnlineBackgroundVoiceService : Service() {
         VoiceMic.lease.release(wakeLease)
     }
     private fun returnToWake(message: String) {
+        phase = "Wake idle"; sessionDeadline = 0L; ackDeadline = 0L
         responseJob?.cancel(); responseJob = null
         input.stopListening(); tts.stop(); releaseWake()
-        turns = 0; history.clear(); phase = "Wake idle"; sessionDeadline = 0L; ackDeadline = 0L
+        turns = 0; history.clear()
         retryAt = SystemClock.elapsedRealtime() + 900L
         publish(message)
     }
     private fun endTurnSession(message: String) {
-        if (wakeMode && allowed()) returnToWake(message + " — rearming Hey JARVIS") else finish(message)
+        if (wakeMode && wakeAllowed()) returnToWake(message + " — rearming Hey JARVIS") else finish(message)
     }
     private fun yieldForeground() {
         if (!started || !wakeMode) return
-        returnToWake("Wake waiting for foreground voice")
+        // A text request during model loading must not invalidate the loading phase.
+        if (phase == "Wake loading") return
+        returnToWake("Wake paused for foreground voice")
         retryAt = SystemClock.elapsedRealtime() + 2500L
     }
     private fun loadWake() {
@@ -88,7 +107,12 @@ class OnlineBackgroundVoiceService : Service() {
     }
     private fun armWake() {
         val model = wakeModel ?: return
-        if (!allowed() || foregroundBusy() || !VoiceMic.lease.acquire(wakeLease)) return
+        if (!wakeAllowed() || foregroundBusy()) return
+        if (!VoiceMic.lease.acquire(wakeLease)) {
+            retryAt = SystemClock.elapsedRealtime() + 500L
+            if (_status.value != "Wake waiting for microphone release") publish("Wake waiting for microphone release")
+            return
+        }
         try {
             val recognizer = Recognizer(model, 16000f, JSONArray(HandsFreeWakePolicy.phrases + "[unk]").toString())
             wakeRecognizer = recognizer; recognizer.setWords(true)
@@ -104,13 +128,18 @@ class OnlineBackgroundVoiceService : Service() {
             val listener = object : RecognitionListener {
                 override fun onPartialResult(hypothesis: String?) = Unit
                 override fun onResult(hypothesis: String?) {
-                    if (!current() || !allowed() || foregroundBusy()) return
+                    if (!current() || !wakeAllowed() || foregroundBusy()) return
                     val json = runCatching { JSONObject(hypothesis.orEmpty()) }.getOrNull() ?: return
                     val words = json.optJSONArray("result") ?: return
                     val confidence = (0 until words.length()).map { words.optJSONObject(it)?.optDouble("conf", Double.NaN) ?: Double.NaN }
                     if (!HandsFreeWakePolicy.accept(json.optString("text"), confidence, AudioCapturePolicy.wakeThreshold(prefs.settings.value.wakeSensitivity))) return
                     releaseWake(); wakeFailures = 0
-                    if (AgentHudBus.isAppInForeground.value) {
+                    if (!screenReady()) {
+                        // Local keyword only while locked. No cloud audio, AI requests or device actions.
+                        retryAt = SystemClock.elapsedRealtime() + 2500L
+                        publish("Hey JARVIS detected — unlock to speak")
+                        lockedWakeCue()
+                    } else if (AgentHudBus.isAppInForeground.value) {
                         retryAt = SystemClock.elapsedRealtime() + 5000L
                         publish("Hey JARVIS — foreground voice")
                         AgentHudBus.emitWakeTrigger("")
@@ -130,7 +159,7 @@ class OnlineBackgroundVoiceService : Service() {
                 override fun onTimeout() = failed()
             }
             if (!speech.startListening(listener)) { failed(); return }
-            publish("Listening for Hey JARVIS — online assistant")
+            publish(if (screenReady()) "Listening for Hey JARVIS — offline detector" else "Listening for Hey JARVIS — lock screen, local only")
         } catch (_: Exception) {
             releaseWake(); wakeFailures++; retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
             publish("Wake microphone retry")
@@ -141,10 +170,7 @@ class OnlineBackgroundVoiceService : Service() {
     private var responseJob: Job? = null
     private val history = mutableListOf<Pair<String,String>>()
     override fun onBind(intent: Intent?): IBinder? = null
-    private fun allowed(): Boolean = started && !prefs.settings.value.micPrivacyMuted &&
-        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
-        getSystemService(PowerManager::class.java).isInteractive && !getSystemService(KeyguardManager::class.java).isDeviceLocked &&
-        getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+    private fun allowed(): Boolean = wakeAllowed() && screenReady()
     override fun onCreate() {
         super.onCreate(); instance = this
         prefs = OmegaPreferences(this)
@@ -173,7 +199,11 @@ class OnlineBackgroundVoiceService : Service() {
         scope.launch {
             while (started) {
                 delay(200)
-                if (!allowed()) { finish("Stopped for microphone or screen privacy"); break }
+                if (!wakeAllowed()) { finish("Stopped for microphone or notification privacy"); break }
+                if (!screenReady() && (!wakeMode || phase !in listOf("Wake idle", "Wake loading"))) {
+                    if (!wakeMode) { finish("Stopped for screen privacy"); break }
+                    returnToWake("Screen locked — local wake only")
+                }
                 if (wakeMode) {
                     val now = SystemClock.elapsedRealtime()
                     if (sessionDeadline != 0L && now >= sessionDeadline) endTurnSession("Session time limit reached")
@@ -181,6 +211,7 @@ class OnlineBackgroundVoiceService : Service() {
                     if (phase == "Wake idle") {
                         if (foregroundBusy() && wakeSpeech != null) { releaseWake(); retryAt = now + 1000L; publish("Wake waiting for voice session") }
                         else if (!foregroundBusy() && wakeSpeech == null && now >= retryAt) armWake()
+                        else if (foregroundBusy() && wakeSpeech == null && _status.value != "Wake waiting for voice session") publish("Wake waiting for voice session")
                     }
                 }
             }
@@ -249,6 +280,7 @@ class OnlineBackgroundVoiceService : Service() {
             val running = instance
             if (running?.wakeMode == true) running.yieldForeground() else stop(context)
         }
+        fun foregroundReleased() { instance?.resumeAfterForeground() }
         fun stop(context: Context) { context.stopService(Intent(context, OnlineBackgroundVoiceService::class.java)) }
     }
 }
