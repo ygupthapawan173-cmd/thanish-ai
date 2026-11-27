@@ -1,0 +1,160 @@
+name: JARVIS INFINITY V50 LEVEL6 MASTER INTEGRATION TEST
+on:
+  push:
+    branches: [main, build/jarvis-infinity-v50-level6-master]
+    paths:
+      - JARVIS-INFINITY-V50-16-IN-1-FINAL-SUPREME-MASTER.zip
+      - .github/workflows/jarvis-infinity-v50-level6-master.yml
+  workflow_dispatch:
+    inputs:
+      neural_wake:
+        description: "Non-commercial openWakeWord model test only (CC BY-NC-SA 4.0)"
+        type: boolean
+        default: false
+      sign_release:
+        description: "Build and sign with owner-controlled release key (requires repository secrets)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify and extract V50 integration source
+        run: |
+          echo 'd070f3311fa2b8e640a96fbdcd1568ba0de991152fa54550f2d7d7a1ddf244df  JARVIS-INFINITY-V50-16-IN-1-FINAL-SUPREME-MASTER.zip' | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile,pathlib,stat
+          with zipfile.ZipFile('JARVIS-INFINITY-V50-16-IN-1-FINAL-SUPREME-MASTER.zip') as z:
+              assert z.testzip() is None and len(z.namelist()) < 1000
+              assert len(set(z.namelist())) == len(z.namelist())
+              assert sum(i.file_size for i in z.infolist()) < 100_000_000
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts and not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall('infinity-v50-level6-master-build')
+          root = pathlib.Path('infinity-v50-level6-master-build')
+          import hashlib
+          manifest = (root/'SOURCE-MANIFEST.sha256').read_text().splitlines()
+          expected = {}
+          for line in manifest:
+              digest, name = line.split('  ', 1)
+              assert name not in expected and not pathlib.PurePosixPath(name).is_absolute() and '..' not in pathlib.PurePosixPath(name).parts
+              expected[name] = digest
+          actual = {str(f.relative_to(root)) for f in root.rglob('*') if f.is_file() and f.name != 'SOURCE-MANIFEST.sha256'}
+          assert actual == set(expected)
+          for name, digest in expected.items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest() == digest, name
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+      - name: Provision voice models
+        working-directory: infinity-v50-level6-master-build
+        run: |
+          bash ci/provision-vosk.sh
+          bash ci/provision-neural-vad.sh
+          if [[ "${{ inputs.neural_wake }}" == "true" ]]; then bash ci/provision-neural-wake.sh; fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Test genuine neural model on CPU
+        working-directory: infinity-v50-level6-master-build
+        run: |
+          python3 -m venv "$RUNNER_TEMP/vad-test-env"
+          "$RUNNER_TEMP/vad-test-env/bin/pip" install onnxruntime==1.22.0
+          "$RUNNER_TEMP/vad-test-env/bin/python" ci/check-neural-model.py
+          if [[ "${{ inputs.neural_wake }}" == "true" ]]; then "$RUNNER_TEMP/vad-test-env/bin/python" ci/check-neural-wake.py; fi
+      - name: Verify non-destructive migration SQL
+        working-directory: infinity-v50-level6-master-build
+        run: python3 ci/check-level6-sql.py
+      - name: Verify source guards
+        working-directory: infinity-v50-level6-master-build
+        run: |
+          python3 ci/check-v47-source.py
+          python3 ci/check-v50-source.py
+      - name: Compile and run regression tests
+        working-directory: infinity-v50-level6-master-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build test APK
+        working-directory: infinity-v50-level6-master-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify signature, package, version and model integrity
+        run: |
+          mkdir -p out
+          cp infinity-v50-level6-master-build/app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V50-LEVEL6-MASTER-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/*.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "versionName='50.0-online-stability-candidate'"
+          python3 - <<'PY'
+          import zipfile,hashlib
+          with zipfile.ZipFile('out/JARVIS-INFINITY-V50-LEVEL6-MASTER-TEST.apk') as z:
+              assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libvosk.so') for n in z.namelist())
+              assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libonnxruntime.so') for n in z.namelist())
+              assert not any(n.startswith("assets/model-te-in/") or "mediapipe" in n.lower() for n in z.namelist())
+              prefix='assets/neural-vad/'
+              assert hashlib.sha256(z.read(prefix+'silero_vad.onnx')).hexdigest()==z.read(prefix+'model.sha256').decode().strip()
+              assert z.read(prefix+'LICENSE')
+              wake_prefix='assets/neural-wake/'
+              if wake_prefix+'hey_jarvis_v0.1.onnx' in z.namelist():
+                  for model in ('melspectrogram.onnx','embedding_model.onnx','hey_jarvis_v0.1.onnx'):
+                      assert hashlib.sha256(z.read(wake_prefix+model)).hexdigest()==z.read(wake_prefix+model+'.sha256').decode().strip()
+                  assert z.read(wake_prefix+'MODEL-NOTICE.txt')
+              for pack in ('model-en-us','model-spk'):
+                  prefix='assets/'+pack+'/'
+                  lines=z.read(prefix+'pack.sha256').decode().splitlines()
+                  required=['final.ext.raw','mean.vec','transform.mat','mfcc.conf'] if pack=='model-spk' else ['am/final.mdl','conf/model.conf','uuid']
+                  names=[line.split('  ',1)[1] for line in lines]
+                  assert all(n in names for n in required)
+                  for line in lines:
+                      expected,name=line.split('  ',1)
+                      assert hashlib.sha256(z.read(prefix+name)).hexdigest()==expected
+                  print(pack,'verified',len(lines),'files')
+          PY
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+          cp infinity-v50-level6-master-build/V30-INTEGRATION-STATUS.md out/
+          cp infinity-v50-level6-master-build/V30-LOCAL-TESTS.txt out/
+          cp infinity-v50-level6-master-build/V47-STATUS.md out/
+          cp infinity-v50-level6-master-build/V47-LOCAL-TESTS.txt out/
+          cp infinity-v50-level6-master-build/V50-STATUS.md out/
+          cp infinity-v50-level6-master-build/V50-LOCAL-TESTS.txt out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V50-LEVEL6-MASTER-TEST
+          path: out/
+          if-no-files-found: error
+      - name: Assemble optional production release
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_release && !inputs.neural_wake && github.ref == 'refs/heads/main'
+        working-directory: infinity-v50-level6-master-build
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+      - name: Sign and validate with owner key
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_release && !inputs.neural_wake && github.ref == 'refs/heads/main'
+        working-directory: infinity-v50-level6-master-build
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: bash ci/sign-release.sh ../release-out
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.sign_release && !inputs.neural_wake && github.ref == 'refs/heads/main'
+        with:
+          name: JARVIS-INFINITY-V50-LEVEL6-MASTER-RELEASE
+          path: release-out/
+          if-no-files-found: error
