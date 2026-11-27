@@ -23,7 +23,7 @@ data class AutonomousUpgradeState(
     val activeBranch: String? = null,
     val pullRequestUrl: String? = null,
     val repairAttempt: Int = 0,
-    val maxRepairAttempts: Int = 2,
+    val maxRepairAttempts: Int = 3,
     val stepLogs: List<String> = emptyList(),
     val error: String? = null
 )
@@ -200,6 +200,6 @@ class AutonomousUpgradeOrchestrator(
     }
 
     companion object {
-        const val MAX_REPAIR_ATTEMPTS = 2
+        const val MAX_REPAIR_ATTEMPTS = 3
     }
 }

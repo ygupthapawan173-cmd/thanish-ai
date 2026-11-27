@@ -65,6 +65,8 @@ data class PanduUiState(
     val auditLogs: List<AuditLogEntry> = emptyList(),
     val healthReport: SystemHealthReport? = null,
     val upgradeState: AutonomousUpgradeState = AutonomousUpgradeState(),
+    val pendingVoiceUpgrade: com.example.autonomous.VoiceUpgradeProposal? = null,
+    val handoffBundle: com.example.autonomous.AntigravityHandoffBundle? = null,
     val isCheckingUpdate: Boolean = false,
     val availableRelease: ReleaseUpdateInfo? = null,
     val updateStatusMessage: String? = null,
@@ -307,6 +309,36 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startSelfUpgrade(featureRequest: String, targetFilePath: String) {
         upgradeOrchestrator.startSelfUpgrade(featureRequest, targetFilePath)
+    }
+
+    fun confirmVoiceUpgrade() {
+        val proposal = _uiState.value.pendingVoiceUpgrade ?: return
+        _uiState.update { it.copy(pendingVoiceUpgrade = null, currentScreen = OmegaScreen.AUTONOMOUS_LAB) }
+        upgradeOrchestrator.startSelfUpgrade(proposal.featureRequest, proposal.suggestedTargetPath)
+    }
+
+    fun dismissVoiceUpgrade() {
+        _uiState.update { it.copy(pendingVoiceUpgrade = null) }
+    }
+
+    fun analyzeLastCrashForFix() {
+        val logs = CrashRecoveryHandler.readLogs(appContext)
+        val proposal = com.example.autonomous.CrashBugFixPlanner.buildFixProposal(logs)
+        if (proposal != null) {
+            _uiState.update { it.copy(currentScreen = OmegaScreen.AUTONOMOUS_LAB) }
+            upgradeOrchestrator.startSelfUpgrade(proposal.featureRequest, proposal.suggestedTargetPath)
+        } else {
+            _uiState.update { it.copy(updateStatusMessage = "No recorded crashes found to analyze.") }
+        }
+    }
+
+    fun generateAntigravityHandoff(featureRequest: String, targetFilePath: String) {
+        val res = com.example.autonomous.AntigravityTaskHandoff.buildHandoff(featureRequest, targetFilePath)
+        res.onSuccess { bundle ->
+            _uiState.update { it.copy(handoffBundle = bundle, updateStatusMessage = "Manual Antigravity CLI Handoff ready (useG1Credits:false).") }
+        }.onFailure { err ->
+            _uiState.update { it.copy(updateStatusMessage = err.message ?: "Unable to build Antigravity CLI Handoff.") }
+        }
     }
 
     fun emergencyStopUpgrade() {
@@ -644,6 +676,16 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun dispatchToAi(prompt: String, isVoiceInput: Boolean, imageBase64: String? = null) {
+        if (imageBase64 == null) {
+            com.example.autonomous.VoiceUpgradeIntentParser.parse(prompt)?.let { proposal ->
+                val resolved = if (proposal.isCrashFix) {
+                    com.example.autonomous.CrashBugFixPlanner.buildFixProposal(CrashRecoveryHandler.readLogs(appContext)) ?: proposal
+                } else proposal
+                _uiState.update { it.copy(currentScreen = OmegaScreen.AUTONOMOUS_LAB) }
+                upgradeOrchestrator.startSelfUpgrade(resolved.featureRequest, resolved.suggestedTargetPath)
+                return
+            }
+        }
         com.example.omega.OnlineBackgroundVoiceService.yieldToForeground(appContext)
         emergencyStopped = false
         followUpJob?.cancel(); followUpJob = null

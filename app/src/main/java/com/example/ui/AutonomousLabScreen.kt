@@ -44,7 +44,9 @@ fun AutonomousLabScreen(
     onStartSelfUpgrade: (String, String) -> Unit,
     onEmergencyStop: () -> Unit,
     onCheckReleaseUpdate: () -> Unit,
-    onApproveAndInstallUpdate: () -> Unit
+    onApproveAndInstallUpdate: () -> Unit,
+    onAnalyzeLastCrash: () -> Unit = {},
+    onGenerateHandoff: (String, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val settings = uiState.settings
@@ -121,6 +123,17 @@ fun AutonomousLabScreen(
                 Button(onClick = onRunDiagnostics, colors = ButtonDefaults.buttonColors(containerColor = accent), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                     Text("Run Full Self-Diagnostics", color = Color(0xFF040814), fontWeight = FontWeight.Bold)
                 }
+                OutlinedButton(onClick = onAnalyzeLastCrash, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("Analyze & Fix Last Crash", color = accent, fontWeight = FontWeight.SemiBold)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Zero Additional Paid Credits Mode", color = theme.primaryText(), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(com.example.ai.ZeroPaidCreditsPolicy.statusLabel(settings.zeroPaidCreditsMode), color = theme.mutedText(), fontSize = 11.sp)
+                    }
+                    Switch(checked = settings.zeroPaidCreditsMode, onCheckedChange = { enabled -> onSaveSettings { it.copy(zeroPaidCreditsMode = enabled) } })
+                }
+                Text("Usage: ${uiState.apiTelemetry.diagnosticSummary()}", color = theme.mutedText(), fontSize = 11.sp)
             }
 
             // 2. SELF-CODING & GITHUB ENGINEERING ENGINE
@@ -188,6 +201,30 @@ fun AutonomousLabScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Review & Approve PR on GitHub", color = Color.White, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { if (featurePrompt.isNotBlank()) onGenerateHandoff(featurePrompt, targetFile) },
+                    enabled = featurePrompt.isNotBlank(),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Generate Manual Antigravity CLI Handoff", color = accent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
+
+                val bundle = uiState.handoffBundle
+                if (bundle != null) {
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.06f)).padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(bundle.title, color = OmegaColors.EmeraldLive, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(bundle.cliCommand, color = theme.mutedText(), fontSize = 11.sp, maxLines = 4)
+                        Button(
+                            onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(bundle.cliCommand)) },
+                            colors = ButtonDefaults.buttonColors(containerColor = OmegaColors.RoyalIndigo),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Copy Safe CLI Command (useG1Credits:false)", color = Color.White, fontSize = 11.5.sp) }
                     }
                 }
             }

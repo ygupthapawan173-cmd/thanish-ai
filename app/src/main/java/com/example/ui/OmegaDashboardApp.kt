@@ -135,7 +135,9 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                 onStartSelfUpgrade = { req, path -> viewModel.startSelfUpgrade(req, path) },
                 onEmergencyStop = { viewModel.emergencyStopUpgrade() },
                 onCheckReleaseUpdate = { viewModel.checkReleaseUpdate() },
-                onApproveAndInstallUpdate = { viewModel.approveAndInstallRelease() }
+                onApproveAndInstallUpdate = { viewModel.approveAndInstallRelease() },
+                onAnalyzeLastCrash = { viewModel.analyzeLastCrashForFix() },
+                onGenerateHandoff = { req, path -> viewModel.generateAntigravityHandoff(req, path) }
             )
             OmegaScreen.SETTINGS -> SettingsScreen(
                 uiState = uiState,

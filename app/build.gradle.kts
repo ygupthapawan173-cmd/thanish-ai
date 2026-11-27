@@ -16,8 +16,8 @@ android {
         applicationId = "com.aistudio.pandubabu.omega.v19ultra"
         minSdk = 24
         targetSdk = 36
-        versionCode = 111
-        versionName = "v106"
+        versionCode = 112
+        versionName = "v107"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

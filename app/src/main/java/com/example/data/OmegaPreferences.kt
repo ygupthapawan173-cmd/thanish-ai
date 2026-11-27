@@ -40,6 +40,7 @@ data class OmegaSettings(
     val manualVisionConfirmed: Boolean = false,
     val smartMode: SmartModelPolicy.Mode = SmartModelPolicy.Mode.SMART,
     val providerBudgetUsd: Double = 0.0,
+    val zeroPaidCreditsMode: Boolean = true,
     // Least-privilege GitHub Engineering config (NEVER embedded; stored encrypted in Keystore)
     val githubRepoSlug: String = "",
     val githubToken: String = "",
@@ -119,6 +120,7 @@ class OmegaPreferences(context: Context) {
             manualVisionConfirmed = prefs.getBoolean("manual_vision_confirmed", false),
             smartMode = runCatching { SmartModelPolicy.Mode.valueOf(prefs.getString("smart_mode", "SMART") ?: "SMART") }.getOrDefault(SmartModelPolicy.Mode.SMART),
             providerBudgetUsd = Double.fromBits(prefs.getLong("provider_budget_usd", 0L)),
+            zeroPaidCreditsMode = prefs.getBoolean("zero_paid_credits_mode", true),
             githubRepoSlug = prefs.getString(KEY_GH_REPO, "") ?: "",
             githubToken = KeystoreCryptoManager.decrypt(prefs.getString(KEY_GH_TOKEN, "") ?: ""),
             githubBaseBranch = prefs.getString(KEY_GH_BRANCH, "main") ?: "main",
@@ -190,6 +192,7 @@ class OmegaPreferences(context: Context) {
             .putString("gateway_base_url", u.gatewayBaseUrl.trim().trimEnd('/'))
             .putString("smart_mode", u.smartMode.name)
             .putLong("provider_budget_usd", u.providerBudgetUsd.toBits())
+            .putBoolean("zero_paid_credits_mode", u.zeroPaidCreditsMode)
             .putBoolean("manual_vision_confirmed", u.manualVisionConfirmed)
             .remove("local_brain_mode")
             .remove("local_llm_url")

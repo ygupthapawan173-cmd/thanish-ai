@@ -188,7 +188,9 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
     private var cloudGeneration = 0L
     private var cloudCooldownUntil = 0L
     private var cloudPrivacyCheck: Runnable? = null
-    private fun cloudAllowed(s: OmegaSettings, length: Int): Boolean = CloudVoicePolicy.allowed(
+    private fun cloudAllowed(s: OmegaSettings, length: Int): Boolean =
+        com.example.ai.ZeroPaidCreditsPolicy.allowsPaidCloudVoice(s.zeroPaidCreditsMode) &&
+        CloudVoicePolicy.allowed(
         s.gatewayBaseUrl, CloudVoicePreferences.enabled(appContext), s.activeProvider == AiProvider.OPENROUTER,
         s.smartMode == SmartModelPolicy.Mode.FREE, s.providerBudgetUsd,
         localOnly || s.micPrivacyMuted || appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked,
