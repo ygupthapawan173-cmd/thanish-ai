@@ -65,6 +65,7 @@ data class PanduUiState(
     val auditLogs: List<AuditLogEntry> = emptyList(),
     val healthReport: SystemHealthReport? = null,
     val upgradeState: AutonomousUpgradeState = AutonomousUpgradeState(),
+    val connectionHealth: com.example.ai.ConnectionHealthSnapshot = com.example.ai.ConnectionHealthSnapshot(),
     val pendingVoiceUpgrade: com.example.autonomous.VoiceUpgradeProposal? = null,
     val handoffBundle: com.example.autonomous.AntigravityHandoffBundle? = null,
     val isCheckingUpdate: Boolean = false,
@@ -193,6 +194,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
+            autoConnectAndRecover()
+        }
+        viewModelScope.launch {
             preferences.settings.collect { s ->
                 if (s.preferOfflineSpeech && !_uiState.value.settings.preferOfflineSpeech) {
                     voiceInput.stopListening()
@@ -200,7 +204,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 if(s.micPrivacyMuted) { liveFallbackArmed=false; voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop() }
                 else if (s.preferOfflineSpeech || s.effectiveGeminiKey().isBlank() || !s.useGeminiLiveAudio) { liveFallbackArmed=false; if(liveDuplex.state.value.isConnected || liveDuplex.state.value.isConnecting) liveDuplex.disconnect() }
                 ttsController.configure(s.languageTag, s.ttsSpeed, s.ttsPitch, s.ttsStyle)
-                _uiState.update { if (sameApiConfig(it.settings, s)) it.copy(settings = s) else it.copy(settings = s, diagnosticResult = null, discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = null) }
+                val configChanged = !sameApiConfig(itSettingsSnapshot(), s)
+                _uiState.update { if (!configChanged) it.copy(settings = s) else it.copy(settings = s, diagnosticResult = null, discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = null) }
+                if (configChanged) autoConnectAndRecover()
             }
         }
         viewModelScope.launch { upgradeOrchestrator.state.collect { st -> _uiState.update { it.copy(upgradeState = st) }; refreshDbState() } }
@@ -305,6 +311,102 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { database.logAudit("DIAGNOSTICS", "Health score ${report.score}/100 (${report.issues.size} items)", "OK") }.onFailure { _uiState.update { u -> u.copy(voiceError="Diagnostics audit not saved; check encrypted storage") } }
         _uiState.update { it.copy(healthReport = report) }
         refreshDbState()
+    }
+
+    private fun itSettingsSnapshot(): OmegaSettings = _uiState.value.settings
+
+    fun autoConnectAndRecover() {
+        viewModelScope.launch {
+            val s = preferences.settings.value
+            val hasGemini = s.effectiveGeminiKey().isNotBlank()
+            val hasGateway = s.effectiveOpenRouterKey().isNotBlank()
+            val providerLabel = com.example.ai.ConnectionRecoveryManager.initialProviderLabel(s.activeProvider, hasGemini, hasGateway)
+            if (!hasGemini && !hasGateway) {
+                _uiState.update {
+                    it.copy(
+                        connectionHealth = com.example.ai.ConnectionHealthSnapshot(
+                            status = com.example.ai.ConnectionStatus.DISCONNECTED,
+                            providerLabel = providerLabel,
+                            activeChatModel = s.activeChatModel(),
+                            detail = "Configure Gemini or Smart Gateway key in Settings"
+                        )
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    connectionHealth = it.connectionHealth.copy(
+                        status = com.example.ai.ConnectionStatus.CONNECTING,
+                        providerLabel = providerLabel,
+                        activeChatModel = s.activeChatModel(),
+                        detail = "Auto-connecting & verifying models..."
+                    )
+                )
+            }
+
+            val start = System.currentTimeMillis()
+            val res = com.example.ai.ConnectionRecoveryManager.runWithAutoRecovery(
+                maxAttempts = 3,
+                onRecovering = { attempt, waitMs ->
+                    _uiState.update {
+                        it.copy(
+                            connectionHealth = it.connectionHealth.copy(
+                                status = com.example.ai.ConnectionStatus.RECOVERING,
+                                recoveryAttempt = attempt,
+                                detail = "Transient error; recovering in ${waitMs / 1000}s (attempt $attempt/3)"
+                            )
+                        )
+                    }
+                }
+            ) {
+                aiRepository.discoverModelsForActiveProvider()
+            }
+
+            val latency = (System.currentTimeMillis() - start).coerceAtLeast(1L)
+            res.onSuccess { found ->
+                if (found.ttsModels.isNotEmpty()) {
+                    com.example.voice.GeminiSpeechPreferences.saveDiscoveredModels(appContext, found.ttsModels)
+                }
+                val codingModel = found.chatModels.firstOrNull { !it.contains("tts", ignoreCase = true) } ?: s.geminiChatModel
+                val ttsModel = found.ttsModels.firstOrNull() ?: com.example.voice.GeminiSpeechPreferences.lastActiveModel(appContext)
+                _uiState.update {
+                    it.copy(
+                        discoveredChatModels = found.chatModels,
+                        discoveredLiveModels = found.liveVoiceModels,
+                        discoveredTtsModels = found.ttsModels,
+                        discoveryStatus = found.message,
+                        connectionHealth = com.example.ai.ConnectionHealthSnapshot(
+                            status = com.example.ai.ConnectionStatus.CONNECTED,
+                            providerLabel = providerLabel,
+                            activeChatModel = s.activeChatModel(),
+                            activeCodingModel = codingModel,
+                            activeTtsModel = ttsModel,
+                            quotaState = "OK",
+                            latencyMs = latency,
+                            recoveryAttempt = 0,
+                            detail = "Connected • ${found.chatModels.size} chat, ${found.ttsModels.size} TTS models"
+                        )
+                    )
+                }
+            }.onFailure { err ->
+                val msg = err.message.orEmpty()
+                val isQuota = com.example.ai.ConnectionRecoveryManager.isQuotaError(msg)
+                _uiState.update {
+                    it.copy(
+                        connectionHealth = com.example.ai.ConnectionHealthSnapshot(
+                            status = if (isQuota) com.example.ai.ConnectionStatus.QUOTA_LIMITED else com.example.ai.ConnectionStatus.DISCONNECTED,
+                            providerLabel = providerLabel,
+                            activeChatModel = s.activeChatModel(),
+                            quotaState = if (isQuota) "429 Cooldown" else "Check Connection",
+                            latencyMs = latency,
+                            detail = msg.ifBlank { "Auto-connect failed" }
+                        )
+                    )
+                }
+            }
+        }
     }
 
     fun startSelfUpgrade(featureRequest: String, targetFilePath: String) {

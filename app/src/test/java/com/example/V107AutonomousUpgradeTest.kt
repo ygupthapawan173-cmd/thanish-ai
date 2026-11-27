@@ -75,4 +75,15 @@ class V107AutonomousUpgradeTest {
         assertNull(CrashBugFixPlanner.buildFixProposal("No crashes recorded in this log."))
         assertEquals(3, com.example.autonomous.AutonomousUpgradeOrchestrator.MAX_REPAIR_ATTEMPTS)
     }
+
+    @Test
+    fun connectionRecoveryManagerDetectsTransientAndQuotaErrors() {
+        assertTrue(com.example.ai.ConnectionRecoveryManager.isTransientError("HTTP 503 Service Unavailable"))
+        assertTrue(com.example.ai.ConnectionRecoveryManager.isTransientError("Socket timeout"))
+        assertFalse(com.example.ai.ConnectionRecoveryManager.isTransientError("HTTP 401 Unauthorized"))
+        assertTrue(com.example.ai.ConnectionRecoveryManager.isQuotaError("HTTP 429 RESOURCE_EXHAUSTED"))
+        assertEquals(1_000L, com.example.ai.ConnectionRecoveryManager.backoffForAttempt(0))
+        assertEquals(3_000L, com.example.ai.ConnectionRecoveryManager.backoffForAttempt(1))
+        assertEquals(8_000L, com.example.ai.ConnectionRecoveryManager.backoffForAttempt(2))
+    }
 }

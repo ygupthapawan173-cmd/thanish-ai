@@ -134,6 +134,15 @@ fun AutonomousLabScreen(
                     Switch(checked = settings.zeroPaidCreditsMode, onCheckedChange = { enabled -> onSaveSettings { it.copy(zeroPaidCreditsMode = enabled) } })
                 }
                 Text("Usage: ${uiState.apiTelemetry.diagnosticSummary()}", color = theme.mutedText(), fontSize = 11.sp)
+                val conn = uiState.connectionHealth
+                Column(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.05f)).padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text("Live AI Connection: ${conn.status.name} (${conn.providerLabel})", color = accent, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    Text("Chat: ${conn.activeChatModel.ifBlank { "--" }} • Coding: ${conn.activeCodingModel.ifBlank { "--" }} • TTS: ${conn.activeTtsModel.ifBlank { "--" }}", color = theme.mutedText(), fontSize = 11.sp)
+                    Text("Quota: ${conn.quotaState} • ${conn.detail}", color = theme.mutedText(), fontSize = 11.sp)
+                }
             }
 
             // 2. SELF-CODING & GITHUB ENGINEERING ENGINE

@@ -74,21 +74,13 @@ class PanduAiRepository(
     private val codingModelPolicy = com.example.autonomous.CodingModelSwitchPolicy()
 
     /**
-     * Dedicated raw engineering call for SelfCodingEngine (selected provider + V107 quota-aware model switching).
+     * Dedicated raw engineering call for SelfCodingEngine.
+     * V107.1: Prefers official Google AI Studio Gemini API for in-app autonomous coding
+     * with automatic model switching, recovery, and zero paid overages.
      */
     suspend fun sendRawEngineeringPrompt(prompt: String): Result<String> = withContext(Dispatchers.IO) {
         val s = settingsProvider()
         val geminiKey = s.effectiveGeminiKey()
-
-        if (s.activeProvider == AiProvider.OPENROUTER) {
-            if (!ZeroPaidCreditsPolicy.allowsPaidGateway(s.zeroPaidCreditsMode, s.smartMode == SmartModelPolicy.Mode.FREE)) {
-                return@withContext Result.failure(IllegalStateException("Zero Paid Credits Mode is ON. Switch Smart Mode to FREE or disable Zero Paid Credits Mode in Autonomous Lab."))
-            }
-            return@withContext runCatching {
-                val r = gateway.answer(s, prompt, "You are a senior Android Kotlin engineer. Output clean, secure code.")
-                r.text
-            }
-        }
 
         if (geminiKey.isNotBlank()) {
             val scope = "coding_${geminiKey.takeLast(6)}"
@@ -99,26 +91,24 @@ class PanduAiRepository(
             }
             var lastErr: Exception? = null
             for (model in available) {
-                val attempt = runCatching {
-                    val payload = JSONObject().put(
-                        "contents",
-                        JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt))))
-                    )
-                    val json = postGemini(geminiKey, model, payload)
-                    val txt = json.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
-                        ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "").orEmpty().trim()
-                    if (txt.isBlank()) throw IOException("Empty code response from Gemini.")
-                    txt
+                val attempt = ConnectionRecoveryManager.runWithAutoRecovery(maxAttempts = 2) {
+                    runCatching {
+                        val payload = JSONObject().put(
+                            "contents",
+                            JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", prompt))))
+                        )
+                        val json = postGemini(geminiKey, model, payload)
+                        val txt = json.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")
+                            ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "").orEmpty().trim()
+                        if (txt.isBlank()) throw IOException("Empty code response from Gemini.")
+                        txt
+                    }
                 }
                 if (attempt.isSuccess) return@withContext attempt
                 val err = attempt.exceptionOrNull() as? Exception
                 lastErr = err
                 val msg = err?.message.orEmpty()
-                if ("429" in msg || "quota" in msg.lowercase() || "resource_exhausted" in msg.lowercase()) {
-                    codingModelPolicy.markQuotaExhausted(scope, model)
-                    continue
-                }
-                if ("404" in msg || "not found" in msg.lowercase()) {
+                if (ConnectionRecoveryManager.isQuotaError(msg) || "404" in msg || "not found" in msg.lowercase()) {
                     codingModelPolicy.markQuotaExhausted(scope, model)
                     continue
                 }
@@ -126,7 +116,17 @@ class PanduAiRepository(
             }
             return@withContext Result.failure(lastErr ?: IOException("All permitted coding models exhausted."))
         }
-        Result.failure(IllegalStateException("Configure the selected Gemini or Smart Gateway API key for AI Self-Coding."))
+
+        if (s.activeProvider == AiProvider.OPENROUTER) {
+            if (!ZeroPaidCreditsPolicy.allowsPaidGateway(s.zeroPaidCreditsMode, s.smartMode == SmartModelPolicy.Mode.FREE)) {
+                return@withContext Result.failure(IllegalStateException("Zero Paid Credits Mode is ON. Configure a Gemini API key or switch Smart Mode to FREE."))
+            }
+            return@withContext runCatching {
+                val r = gateway.answer(s, prompt, "You are a senior Android Kotlin engineer. Output clean, secure code.")
+                r.text
+            }
+        }
+        Result.failure(IllegalStateException("Configure an official Gemini API key (or Smart Gateway in FREE mode) for AI Self-Coding."))
     }
 
     /** Background Q&A is deliberately text only: no tools, memories, screen or notification data. */

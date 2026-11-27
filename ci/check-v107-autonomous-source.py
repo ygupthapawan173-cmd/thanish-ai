@@ -24,9 +24,14 @@ checks = [
     'applicationId = "com.aistudio.pandubabu.omega.v19ultra"' in gradle,
     'minSdk = 24' in gradle,
     'targetSdk = 36' in gradle,
-    'versionCode = 112' in gradle,
-    'versionName = "v107"' in gradle,
+    'versionCode = 113' in gradle,
+    'versionName = "v107.1"' in gradle,
     'android:usesCleartextTraffic="false"' in manifest,
+
+    # V107.1 Auto-connect, recovery, and live indicators
+    'runWithAutoRecovery(' in r("ai/ConnectionRecoveryManager.kt"),
+    'autoConnectAndRecover()' in vm,
+    'Live AI Connection:' in lab,
 
     # Zero additional paid credits mode
     'allowsPaidGateway(' in zero_policy and 'allowsPaidCloudVoice(' in zero_policy,

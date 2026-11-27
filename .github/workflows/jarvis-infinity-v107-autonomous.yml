@@ -78,7 +78,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V107-CANDIDATE.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-INFINITY-V107-CANDIDATE.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V107-CANDIDATE.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V107-CANDIDATE.apk | grep -F "versionName='v107'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V107-CANDIDATE.apk | grep -F "versionName='v107.1'"
           (cd out && sha256sum JARVIS-INFINITY-V107-CANDIDATE.apk > JARVIS-INFINITY-V107-CANDIDATE.apk.sha256)
           cat out/JARVIS-INFINITY-V107-CANDIDATE.apk.sha256
 
