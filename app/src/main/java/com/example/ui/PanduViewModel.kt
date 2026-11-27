@@ -66,6 +66,10 @@ data class PanduUiState(
     val healthReport: SystemHealthReport? = null,
     val upgradeState: AutonomousUpgradeState = AutonomousUpgradeState(),
     val connectionHealth: com.example.ai.ConnectionHealthSnapshot = com.example.ai.ConnectionHealthSnapshot(),
+    val controlEnv: com.example.autonomous.ControlCenterEnvironmentStatus = com.example.autonomous.ControlCenterEnvironmentStatus(),
+    val recentBuilds: List<com.example.autonomous.WorkflowRunStatus> = emptyList(),
+    val rollbackSnapshots: List<com.example.autonomous.RollbackSnapshot> = emptyList(),
+    val controlCenterStatus: String? = null,
     val pendingVoiceUpgrade: com.example.autonomous.VoiceUpgradeProposal? = null,
     val handoffBundle: com.example.autonomous.AntigravityHandoffBundle? = null,
     val isCheckingUpdate: Boolean = false,
@@ -440,6 +444,71 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(handoffBundle = bundle, updateStatusMessage = "Manual Antigravity CLI Handoff ready (useG1Credits:false).") }
         }.onFailure { err ->
             _uiState.update { it.copy(updateStatusMessage = err.message ?: "Unable to build Antigravity CLI Handoff.") }
+        }
+    }
+
+    fun refreshControlCenter() {
+        val env = com.example.autonomous.TermuxControlHelper.inspectEnvironment(appContext)
+        val snaps = com.example.autonomous.RollbackPreparationManager.listSnapshots(appContext)
+        _uiState.update { it.copy(controlEnv = env, rollbackSnapshots = snaps) }
+        refreshGitHubBuilds()
+    }
+
+    fun refreshGitHubBuilds() {
+        val s = preferences.settings.value
+        if (s.githubRepoSlug.isBlank() || s.githubToken.isBlank()) return
+        viewModelScope.launch {
+            githubClient.listRecentWorkflowRuns(s.githubRepoSlug, s.githubToken, limit = 5)
+                .onSuccess { runs -> _uiState.update { it.copy(recentBuilds = runs) } }
+                .onFailure { err -> _uiState.update { it.copy(controlCenterStatus = "GitHub build monitor: ${err.message}") } }
+        }
+    }
+
+    fun launchTermuxApp() {
+        val res = com.example.autonomous.TermuxControlHelper.launchTermux(appContext)
+        _uiState.update { it.copy(controlCenterStatus = res.getOrElse { e -> e.message }) }
+    }
+
+    fun launchTermuxWithHandoff() {
+        val cmd = _uiState.value.handoffBundle?.cliCommand.orEmpty()
+        val res = com.example.autonomous.TermuxControlHelper.copyHandoffAndLaunchTermux(appContext, cmd)
+        _uiState.update { it.copy(controlCenterStatus = res.getOrElse { e -> e.message }) }
+    }
+
+    fun openBatteryOptimization(packageName: String = appContext.packageName) {
+        val res = com.example.autonomous.TermuxControlHelper.openBatterySettings(appContext, packageName)
+        _uiState.update { it.copy(controlCenterStatus = res.getOrElse { e -> e.message }) }
+    }
+
+    fun openInstallPermissionSettings() {
+        val res = com.example.autonomous.TermuxControlHelper.openInstallUnknownAppsSettings(appContext)
+        _uiState.update { it.copy(controlCenterStatus = res.getOrElse { e -> e.message }) }
+    }
+
+    fun prepareRollbackSnapshot() {
+        val res = com.example.autonomous.RollbackPreparationManager.prepareSnapshot(appContext, preferences)
+        res.onSuccess { snap ->
+            database.logAudit("ROLLBACK_PREP", "Prepared ${snap.versionName} (${snap.sha256.take(12)})", "VERIFIED")
+            refreshDbState()
+            _uiState.update {
+                it.copy(
+                    rollbackSnapshots = com.example.autonomous.RollbackPreparationManager.listSnapshots(appContext),
+                    controlCenterStatus = "Prepared verified rollback snapshot ${snap.id}"
+                )
+            }
+        }.onFailure { err ->
+            _uiState.update { it.copy(controlCenterStatus = "Rollback prep failed: ${err.message}") }
+        }
+    }
+
+    fun restoreRollbackSnapshot(snapshotId: String) {
+        val res = com.example.autonomous.RollbackPreparationManager.restoreSnapshot(appContext, preferences, snapshotId)
+        res.onSuccess { msg ->
+            database.logAudit("ROLLBACK_RESTORE", msg, "SUCCESS")
+            refreshDbState()
+            _uiState.update { it.copy(controlCenterStatus = msg) }
+        }.onFailure { err ->
+            _uiState.update { it.copy(controlCenterStatus = "Restore failed: ${err.message}") }
         }
     }
 

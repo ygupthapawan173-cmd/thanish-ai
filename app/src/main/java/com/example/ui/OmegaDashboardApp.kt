@@ -131,13 +131,21 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                 uiState = uiState,
                 onBack = { viewModel.navigateTo(OmegaScreen.HOME) },
                 onSaveSettings = { viewModel.updateSettings(it) },
-                onRunDiagnostics = { viewModel.runSystemDiagnostics() },
+                onRunDiagnostics = { viewModel.runSystemDiagnostics(); viewModel.refreshControlCenter() },
+                onReconnectAi = { viewModel.autoConnectAndRecover() },
                 onStartSelfUpgrade = { req, path -> viewModel.startSelfUpgrade(req, path) },
                 onEmergencyStop = { viewModel.emergencyStopUpgrade() },
                 onCheckReleaseUpdate = { viewModel.checkReleaseUpdate() },
                 onApproveAndInstallUpdate = { viewModel.approveAndInstallRelease() },
                 onAnalyzeLastCrash = { viewModel.analyzeLastCrashForFix() },
-                onGenerateHandoff = { req, path -> viewModel.generateAntigravityHandoff(req, path) }
+                onGenerateHandoff = { req, path -> viewModel.generateAntigravityHandoff(req, path) },
+                onRefreshControlCenter = { viewModel.refreshControlCenter() },
+                onLaunchTermux = { viewModel.launchTermuxApp() },
+                onLaunchTermuxHandoff = { viewModel.launchTermuxWithHandoff() },
+                onOpenBatterySettings = { viewModel.openBatteryOptimization(it) },
+                onOpenInstallSettings = { viewModel.openInstallPermissionSettings() },
+                onPrepareRollback = { viewModel.prepareRollbackSnapshot() },
+                onRestoreRollback = { viewModel.restoreRollbackSnapshot(it) }
             )
             OmegaScreen.SETTINGS -> SettingsScreen(
                 uiState = uiState,

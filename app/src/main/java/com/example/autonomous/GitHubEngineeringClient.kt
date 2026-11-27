@@ -137,6 +137,28 @@ class GitHubEngineeringClient {
         }.onFailure { if (it is CancellationException) throw it }
     }
 
+    suspend fun listRecentWorkflowRuns(repoSlug: String, token: String, limit: Int = 5): Result<List<WorkflowRunStatus>> = withContext(Dispatchers.IO) {
+        if (!EngineeringPolicy.validRepo(repoSlug.trim())) return@withContext Result.failure(IllegalArgumentException("Configure GitHub Repo (owner/repo) first."))
+        runCatching {
+            val req = baseReq("https://api.github.com/repos/${repoSlug.trim()}/actions/runs?per_page=${limit.coerceIn(1, 10)}", token).get().build()
+            client.newCall(req).execute().use { resp ->
+                val raw = resp.boundedJsonText(2L * 1024 * 1024)
+                if (!resp.isSuccessful) throw IOException("Actions list HTTP ${resp.code}: ${extractErr(raw)}")
+                val arr = JSONObject(raw).optJSONArray("workflow_runs") ?: return@use emptyList()
+                (0 until arr.length()).map { i ->
+                    val r = arr.getJSONObject(i)
+                    WorkflowRunStatus(
+                        runId = r.getLong("id"),
+                        status = r.optString("status", ""),
+                        conclusion = r.optString("conclusion", ""),
+                        htmlUrl = r.optString("html_url", ""),
+                        headSha = r.optString("head_sha", "")
+                    )
+                }
+            }
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
     suspend fun getLatestWorkflowRunForBranch(repoSlug: String, branch: String, token: String, expectedSha: String): Result<WorkflowRunStatus?> = withContext(Dispatchers.IO) {
         runCatching {
             val req = baseReq("https://api.github.com/repos/$repoSlug/actions/runs?branch=$branch&head_sha=$expectedSha&per_page=30", token).get().build()
