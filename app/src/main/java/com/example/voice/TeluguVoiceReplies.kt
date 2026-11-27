@@ -39,4 +39,13 @@ internal object TeluguVoiceReplies {
     } else {
         "en-IN"
     }
+
+    fun lockedReminder(
+        languageTag: String,
+        lastRecognizedLocale: String = AutoLanguageSession.currentLastLocale()
+    ): String = if (isTelugu(languageTag, lastRecognizedLocale = lastRecognizedLocale)) {
+        "అవును బాస్. కొనసాగించడానికి స్క్రీన్ అన్‌లాక్ చేయండి."
+    } else {
+        "Yes Boss. Unlock screen to continue."
+    }
 }

@@ -1,7 +1,9 @@
 package com.example.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,6 +13,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -49,15 +53,21 @@ import androidx.core.content.ContextCompat
 import com.example.data.OmegaVisualTheme
 import com.example.data.OrbColorPreset
 import com.example.ui.components.ParticleAiOrb
+import com.example.ui.theme.DeepBlue
+import com.example.ui.theme.ElectricBlue
+import com.example.ui.theme.IceWhite
+import com.example.ui.theme.MidnightNavy
+import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.OmegaColors
+import com.example.ui.theme.RoyalViolet
 import com.example.ui.theme.omegaGlassCard
 
-private val ChatNavyBg = Color(0xFF040916)
-private val ChatNavyCard = Color(0xFF0E1B36)
-private val ChatNeonCyan = Color(0xFF00F0FF)
-private val ChatElectricBlue = Color(0xFF2563EB)
-private val ChatTextPrimary = Color(0xFFF8FAFC)
-private val ChatTextMuted = Color(0xFF94A3B8)
+private val ChatNavyBg = MidnightNavy
+private val ChatNavyCard = DeepBlue
+private val ChatNeonCyan = NeonCyan
+private val ChatElectricBlue = ElectricBlue
+private val ChatTextPrimary = IceWhite
+private val ChatTextMuted = Color(0xFF9FB4D0)
 
 @Composable
 fun OmegaDashboardApp(viewModel: PanduViewModel) {
@@ -77,8 +87,50 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
     }
 
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.startVoiceListening()
+        if (granted) viewModel.startVoiceListening(preserveScreen = uiState.currentScreen != OmegaScreen.HOME)
     }
+
+    // Module 6 (Targets 37-40): First-launch sequential native Android Microphone -> Notification popups.
+    // No separate permission wizard; opens directly on Home Orb; never re-prompts already-granted permissions.
+    val firstLaunchPrefs = remember(context) {
+        context.applicationContext.getSharedPreferences("jarvis_first_launch_v1101", Context.MODE_PRIVATE)
+    }
+    val firstNotifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        firstLaunchPrefs.edit().putBoolean("first_launch_perms_done", true).apply()
+    }
+    val firstMicLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        firstLaunchPrefs.edit().putBoolean("mic_prompted", true).apply()
+        val needNotif = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !firstLaunchPrefs.getBoolean("notif_prompted", false)
+        if (needNotif) {
+            firstLaunchPrefs.edit().putBoolean("notif_prompted", true).apply()
+            firstNotifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            firstLaunchPrefs.edit().putBoolean("first_launch_perms_done", true).apply()
+        }
+    }
+    LaunchedEffect(Unit) {
+        if (!firstLaunchPrefs.getBoolean("first_launch_perms_done", false)) {
+            val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val needNotif = Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            when {
+                !hasMic && !firstLaunchPrefs.getBoolean("mic_prompted", false) -> {
+                    firstLaunchPrefs.edit().putBoolean("mic_prompted", true).apply()
+                    firstMicLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+                needNotif && !firstLaunchPrefs.getBoolean("notif_prompted", false) -> {
+                    firstLaunchPrefs.edit().putBoolean("notif_prompted", true).apply()
+                    firstNotifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                else -> {
+                    firstLaunchPrefs.edit().putBoolean("first_launch_perms_done", true).apply()
+                }
+            }
+        }
+    }
+
     val camPreview = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
         if (bmp != null) viewModel.analyzeCameraBitmap(bmp)
     }
@@ -90,8 +142,10 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
     }
 
     fun launchVoice() {
+        val preserve = uiState.currentScreen != OmegaScreen.HOME
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            if (uiState.isSpeaking) viewModel.interruptAndListen() else viewModel.startVoiceListening()
+            if (uiState.isSpeaking) viewModel.interruptAndListen(preserveScreen = preserve)
+            else viewModel.startVoiceListening(preserveScreen = preserve)
         } else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
@@ -223,16 +277,85 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                             onClearCrashLogs = { viewModel.clearCrashLogs() },
                             onClearHistory = { viewModel.clearChatHistory() },
                             onOpenMemory = { viewModel.navigateTo(OmegaScreen.ROUTINES) },
-                            onOpenLab = { viewModel.navigateTo(OmegaScreen.AUTONOMOUS_LAB) }
+                            onOpenLab = { viewModel.navigateTo(OmegaScreen.AUTONOMOUS_LAB) },
+                            onUpsertApiSlot = { viewModel.upsertApiSlot(it) },
+                            onToggleApiSlot = { id, en -> viewModel.toggleApiSlot(id, en) },
+                            onDeleteApiSlot = { viewModel.deleteApiSlot(it) },
+                            onSetSlotRoutingMode = { viewModel.setSlotRoutingMode(it) },
+                            onTestApiSlot = { viewModel.testApiSlot(it) },
+                            onTestAllApiSlots = { viewModel.testAllApiSlots() }
                         )
                     }
                 }
+            }
+
+            // Target 20: Small animated floating Voice HUD overlay without losing the current screen or scroll position
+            val showFloatingVoiceHud = uiState.currentScreen != OmegaScreen.HOME && (
+                uiState.isListening || uiState.isThinking || uiState.isSpeaking ||
+                    uiState.liveDuplexState.isConnected || uiState.showVoiceOverlay
+            )
+            AnimatedVisibility(
+                visible = showFloatingVoiceHud,
+                enter = fadeIn(tween(150)) + slideInVertically(tween(180)) { -it / 2 },
+                exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it / 2 },
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                JarvisFloatingVoiceOverlay(
+                    uiState = uiState,
+                    onBargeIn = { viewModel.interruptAndListen(preserveScreen = true) },
+                    onStop = { viewModel.stopAllActivity(); viewModel.dismissVoiceOverlay() }
+                )
             }
         }
         InfinityNavigation(uiState.currentScreen) { target ->
             if (target != uiState.currentScreen && (uiState.currentScreen != OmegaScreen.SETTINGS || settingsExitGuard.value?.invoke() != false)) {
                 viewModel.navigateTo(target)
             }
+        }
+    }
+}
+
+@Composable
+private fun JarvisFloatingVoiceOverlay(
+    uiState: PanduUiState,
+    onBargeIn: () -> Unit,
+    onStop: () -> Unit
+) {
+    val statusText = when {
+        uiState.isListening -> uiState.liveTranscript.ifBlank { "Listening..." }
+        uiState.isThinking -> uiState.liveToolStatus ?: uiState.streamingReply.ifBlank { "Thinking..." }
+        uiState.isSpeaking -> uiState.ttsStatusNote.ifBlank { "Speaking..." }
+        uiState.liveDuplexState.isConnected -> "Gemini Live Active"
+        else -> uiState.voiceDiagNote.ifBlank { "Voice Ready" }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Brush.horizontalGradient(listOf(DeepBlue, Color(0xFF182F57))))
+            .border(1.dp, NeonCyan.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ParticleAiOrb(size = 34.dp, preset = uiState.settings.orbColorPreset, amplitude = uiState.audioAmplitude)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("HEY JARVIS", color = NeonCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("• ${uiState.activeBrainLabel}", color = RoyalViolet, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(statusText, color = IceWhite, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(
+            onClick = onBargeIn,
+            modifier = Modifier.size(34.dp).clip(CircleShape).background(ElectricBlue.copy(alpha = 0.25f))
+        ) {
+            Icon(Icons.Rounded.Mic, "Speak", tint = NeonCyan, modifier = Modifier.size(18.dp))
+        }
+        IconButton(
+            onClick = onStop,
+            modifier = Modifier.size(34.dp).clip(CircleShape).background(OmegaColors.CrimsonErr.copy(alpha = 0.22f))
+        ) {
+            Icon(Icons.Rounded.Close, "Stop", tint = IceWhite, modifier = Modifier.size(18.dp))
         }
     }
 }

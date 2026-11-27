@@ -1,0 +1,179 @@
+name: JARVIS INFINITY V110.1 PREMIUM SPEED MASTER
+
+on:
+  push:
+    branches: [ v110-1-premium-speed-test, 'omega-auto/**' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+
+      - name: Provision voice models
+        run: |
+          bash ci/provision-vosk.sh
+          bash ci/provision-neural-vad.sh
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify V110.1 and all regression source guards
+        run: |
+          python3 ci/check-v1101-speed-source.py
+          python3 ci/check-v110-ultra-source.py
+          python3 ci/check-v108-ultimate-source.py
+          python3 ci/check-v1072-control-center-source.py
+          python3 ci/check-v107-autonomous-source.py
+          python3 ci/check-v106-upgrade-source.py
+          python3 ci/check-level6-sql.py
+          python3 ci/check-v47-source.py
+          python3 ci/check-v50-source.py
+          python3 ci/check-v100-source.py
+          python3 ci/check-v101-wake-source.py
+          python3 ci/check-v102-voice-source.py
+          python3 ci/check-v103-online-source.py
+          python3 ci/check-v104-cloud-source.py
+          python3 ci/check-v105-actions-source.py
+          python3 ci/check-v106-power-source.py
+          python3 ci/check-v107-online-source.py
+          python3 ci/check-v108-wake-source.py
+          python3 ci/check-v109-neural-source.py
+          python3 ci/check-v110-dual-source.py
+
+      - name: Run Mandatory Unit Tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build V110.1 Debug Candidate APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify Debug APK Signing, Package, Version and SHA-256
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk | grep -F "versionName='V110.1 PREMIUM SPEED MASTER'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk | grep -F "versionCode='119'"
+          (cd out && sha256sum JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk > JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk.sha256)
+          cat out/JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE.apk.sha256
+
+      - name: Upload V110.1 Debug Candidate APK & Checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V110.1-SPEED-DEBUG-CANDIDATE
+          path: out/
+          if-no-files-found: error
+
+      - name: Build & Sign Permanent Owner Release APK (only when all owner keystore secrets are configured)
+        id: sign_release
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: |
+          missing=()
+          [[ -z "$RELEASE_KEYSTORE_BASE64" ]] && missing+=("RELEASE_KEYSTORE_BASE64")
+          [[ -z "$RELEASE_KEYSTORE_PASSWORD" ]] && missing+=("RELEASE_KEYSTORE_PASSWORD")
+          [[ -z "$RELEASE_KEY_ALIAS" ]] && missing+=("RELEASE_KEY_ALIAS")
+          [[ -z "$RELEASE_KEY_PASSWORD" ]] && missing+=("RELEASE_KEY_PASSWORD")
+          [[ -z "$RELEASE_CERT_SHA256" ]] && missing+=("RELEASE_CERT_SHA256")
+          if [[ ${#missing[@]} -eq 0 ]]; then
+            gradle :app:assembleRelease --no-daemon --stacktrace
+            bash ci/sign-release.sh release-out
+            echo "signed_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Missing owner keystore configuration secrets: ${missing[*]}"
+            echo "Debug candidate APK is NOT an owner-signed release; skipping release signing."
+            echo "signed_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Owner-Signed Release APK
+        if: steps.sign_release.outputs.signed_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V110.1-OWNER-RELEASE
+          path: release-out/
+          if-no-files-found: error
+
+      - name: Save matching source snapshot
+        run: |
+          mkdir -p source-out
+          python3 - <<'PY'
+          import hashlib, io, json, os, pathlib, subprocess, tarfile, zipfile
+          from datetime import datetime, timezone
+
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert sha == os.environ["GITHUB_SHA"], "Checkout does not match build commit"
+          version = "V110.1-PREMIUM-SPEED-MASTER"
+          archive = subprocess.check_output(["git", "archive", "--format=tar", sha])
+          out = pathlib.Path("source-out")
+          light = out / f"JARVIS-INFINITY-{version}-LIGHTWEIGHT-SOURCE.zip"
+          omitted = []
+          count = 0
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar, \
+               zipfile.ZipFile(light, "w", compression=zipfile.ZIP_DEFLATED) as small:
+              for entry in tar:
+                  if not entry.isfile():
+                      continue
+                  name = entry.name
+                  low = name.lower()
+                  basename = pathlib.PurePosixPath(low).name
+                  if low.endswith((".zip", ".apk", ".aab", ".jks", ".keystore", ".p12", ".pem", ".key")) or basename in {".env", "local.properties", "google-services.json", "source-manifest.sha256", "credentials.json", "secrets.json"} or name.startswith("app/src/main/assets/model-spk/"):
+                      omitted.append(name)
+                      continue
+                  small.writestr(name, tar.extractfile(entry).read())
+                  count += 1
+              metadata = {
+                  "source_commit": sha,
+                  "version": version,
+                  "version_code": 119,
+                  "build_run": os.environ["GITHUB_RUN_ID"],
+                  "created_utc": datetime.now(timezone.utc).isoformat(),
+                  "excluded_tracked_files": omitted,
+                  "tracked_files_in_snapshot": count,
+              }
+              small.writestr("BUILD-SOURCE-METADATA.json", json.dumps(metadata, indent=2) + "\n")
+          digest = hashlib.sha256(light.read_bytes()).hexdigest()
+          (out / (light.name + ".sha256")).write_text(f"{digest}  {light.name}\n")
+          (out / "BUILD-SOURCE-METADATA.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          PY
+
+      - name: Upload matching source backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V110.1-SOURCE-SNAPSHOT
+          path: source-out/
+          if-no-files-found: error
+          retention-days: 90

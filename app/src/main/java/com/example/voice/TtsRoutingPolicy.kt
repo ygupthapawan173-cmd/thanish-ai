@@ -35,7 +35,7 @@ internal object TtsRoutingPreferences {
 
 internal object TtsRoutingPolicy {
     const val WAKE_ACK_CLOUD_TIMEOUT_MS = 2_500L
-    const val REPLY_CLOUD_TIMEOUT_MS = 4_500L
+    const val REPLY_CLOUD_TIMEOUT_MS = 7_500L
 
     fun decide(
         localFirstEnabled: Boolean,

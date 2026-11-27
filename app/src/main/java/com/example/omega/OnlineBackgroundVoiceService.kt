@@ -224,21 +224,27 @@ class OnlineBackgroundVoiceService : Service() {
                     releaseWake(); wakeFailures = 0
                     if (!screenReady()) {
                         // Local keyword only while locked. No cloud audio, AI requests or device actions.
-                        retryAt = SystemClock.elapsedRealtime() + 2500L
+                        retryAt = SystemClock.elapsedRealtime() + 1800L
                         publish("Hey JARVIS detected — unlock to speak")
                         lockedWakeCue()
+                        val s = prefs.settings.value
+                        if (s.autoSpeak) {
+                            tts.configure(TeluguVoiceReplies.wakeAckLocale(s.languageTag), s.ttsSpeed, s.ttsPitch, s.ttsStyle, localOnly = true)
+                            tts.speak(TeluguVoiceReplies.lockedReminder(s.languageTag))
+                        }
                     } else if (AgentHudBus.isAppInForeground.value) {
-                        retryAt = SystemClock.elapsedRealtime() + 5000L
-                        publish("Hey JARVIS — foreground voice")
+                        retryAt = SystemClock.elapsedRealtime() + 2500L
+                        publish("Hey JARVIS — overlay active")
                         AgentHudBus.emitWakeTrigger("")
                     } else {
                         turns = 0; history.clear(); sessionDeadline = SystemClock.elapsedRealtime() + 180_000L
                         if (prefs.settings.value.autoSpeak) {
-                            phase = "Acknowledging"; ackDeadline = SystemClock.elapsedRealtime() + 4000L
-                            publish("Hey JARVIS — ready")
+                            phase = "Acknowledging"; ackDeadline = SystemClock.elapsedRealtime() + 3500L
+                            publish("Hey JARVIS — Yes, Boss")
+                            lockedWakeCue()
                             val s = prefs.settings.value
                             val ackText = s.customWakeAck.trim().ifEmpty { TeluguVoiceReplies.wakeAck(s.languageTag) }
-                            tts.configure(TeluguVoiceReplies.wakeAckLocale(s.languageTag), s.ttsSpeed, s.ttsPitch, s.ttsStyle)
+                            tts.configure(TeluguVoiceReplies.wakeAckLocale(s.languageTag), s.ttsSpeed, s.ttsPitch, s.ttsStyle, localOnly = true)
                             tts.speak(ackText)
                         } else listen()
                     }
@@ -271,8 +277,8 @@ class OnlineBackgroundVoiceService : Service() {
         ownerSpeaker = OwnerSpeaker(this)
         tts = TeluguTtsController(this, backgroundOwned = true, cloudSettings = { prefs.settings.value }, backgroundCloudAllowed = { phase == "Speaking" && allowed() || phase == "Acknowledging" && allowed() })
         tts.setOnSpeechFinished {
-            if (phase == "Acknowledging" && allowed()) { ackDeadline = 0L; listen() }
-            else if (phase == "Speaking" && allowed() && tts.lastSpeechSucceeded && BackgroundVoicePolicy.followUp(prefs.settings.value.continuousConversation, turns)) listen()
+            if (phase == "Acknowledging" && allowed()) { ackDeadline = 0L; main.postDelayed({ if (phase == "Acknowledging" && allowed()) listen() }, 120L) }
+            else if (phase == "Speaking" && allowed() && tts.lastSpeechSucceeded && BackgroundVoicePolicy.followUp(prefs.settings.value.continuousConversation, turns)) main.postDelayed({ if (phase == "Speaking" && allowed()) listen() }, 120L)
             else if (phase == "Speaking") endTurnSession("Session complete")
         }
         scope.launch { input.state.collect { if (started && phase == "Listening" && it.errorMessage != null) endTurnSession("Voice ended: ${it.errorMessage}") } }
@@ -286,7 +292,7 @@ class OnlineBackgroundVoiceService : Service() {
         if (!AgentHudBus.isAppInForeground.value || AgentHudBus.isMainMicBusy.value || AgentHudBus.isTtsBusy.value) { finish("Start from JARVIS when the microphone is idle"); return START_NOT_STICKY }
         wakeMode = intent?.action == START_WAKE
         started = true
-        if (!allowed()) { finish("Microphone, notification permission and unlocked screen required"); return START_NOT_STICKY }
+        if (!wakeAllowed() || (!wakeMode && !screenReady())) { finish("Microphone and notification permission required"); return START_NOT_STICKY }
         try {
             val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
             ServiceCompat.startForeground(this, ID, notification("Starting online voice"), fgsType)

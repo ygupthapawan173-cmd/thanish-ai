@@ -40,17 +40,24 @@ import com.example.control.AgentHudState
 import com.example.ui.components.LocalReducedRendering
 import com.example.ui.components.ParticleRibbonWaveform
 import com.example.ui.components.rememberParallaxOffset
+import com.example.ui.theme.DeepBlue
+import com.example.ui.theme.ElectricBlue
+import com.example.ui.theme.IceWhite
+import com.example.ui.theme.MidnightNavy
+import com.example.ui.theme.NeonCyan
+import com.example.ui.theme.RoyalViolet
 import kotlin.math.*
 
 internal fun cleanReply(text: String): String = text // Preserve markdown and code verbatim.
 
-private val V110NavyTop = Color(0xFF040916)
-private val V110NavyMid = Color(0xFF071126)
-private val V110NavyCard = Color(0xFF0D1B35)
-private val V110NeonCyan = Color(0xFF00F0FF)
-private val V110ElectricBlue = Color(0xFF3B82F6)
-private val V110TextPrimary = Color(0xFFF8FAFC)
-private val V110TextMuted = Color(0xFF94A3B8)
+private val V110NavyTop = MidnightNavy
+private val V110NavyMid = Color(0xFF0C1730)
+private val V110NavyCard = DeepBlue
+private val V110NeonCyan = NeonCyan
+private val V110ElectricBlue = ElectricBlue
+private val V110RoyalViolet = RoyalViolet
+private val V110TextPrimary = IceWhite
+private val V110TextMuted = Color(0xFF9FB4D0)
 
 @Composable
 internal fun InfinityNavigation(screen: OmegaScreen, onSelect: (OmegaScreen) -> Unit) {

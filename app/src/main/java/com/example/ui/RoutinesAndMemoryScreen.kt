@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,16 +33,32 @@ import com.example.data.MemoryFact
 import com.example.data.OmegaSettings
 import com.example.data.VoiceRoutine
 import com.example.omega.TimeAutomationScheduler
+import com.example.ui.theme.DeepBlue
+import com.example.ui.theme.ElectricBlue
+import com.example.ui.theme.IceWhite
+import com.example.ui.theme.MidnightNavy
+import com.example.ui.theme.NeonCyan
+import com.example.ui.theme.RoyalViolet
 import com.example.ui.theme.omegaSwitchColors
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val AutoNavyTop = Color(0xFF040916)
-private val AutoNavyCard = Color(0xFF0E1B36)
-private val AutoNeonCyan = Color(0xFF00F0FF)
-private val AutoTextPrimary = Color(0xFFF8FAFC)
-private val AutoTextMuted = Color(0xFF94A3B8)
+private enum class AutomationTab(val label: String) {
+    TRIGGERS("Rules & Triggers"),
+    ROUTINES("Routines"),
+    MEMORIES("Memory")
+}
 
+private val AutoNavyTop = MidnightNavy
+private val AutoNavyCard = DeepBlue
+private val AutoNeonCyan = NeonCyan
+private val AutoTextPrimary = IceWhite
+private val AutoTextMuted = Color(0xFF9FB4D0)
+
+/**
+ * V110.1 Compact Redesigned Automation Center (Target 24 & 27):
+ * Grouped submenus reduce long scrolling while preserving all rules, routines, triggers & memories.
+ */
 @Composable
 fun RoutinesAndMemoryScreen(
     settings: OmegaSettings,
@@ -67,11 +85,13 @@ fun RoutinesAndMemoryScreen(
 ) {
     val theme = settings.visualTheme
     val preset = settings.orbColorPreset
+    var activeTabName by rememberSaveable { mutableStateOf(AutomationTab.TRIGGERS.name) }
+    val activeTab = AutomationTab.valueOf(activeTabName)
     var showCreate by remember { mutableStateOf(false) }
     var scheduleTarget by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
-    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AutoNavyTop, Color(0xFF071126))))) {
+    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AutoNavyTop, Color(0xFF0C1730))))) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -80,158 +100,184 @@ fun RoutinesAndMemoryScreen(
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 GlassCircleButton(Icons.AutoMirrored.Rounded.ArrowBack, theme = theme, preset = preset, onClick = onBack)
-                Text("Assistant, Rules & Memory", color = AutoTextPrimary, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Automation Center", color = AutoTextPrimary, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                    Text("${routines.size} routines • ${memories.size} memories", color = AutoNeonCyan, fontSize = 11.sp)
+                }
                 GlassCircleButton(Icons.Rounded.Add, theme = theme, preset = preset, onClick = { showCreate = true })
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Compact Submenu Navigation (Target 24, 27)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AutomationTab.entries.forEach { tab ->
+                    FilterChip(
+                        selected = activeTab == tab,
+                        onClick = { activeTabName = tab.name },
+                        modifier = Modifier.weight(1f),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ElectricBlue.copy(alpha = 0.28f),
+                            selectedLabelColor = AutoNeonCyan
+                        ),
+                        label = { Text(tab.label, fontSize = 11.sp, maxLines = 1) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             LazyColumn(state = listState, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item {
-                    Button(
-                        onClick = onRunDailyPlan,
-                        colors = ButtonDefaults.buttonColors(containerColor = AutoNeonCyan),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Rounded.Today, null, tint = AutoNavyTop, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Generate Smart Daily Plan", color = AutoNavyTop, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-                }
-
-                if (conditionalRules.isNotEmpty()) {
+                if (activeTab == AutomationTab.TRIGGERS) {
                     item {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(AutoNavyCard)
-                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(20.dp)).padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Button(
+                            onClick = onRunDailyPlan,
+                            colors = ButtonDefaults.buttonColors(containerColor = AutoNeonCyan),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Conditional IF–THEN Automation", color = AutoNeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            conditionalRules.forEach { rule ->
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                                        Text(rule.condition.label, color = AutoTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("THEN: ${rule.thenActionSummary}", color = AutoTextMuted, fontSize = 11.5.sp)
+                            Icon(Icons.Rounded.Today, null, tint = AutoNavyTop, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Generate Smart Daily Plan", color = AutoNavyTop, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                    if (conditionalRules.isNotEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                    .border(1.dp, AutoNeonCyan.copy(alpha = 0.28f), RoundedCornerShape(18.dp)).padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("Conditional IF–THEN Rules", color = AutoNeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                conditionalRules.forEach { rule ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(rule.condition.label, color = AutoTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                            Text("THEN: ${rule.thenActionSummary}", color = AutoTextMuted, fontSize = 11.5.sp)
+                                        }
+                                        Switch(checked = rule.enabled, onCheckedChange = { onToggleConditionalRule(rule.id) }, colors = omegaSwitchColors(theme, preset))
                                     }
-                                    Switch(checked = rule.enabled, onCheckedChange = { onToggleConditionalRule(rule.id) }, colors = omegaSwitchColors(theme, preset))
                                 }
                             }
                         }
                     }
-                }
-
-                if (routineSuggestions.isNotEmpty()) {
                     item {
                         Column(
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
-                                .border(1.dp, Color(0xFF3B82F6).copy(alpha = 0.35f), RoundedCornerShape(18.dp)).padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                .border(1.dp, ElectricBlue.copy(alpha = 0.35f), RoundedCornerShape(18.dp)).padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("Suggested Routines (From Your Habits)", color = AutoNeonCyan, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                            routineSuggestions.forEach { sug ->
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                                        Text(sug.suggestedName, color = AutoTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("Trigger: \"${sug.triggerPhrase}\" • ${sug.summary}", color = AutoTextMuted, fontSize = 11.5.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Rounded.Bolt, null, tint = AutoNeonCyan, modifier = Modifier.size(20.dp))
+                                Text("Smart Auto-Triggers", color = AutoTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            }
+                            TriggerRow(theme, preset, "Bluetooth / Earbuds Connect", "Hands-free unread notification briefing", settings.triggerBluetoothBriefing,
+                                { on -> onUpdateSettings { it.copy(triggerBluetoothBriefing = on) } }, { onTestTrigger("bluetooth") })
+                            TriggerRow(theme, preset, "Low Battery (<15%) Auto-Saver", "Auto flashlight OFF + media volume 20%", settings.triggerLowBatterySaver,
+                                { on -> onUpdateSettings { it.copy(triggerLowBatterySaver = on) } }, { onTestTrigger("low_battery") })
+                            TriggerRow(theme, preset, "Charger Connect Alert", "Announce live battery % on plug-in", settings.triggerChargingAlert,
+                                { on -> onUpdateSettings { it.copy(triggerChargingAlert = on) } }, { onTestTrigger("charging") })
+                        }
+                    }
+                } else if (activeTab == AutomationTab.ROUTINES) {
+                    if (routineSuggestions.isNotEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                    .border(1.dp, RoyalViolet.copy(alpha = 0.45f), RoundedCornerShape(18.dp)).padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("Suggested Routines", color = AutoNeonCyan, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                routineSuggestions.forEach { sug ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(sug.suggestedName, color = AutoTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                            Text("Trigger: \"${sug.triggerPhrase}\" • ${sug.summary}", color = AutoTextMuted, fontSize = 11.5.sp)
+                                        }
+                                        TextButton(onClick = { onAcceptRoutineSuggestion(sug) }) { Text("Add", color = AutoNeonCyan, fontWeight = FontWeight.Bold) }
                                     }
-                                    TextButton(onClick = { onAcceptRoutineSuggestion(sug) }) { Text("Add", color = AutoNeonCyan, fontWeight = FontWeight.Bold) }
                                 }
                             }
                         }
                     }
-                }
-
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(AutoNavyCard)
-                            .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(20.dp)).padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Rounded.Bolt, null, tint = AutoNeonCyan, modifier = Modifier.size(20.dp))
-                            Text("Smart Auto-Triggers", color = AutoTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        }
-                        TriggerRow(theme, preset, "Bluetooth / Earbuds Connect", "Hands-free unread notification briefing", settings.triggerBluetoothBriefing,
-                            { on -> onUpdateSettings { it.copy(triggerBluetoothBriefing = on) } }, { onTestTrigger("bluetooth") })
-                        TriggerRow(theme, preset, "Low Battery (<15%) Auto-Saver", "Auto flashlight OFF + media volume 20%", settings.triggerLowBatterySaver,
-                            { on -> onUpdateSettings { it.copy(triggerLowBatterySaver = on) } }, { onTestTrigger("low_battery") })
-                        TriggerRow(theme, preset, "Charger Connect Alert", "Announce live battery % on plug-in", settings.triggerChargingAlert,
-                            { on -> onUpdateSettings { it.copy(triggerChargingAlert = on) } }, { onTestTrigger("charging") })
-                    }
-                }
-
-                item { Text("Voice Routines & Daily Schedule", color = AutoTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-                if (!scheduleMessage.isNullOrBlank()) item { Text(scheduleMessage, color = AutoNeonCyan, fontSize = 13.sp) }
-                items(routines, key = { it.id }) { routine ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
-                            .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(routine.name, color = AutoTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text("Say: \"${routine.triggerPhrase}\"", color = AutoNeonCyan, fontSize = 12.sp)
-                            Text(routine.actionsSummary, color = AutoTextMuted, fontSize = 12.sp)
-                            TimeAutomationScheduler.status(context, routine.name)?.let { Text(it, color = AutoNeonCyan, fontSize = 11.sp) }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { scheduleTarget = routine.name }) {
-                                Icon(Icons.Rounded.Schedule, "Configure daily schedule", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
-                            }
-                            Box(
-                                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(AutoNeonCyan).clickable { onRunRoutine(routine) }.padding(horizontal = 12.dp, vertical = 7.dp)
-                            ) { Text("Run", color = AutoNavyTop, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                            IconButton(onClick = { onDeleteRoutine(routine.id) }) {
-                                Icon(Icons.Rounded.DeleteOutline, "Delete", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
+                    if (!scheduleMessage.isNullOrBlank()) item { Text(scheduleMessage, color = AutoNeonCyan, fontSize = 13.sp) }
+                    if (routines.isEmpty()) {
+                        item {
+                            Surface(color = AutoNavyCard, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, AutoNeonCyan.copy(alpha = 0.25f))) {
+                                Text("Tap + to create a custom voice routine or schedule.", color = AutoTextMuted, modifier = Modifier.fillMaxWidth().padding(16.dp), fontSize = 13.sp)
                             }
                         }
-                    }
-                }
-
-                if (locationReminders.isNotEmpty()) {
-                    item { Text("Intelligent Reminders", color = AutoTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-                    items(locationReminders, key = { it.id }) { rem ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
-                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.LocationOn, null, tint = AutoNeonCyan, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(rem.placeLabel, color = AutoTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                Text(rem.reminderText, color = AutoTextMuted, fontSize = 12.sp)
+                    } else {
+                        items(routines, key = { it.id }) { routine ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                    .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(18.dp)).padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text(routine.name, color = AutoTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                    Text("Say: \"${routine.triggerPhrase}\"", color = AutoNeonCyan, fontSize = 12.sp)
+                                    Text(routine.actionsSummary, color = AutoTextMuted, fontSize = 12.sp)
+                                    TimeAutomationScheduler.status(context, routine.name)?.let { Text(it, color = AutoNeonCyan, fontSize = 11.sp) }
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { scheduleTarget = routine.name }) {
+                                        Icon(Icons.Rounded.Schedule, "Configure daily schedule", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
+                                    }
+                                    Box(
+                                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(AutoNeonCyan).clickable { onRunRoutine(routine) }.padding(horizontal = 12.dp, vertical = 7.dp)
+                                    ) { Text("Run", color = AutoNavyTop, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                                    IconButton(onClick = { onDeleteRoutine(routine.id) }) {
+                                        Icon(Icons.Rounded.DeleteOutline, "Delete", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
+                                    }
+                                }
                             }
-                        }
-                    }
-                }
-
-                item { Text("Encrypted Personal Memory", color = AutoTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-                if (memories.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
-                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(16.dp)
-                        ) {
-                            Text("No encrypted memories yet. Tell JARVIS: \"Remember my favorite music is Telugu lo-fi.\"", color = AutoTextMuted, fontSize = 13.sp)
                         }
                     }
                 } else {
-                    items(memories, key = { it.id }) { fact ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
-                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(fact.key, color = AutoNeonCyan, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                Text(fact.value, color = AutoTextPrimary, fontSize = 14.sp)
+                    if (locationReminders.isNotEmpty()) {
+                        item { Text("Intelligent Reminders", color = AutoNeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                        items(locationReminders, key = { it.id }) { rem ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                    .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(18.dp)).padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.LocationOn, null, tint = AutoNeonCyan, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(rem.placeLabel, color = AutoTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                    Text(rem.reminderText, color = AutoTextMuted, fontSize = 12.sp)
+                                }
                             }
-                            IconButton(onClick = { onDeleteMemory(fact.key) }) {
-                                Icon(Icons.Rounded.Close, "Forget", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    item { Text("Encrypted Personal Memory", color = AutoNeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                    if (memories.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                    .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(18.dp)).padding(16.dp)
+                            ) {
+                                Text("No encrypted memories yet. Tell JARVIS: \"Remember my favorite music is Telugu lo-fi.\"", color = AutoTextMuted, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        items(memories, key = { it.id }) { fact ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                    .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(fact.key, color = AutoNeonCyan, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(fact.value, color = AutoTextPrimary, fontSize = 14.sp)
+                                }
+                                IconButton(onClick = { onDeleteMemory(fact.key) }) {
+                                    Icon(Icons.Rounded.Close, "Forget", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }

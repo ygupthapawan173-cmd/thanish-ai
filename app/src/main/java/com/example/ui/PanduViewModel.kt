@@ -74,8 +74,13 @@ data class PanduUiState(
     val lastBrainRouteSummary: String = "Master AI Brain Ready",
     val activeBrainLabel: String = "Gemini Direct Brain",
     val activePipelineStage: com.example.ai.BrainPipelineStage = com.example.ai.BrainPipelineStage.RESPOND,
-    val lastVerificationBadge: String = "Verified",
+    val lastVerificationBadge: String = "Key Required",
     val brainInventory: List<com.example.ai.BrainStatusSnapshot> = emptyList(),
+    val apiSlots: List<com.example.ai.SmartApiSlot> = emptyList(),
+    val slotRoutingMode: com.example.ai.SlotRoutingMode = com.example.ai.SlotRoutingMode.FREE_FIRST,
+    val slotTestResults: Map<String, com.example.ai.SlotTestOutcome> = emptyMap(),
+    val isTestingAllSlots: Boolean = false,
+    val showVoiceOverlay: Boolean = false,
     val proactiveSuggestions: List<com.example.autonomous.ProactiveSuggestion> = emptyList(),
     val routineSuggestions: List<com.example.autonomous.RoutineSuggestion> = emptyList(),
     val conditionalRules: List<com.example.autonomous.ConditionalAutomationRule> = listOf(
@@ -161,6 +166,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         PanduUiState(
             settings = preferences.settings.value,
+            lastVerificationBadge = if (preferences.settings.value.effectiveGeminiKey().isNotBlank() || preferences.settings.value.effectiveOpenRouterKey().isNotBlank()) "Not Verified" else "Key Required",
             batteryPercent = actionExecutor.getBatteryPercent(),
             crashLogText = CrashRecoveryHandler.readLogs(appContext),
             signingCertSha256 = com.example.security.VerifiedApkUpdater.installedSigningCertSha256(appContext)
@@ -175,16 +181,40 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        val slotEngine = com.example.ai.SmartApiSlotManager.init(appContext, preferences.settings.value)
         aiRepository.seedHistoryFromDatabase()
         smartTriggers.register()
         refreshDbState()
         runSystemDiagnostics()
 
+        viewModelScope.launch {
+            com.example.ai.SmartApiSlotManager.slotsFlow().collect { slots ->
+                _uiState.update { cur ->
+                    val hasVerifiedSlot = slots.any { it.enabled && it.apiKey.isNotBlank() && it.chatStatus == com.example.ai.SlotConnectionState.VERIFIED }
+                    val hasAnyKey = slots.any { it.enabled && it.apiKey.isNotBlank() }
+                    val nextBadge = when {
+                        hasVerifiedSlot -> "Verified"
+                        !hasAnyKey -> "Key Required"
+                        cur.lastVerificationBadge == "Verified" -> "Verified"
+                        else -> "Not Verified"
+                    }
+                    cur.copy(apiSlots = slots, lastVerificationBadge = nextBadge)
+                }
+            }
+        }
+        viewModelScope.launch {
+            com.example.ai.SmartApiSlotManager.routingModeFlow().collect { mode ->
+                _uiState.update { it.copy(slotRoutingMode = mode) }
+            }
+        }
+
         ttsController.setOnSpeechFinished {
             if (emergencyStopped) return@setOnSpeechFinished
             if(wakeAckPending) {
                 wakeAckPending=false; ++wakeAckGeneration
-                if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
+                if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) {
+                    startVoiceListening(preserveScreen = true)
+                }
                 return@setOnSpeechFinished
             }
             if (_uiState.value.settings.continuousConversation &&
@@ -200,6 +230,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                         voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech, bluetoothEnabled = _uiState.value.settings.bluetoothVoiceRouting)
                     }
                 }
+            } else {
+                _uiState.update { it.copy(showVoiceOverlay = false) }
             }
         }
 
@@ -279,21 +311,23 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                     wakeAckPending=true; val token=++wakeAckGeneration
                     val s = _uiState.value.settings
                     val ackText = s.customWakeAck.trim().ifEmpty { com.example.voice.TeluguVoiceReplies.wakeAck(s.languageTag) }
+                    _uiState.update { it.copy(showVoiceOverlay = it.currentScreen != OmegaScreen.HOME) }
                     ttsController.configure(
                         com.example.voice.TeluguVoiceReplies.wakeAckLocale(s.languageTag),
                         s.ttsSpeed,
                         s.ttsPitch,
-                        s.ttsStyle
+                        s.ttsStyle,
+                        localOnly = true
                     )
                     ttsController.speak(ackText)
                     viewModelScope.launch {
-                        delay(5000)
+                        delay(4000)
                         if(wakeAckPending && token==wakeAckGeneration) {
                             wakeAckPending=false; ttsController.stop()
-                            if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
+                            if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening(preserveScreen = true)
                         }
                     }
-                } else startVoiceListening()
+                } else startVoiceListening(preserveScreen = true)
             }
         }
     }
@@ -368,14 +402,16 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             val hasGemini = s.effectiveGeminiKey().isNotBlank()
             val hasGateway = s.effectiveOpenRouterKey().isNotBlank()
             val providerLabel = com.example.ai.ConnectionRecoveryManager.initialProviderLabel(s.activeProvider, hasGemini, hasGateway)
-            if (!hasGemini && !hasGateway) {
+            val hasAnySlotKey = com.example.ai.SmartApiSlotManager.engineOrNull()?.hasAnyConfiguredKey() == true
+            if (!hasGemini && !hasGateway && !hasAnySlotKey) {
                 _uiState.update {
                     it.copy(
+                        lastVerificationBadge = "Key Required",
                         connectionHealth = com.example.ai.ConnectionHealthSnapshot(
                             status = com.example.ai.ConnectionStatus.DISCONNECTED,
                             providerLabel = providerLabel,
                             activeChatModel = s.activeChatModel(),
-                            detail = "Configure Gemini or Smart Gateway key in Settings"
+                            detail = "Configure Gemini or Smart API Slot key in Settings"
                         )
                     )
                 }
@@ -424,6 +460,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                         discoveredLiveModels = found.liveVoiceModels,
                         discoveredTtsModels = found.ttsModels,
                         discoveryStatus = found.message,
+                        lastVerificationBadge = "Verified",
                         brainInventory = aiRepository.getBrainInventory(),
                         connectionHealth = com.example.ai.ConnectionHealthSnapshot(
                             status = com.example.ai.ConnectionStatus.CONNECTED,
@@ -443,6 +480,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 val isQuota = com.example.ai.ConnectionRecoveryManager.isQuotaError(msg)
                 _uiState.update {
                     it.copy(
+                        lastVerificationBadge = if (isQuota) "Quota Limited" else "Error",
                         connectionHealth = com.example.ai.ConnectionHealthSnapshot(
                             status = if (isQuota) com.example.ai.ConnectionStatus.QUOTA_LIMITED else com.example.ai.ConnectionStatus.DISCONNECTED,
                             providerLabel = providerLabel,
@@ -753,8 +791,75 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         try { preferences.update(transform) } catch (e: IllegalStateException) {
             _uiState.update { it.copy(discoveryStatus = e.message ?: "Settings not saved") }; return false
         }
-        if (!sameApiConfig(old, preferences.settings.value)) _uiState.update { it.copy(discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = null, diagnosticResult = null) }
+        val next = preferences.settings.value
+        com.example.ai.SmartApiSlotManager.engineOrNull()?.migrateFromLegacySettings(next)
+        if (!sameApiConfig(old, next)) _uiState.update { it.copy(discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = null, diagnosticResult = null) }
         return true
+    }
+
+    fun upsertApiSlot(slot: com.example.ai.SmartApiSlot) {
+        val eng = com.example.ai.SmartApiSlotManager.engineOrNull() ?: return
+        val saved = eng.upsertSlot(slot)
+        // Bidirectional sync if user edited legacy slot 1/2/3 via Slot Manager UI
+        when (saved.legacySourceId) {
+            "legacy_gemini" -> preferences.update { cur ->
+                cur.copy(geminiApiKey = saved.apiKey, geminiChatModel = saved.chatModel.ifBlank { cur.geminiChatModel })
+            }
+            "legacy_gateway" -> preferences.update { cur ->
+                cur.copy(
+                    gatewayBaseUrl = saved.effectiveBaseUrl(),
+                    openRouterApiKey = saved.apiKey,
+                    openRouterModel = saved.chatModel.ifBlank { cur.openRouterModel }
+                )
+            }
+            "legacy_secondary" -> preferences.update { cur ->
+                cur.copy(
+                    secondaryGatewayBaseUrl = saved.effectiveBaseUrl(),
+                    secondaryGatewayApiKey = saved.apiKey,
+                    secondaryGatewayModel = saved.chatModel
+                )
+            }
+        }
+    }
+
+    fun toggleApiSlot(slotId: String, enabled: Boolean) {
+        com.example.ai.SmartApiSlotManager.engineOrNull()?.setSlotEnabled(slotId, enabled)
+    }
+
+    fun deleteApiSlot(slotId: String) {
+        com.example.ai.SmartApiSlotManager.engineOrNull()?.deleteSlot(slotId)
+    }
+
+    fun setSlotRoutingMode(mode: com.example.ai.SlotRoutingMode) {
+        com.example.ai.SmartApiSlotManager.engineOrNull()?.setRoutingMode(mode)
+    }
+
+    fun testApiSlot(slotId: String) {
+        viewModelScope.launch {
+            val outcome = com.example.ai.SmartApiSlotManager.testSlot(slotId)
+            _uiState.update { cur ->
+                cur.copy(
+                    slotTestResults = cur.slotTestResults + (slotId to outcome),
+                    lastLatencyMs = outcome.latencyMs,
+                    brainInventory = aiRepository.getBrainInventory()
+                )
+            }
+        }
+    }
+
+    fun testAllApiSlots() {
+        if (_uiState.value.isTestingAllSlots) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isTestingAllSlots = true) }
+            val results = com.example.ai.SmartApiSlotManager.testAllSlots()
+            _uiState.update { cur ->
+                cur.copy(
+                    isTestingAllSlots = false,
+                    slotTestResults = cur.slotTestResults + results.associateBy { it.slotId },
+                    brainInventory = aiRepository.getBrainInventory()
+                )
+            }
+        }
     }
 
     fun restoreWakeIfEnabled() {
@@ -775,7 +880,14 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             val result = aiRepository.runConnectionDiagnostic(provider)
             if (!sameApiConfig(tested, preferences.settings.value)) { _uiState.update { it.copy(isTestingConnection = false) }; return@launch }
 
-            _uiState.update { it.copy(isTestingConnection = false, diagnosticResult = result) }
+            _uiState.update {
+                it.copy(
+                    isTestingConnection = false,
+                    diagnosticResult = result,
+                    lastLatencyMs = result.latencyMs,
+                    lastVerificationBadge = if (result.isSuccess) "Verified" else "Failed"
+                )
+            }
         }
     }
 
@@ -878,30 +990,52 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun interruptAndListen() {
+    fun interruptAndListen(preserveScreen: Boolean = _uiState.value.currentScreen != OmegaScreen.HOME) {
         haptics.wakePulse()
         followUpJob?.cancel(); followUpJob = null
         wakeAckPending = false; ++wakeAckGeneration
         ttsController.stop()
-        startVoiceListening()
+        startVoiceListening(preserveScreen = preserveScreen)
+    }
+
+    fun dismissVoiceOverlay() {
+        _uiState.update { it.copy(showVoiceOverlay = false) }
     }
 
     fun summarizeConversation() {
         sendTextPrompt("Summarize our recent conversation in 3 short bullet points and save key facts to memory.", openChat = false)
     }
 
-    fun startVoiceListening() {
+    fun startVoiceListening(preserveScreen: Boolean = false) {
         com.example.omega.OnlineBackgroundVoiceService.yieldToForeground(appContext)
         emergencyStopped = false
         wakeAckPending=false; ++wakeAckGeneration
         val s = _uiState.value.settings
         if (s.micPrivacyMuted) {
-            _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, voiceSession = false, voiceError = "Microphone Privacy Mute is ON. Tap the orb to unmute.") }
+            _uiState.update { cur ->
+                val targetScreen = if (preserveScreen) cur.currentScreen else OmegaScreen.HOME
+                cur.copy(
+                    currentScreen = targetScreen,
+                    showVoiceOverlay = preserveScreen && targetScreen != OmegaScreen.HOME,
+                    voiceSession = false,
+                    voiceError = "Microphone Privacy Mute is ON. Tap the orb to unmute."
+                )
+            }
             return
         }
         haptics.wakePulse()
         liveFallbackArmed=false; voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop()
-        _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, voiceSession = true, liveTranscript = "", liveToolStatus = null, voiceError = null) }
+        _uiState.update { cur ->
+            val targetScreen = if (preserveScreen) cur.currentScreen else OmegaScreen.HOME
+            cur.copy(
+                currentScreen = targetScreen,
+                showVoiceOverlay = preserveScreen && targetScreen != OmegaScreen.HOME,
+                voiceSession = true,
+                liveTranscript = "",
+                liveToolStatus = null,
+                voiceError = null
+            )
+        }
 
         val canUseLiveWs = s.useGeminiLiveAudio && !s.preferOfflineSpeech && !appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked && s.effectiveGeminiKey().isNotBlank()
         if (canUseLiveWs) {
@@ -952,7 +1086,14 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     fun handleInlineWakeCommand(command: String) {
         haptics.wakePulse()
         ttsController.stop()
-        _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, voiceSession = true, liveTranscript = command, voiceError = null) }
+        _uiState.update { cur ->
+            cur.copy(
+                showVoiceOverlay = cur.currentScreen != OmegaScreen.HOME,
+                voiceSession = true,
+                liveTranscript = command,
+                voiceError = null
+            )
+        }
         handlePotentialAutonomousVoiceCommand(command)
     }
 
@@ -1031,7 +1172,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         liveDuplex.disconnect()
         ttsController.stop()
         upgradeOrchestrator.emergencyStop()
-        _uiState.update { it.copy(isThinking = false, isListening = false, liveToolStatus = null, audioAmplitude = 0f) }
+        _uiState.update { it.copy(isThinking = false, isListening = false, showVoiceOverlay = false, liveToolStatus = null, audioAmplitude = 0f) }
         AgentHudBus.updateState(AgentHudState.Hidden)
     }
 
@@ -1111,6 +1252,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         activeJob?.cancel(); followUpJob?.cancel()
         smartTriggers.unregister()
         upgradeOrchestrator.emergencyStop()
+        preferences.close()
         voiceInput.release(); btRouter.clearRouting(); liveDuplex.release(); ttsController.release(); database.close()
         super.onCleared()
     }

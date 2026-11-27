@@ -9,8 +9,8 @@ def r(rel: str) -> str:
 
 checks = [
     'applicationId = "com.aistudio.pandubabu.omega.v19ultra"' in gradle,
-    'versionCode = 118' in gradle,
-    'versionName = "V110 ULTRA INTELLIGENCE MASTER"' in gradle,
+    'versionCode = 118' in gradle or 'versionCode = 119' in gradle,
+    'versionName = "V110 ULTRA INTELLIGENCE MASTER"' in gradle or 'versionName = "V110.1 PREMIUM SPEED MASTER"' in gradle,
     'enum class AiBrainFamily' in r("ai/MultiBrainPolicy.kt"),
     all(b in r("ai/MultiBrainPolicy.kt") for b in (
         "GEMINI_DIRECT", "OPENAI_GPT", "CLAUDE_CODING", "DEEPSEEK_REASONING",

@@ -2,7 +2,7 @@ package com.example.data
 
 enum class OrbColorPreset(val label: String, val primaryHex: Long, val secondaryHex: Long, val accentHex: Long, val backgroundHex: Long, val surfaceHex: Long) {
     SOLAR_NOVA("Solar Nova", 0xFFFF7845, 0xFFFF4081, 0xFFA855F7, 0xFF0C0609, 0xFF301721),
-    AURORA_CYAN("Obsidian Infinity", 0xFF00D9FF, 0xFFA6F5FF, 0xFF1679C9, 0xFF03080D, 0xFF10232E),
+    AURORA_CYAN("Obsidian Infinity", 0xFF00E5FF, 0xFF2563FF, 0xFF8B5CF6, 0xFF080E1D, 0xFF12233F),
     ROYAL_EMERALD("Emerald Matrix", 0xFF00E5A0, 0xFF00A87D, 0xFFB0FFE3, 0xFF020C09, 0xFF103128),
     CRIMSON_NOVA("Crimson Eclipse", 0xFFFF3158, 0xFFFF7060, 0xFFA50039, 0xFF100508, 0xFF30131D),
     NEBULA_VIOLET("Quantum Violet", 0xFFA855F7, 0xFFDDC4FF, 0xFF6344FF, 0xFF090511, 0xFF211439),

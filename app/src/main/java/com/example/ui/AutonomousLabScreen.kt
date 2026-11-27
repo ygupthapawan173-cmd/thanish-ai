@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.content.Intent
 import android.net.Uri
+import com.example.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -29,18 +30,31 @@ import androidx.compose.ui.unit.sp
 import com.example.autonomous.AntigravityTaskHandoff
 import com.example.autonomous.TermuxControlHelper
 import com.example.data.OmegaSettings
+import com.example.ui.theme.DeepBlue
+import com.example.ui.theme.ElectricBlue
+import com.example.ui.theme.IceWhite
+import com.example.ui.theme.MidnightNavy
 import com.example.ui.theme.OmegaColors
+import com.example.ui.theme.RoyalViolet
 import com.example.ui.theme.omegaTextFieldColors
+import androidx.compose.runtime.saveable.rememberSaveable
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val NavyBgTop = Color(0xFF050B18)
-private val NavyBgBottom = Color(0xFF0A1428)
-private val NavyCard = Color(0xFF0E1B36)
-private val NeonCyan = Color(0xFF00F0FF)
-private val TextPrimary = Color(0xFFF1F5F9)
-private val TextMuted = Color(0xFF94A3B8)
+private enum class LabTab(val label: String) {
+    OVERVIEW("AI & Health"),
+    DIAGNOSTICS("Termux & Crash"),
+    ENGINEERING("Code & PR"),
+    UPDATES("Builds & Rollback")
+}
+
+private val NavyBgTop = MidnightNavy
+private val NavyBgBottom = Color(0xFF0C1730)
+private val NavyCard = DeepBlue
+private val NeonCyan = com.example.ui.theme.NeonCyan
+private val TextPrimary = IceWhite
+private val TextMuted = Color(0xFF9FB4D0)
 
 @Composable
 fun AutonomousLabScreen(
@@ -81,6 +95,8 @@ fun AutonomousLabScreen(
     var selectedCliModel by remember { mutableStateOf(AntigravityTaskHandoff.PERMITTED_CLI_MODELS.first()) }
     var selectedEffort by remember { mutableStateOf("medium") }
     var ghSaved by remember { mutableStateOf(false) }
+    var activeTabName by rememberSaveable { mutableStateOf(LabTab.OVERVIEW.name) }
+    val activeTab = LabTab.valueOf(activeTabName)
 
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
@@ -96,8 +112,6 @@ fun AutonomousLabScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Header
             Row(
@@ -107,16 +121,43 @@ fun AutonomousLabScreen(
             ) {
                 GlassCircleButton(Icons.AutoMirrored.Rounded.ArrowBack, theme = theme, preset = preset, onClick = onBack)
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                    Text("ANTIGRAVITY CONTROL CENTER", color = TextPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text("V110 ULTRA INTELLIGENCE MASTER • ${uiState.lastBrainRouteSummary}", color = NeonCyan, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("ANTIGRAVITY CONTROL CENTER", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("${BuildConfig.VERSION_NAME} • ${uiState.lastBrainRouteSummary}", color = NeonCyan, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 GlassCircleButton(Icons.Rounded.Refresh, theme = theme, preset = preset, onClick = onRunDiagnostics)
             }
 
+            Spacer(Modifier.height(10.dp))
+
+            // Compact Submenu Tabs (Target 25 & 27)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                LabTab.entries.forEach { tab ->
+                    FilterChip(
+                        selected = activeTab == tab,
+                        onClick = { activeTabName = tab.name },
+                        modifier = Modifier.weight(1f),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ElectricBlue.copy(alpha = 0.28f),
+                            selectedLabelColor = NeonCyan
+                        ),
+                        label = { Text(tab.label, fontSize = 10.sp, maxLines = 1) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             if (!uiState.controlCenterStatus.isNullOrBlank()) {
                 Text(uiState.controlCenterStatus, color = NeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
 
+            if (activeTab == LabTab.OVERVIEW) {
             // 1. LIVE CONNECTION, QUOTA & MODEL SELECTION
             val conn = uiState.connectionHealth
             ControlCard {
@@ -159,7 +200,7 @@ fun AutonomousLabScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Auto-Connect & Recover AI Engine", color = NavyBgTop, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
             }
-
+            } else if (activeTab == LabTab.DIAGNOSTICS) {
             // 2. TERMUX, LIFECYCLE & BATTERY DIAGNOSTICS
             val env = uiState.controlEnv
             ControlCard {
@@ -237,7 +278,7 @@ fun AutonomousLabScreen(
                     ) { Text("Fix Last Crash", color = NeonCyan, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
                 }
             }
-
+            } else if (activeTab == LabTab.ENGINEERING) {
             // 4. AUTONOMOUS SELF-UPGRADE & MANUAL ANTIGRAVITY CLI HANDOFF
             val up = uiState.upgradeState
             ControlCard {
@@ -350,7 +391,7 @@ fun AutonomousLabScreen(
                     }
                 }
             }
-
+            } else {
             // 5. GITHUB BUILD MONITORING & VERIFIED SELF-UPDATER
             ControlCard {
                 SectionHeader(Icons.Rounded.VerifiedUser, "GitHub Builds & Verified APK Update", "SHA-256 + CERT")
@@ -428,6 +469,9 @@ fun AutonomousLabScreen(
                     }
                 }
             }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
         }
     }
 }

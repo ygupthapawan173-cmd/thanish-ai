@@ -22,9 +22,10 @@ internal class SmartGatewayClient(private val networkAllowed: () -> Boolean = { 
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(s.effectiveOpenRouterKey().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
         return "${endpoint(s, "/models")}|$digest"
     }
-    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-        .retryOnConnectionFailure(false).connectTimeout(15, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS)
-        .callTimeout(50, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder().connectionPool(okhttp3.ConnectionPool(6, 5, TimeUnit.MINUTES))
+        .followRedirects(false).followSslRedirects(false)
+        .retryOnConnectionFailure(false).connectTimeout(10, TimeUnit.SECONDS).readTimeout(35, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS).build()
     private fun endpoint(s: OmegaSettings, suffix: String): String {
         val url = s.gatewayBaseUrl.trim().trimEnd('/').toHttpUrlOrNull() ?: throw IOException("Invalid gateway base URL")
         if (!url.isHttps || url.username.isNotEmpty() || url.password.isNotEmpty() || url.query != null || url.fragment != null) throw IOException("Gateway must be an HTTPS base URL without credentials, query or fragment")

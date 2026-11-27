@@ -188,14 +188,23 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
     private var cloudGeneration = 0L
     private var cloudCooldownUntil = 0L
     private var cloudPrivacyCheck: Runnable? = null
-    private fun cloudAllowed(s: OmegaSettings, length: Int): Boolean =
-        com.example.ai.ZeroPaidCreditsPolicy.allowsPaidCloudVoice(s.zeroPaidCreditsMode) &&
-        CloudVoicePolicy.allowed(
-        s.gatewayBaseUrl, CloudVoicePreferences.enabled(appContext), s.activeProvider == AiProvider.OPENROUTER,
-        s.smartMode == SmartModelPolicy.Mode.FREE, s.providerBudgetUsd,
-        localOnly || s.micPrivacyMuted || appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked,
-        ((!backgroundOwned && AgentHudBus.isAppInForeground.value) || (backgroundOwned && backgroundCloudAllowed())) && !AgentHudBus.isMainMicBusy.value,
-        s.effectiveOpenRouterKey().isNotBlank(), length)
+    private fun cloudAllowed(s: OmegaSettings, length: Int): Boolean {
+        val activeVoiceSlot = com.example.ai.SmartApiSlotManager.engineOrNull()
+            ?.selectOrderedSlots(com.example.ai.SlotRoutePurpose.VOICE_TTS, s.zeroPaidCreditsMode)
+            ?.firstOrNull { it.providerKind != com.example.ai.ApiProviderKind.GEMINI_DIRECT }
+        val base = activeVoiceSlot?.effectiveBaseUrl()?.takeIf { s.effectiveOpenRouterKey().isBlank() || activeVoiceSlot.providerKind.supportsOpenAiAudioSpeech }
+            ?: s.gatewayBaseUrl
+        val keyPresent = s.effectiveOpenRouterKey().isNotBlank() || (activeVoiceSlot?.apiKey?.isNotBlank() == true)
+        return com.example.ai.ZeroPaidCreditsPolicy.allowsPaidCloudVoice(s.zeroPaidCreditsMode) &&
+            CloudVoicePolicy.allowed(
+                base, CloudVoicePreferences.enabled(appContext),
+                s.activeProvider == AiProvider.OPENROUTER || activeVoiceSlot != null,
+                s.smartMode == SmartModelPolicy.Mode.FREE && activeVoiceSlot == null, s.providerBudgetUsd,
+                localOnly || s.micPrivacyMuted || appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked,
+                ((!backgroundOwned && AgentHudBus.isAppInForeground.value) || (backgroundOwned && backgroundCloudAllowed())) && !AgentHudBus.isMainMicBusy.value,
+                keyPresent, length
+            )
+    }
     private fun geminiAllowed(s: OmegaSettings, length: Int): Boolean = GeminiSpeechPolicy.allowed(
         GeminiSpeechPreferences.enabled(appContext),
         s.activeProvider == AiProvider.GEMINI || s.activeProvider == AiProvider.OPENROUTER,
@@ -228,16 +237,30 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
         if (route == TtsRouteDecision.ANDROID_LOCAL) return false
         if (released || android.os.SystemClock.elapsedRealtime() < cloudCooldownUntil || !(if (gemini) geminiAllowed(s, clean.length) else cloudAllowed(s, clean.length))) return false
         val generation = ++cloudGeneration
-        val choice = CloudVoicePolicy.select(clean, CloudVoicePreferences.voice(appContext, "en"), CloudVoicePreferences.voice(appContext, "te"), CloudVoicePreferences.hd(appContext))
+        val activeVoiceSlot = com.example.ai.SmartApiSlotManager.engineOrNull()
+            ?.selectOrderedSlots(com.example.ai.SlotRoutePurpose.VOICE_TTS, s.zeroPaidCreditsMode)
+            ?.firstOrNull { it.providerKind != com.example.ai.ApiProviderKind.GEMINI_DIRECT }
+        val resolvedCloudKey = s.effectiveOpenRouterKey().ifBlank { activeVoiceSlot?.apiKey.orEmpty() }
+        val resolvedCloudBase = if (s.effectiveOpenRouterKey().isNotBlank() && s.gatewayBaseUrl.trim().trimEnd('/') == CloudVoicePolicy.BASE) {
+            CloudVoicePolicy.BASE
+        } else {
+            activeVoiceSlot?.effectiveBaseUrl() ?: s.gatewayBaseUrl
+        }
+        val choice = CloudVoicePolicy.selectForBase(
+            resolvedCloudBase, clean,
+            CloudVoicePreferences.voice(appContext, "en"),
+            CloudVoicePreferences.voice(appContext, "te"),
+            CloudVoicePreferences.hd(appContext)
+        )
         val speaker = if (gemini) GeminiSpeechPreferences.voice(appContext, InstalledSpeechPolicy.language(clean)) else choice.voice
-        val provider = if (gemini) "Gemini" else "AICredits"
+        val provider = if (gemini) "Gemini" else (activeVoiceSlot?.providerKind?.displayName ?: "AICredits")
         lastSpeechSucceeded = false
         _isSpeaking.value = true; AgentHudBus.setTtsBusy(this,true)
         _ttsStatus.value = "$provider voice: requesting $speaker"
         var started = false
         var activeModel = if (gemini) GeminiSpeechPreferences.lastActiveModel(appContext) else choice.model
         var lastCloudError: Exception? = null
-        fun stillAllowed(): Boolean = cloudSettings?.invoke()?.let { if (gemini) geminiAllowed(it, clean.length) && it.geminiApiKey == s.geminiApiKey else !GeminiSpeechPreferences.enabled(appContext) && cloudAllowed(it, clean.length) && it.effectiveOpenRouterKey() == s.effectiveOpenRouterKey() } == true
+        fun stillAllowed(): Boolean = cloudSettings?.invoke()?.let { if (gemini) geminiAllowed(it, clean.length) && it.effectiveGeminiKey() == s.effectiveGeminiKey() else !GeminiSpeechPreferences.enabled(appContext) && cloudAllowed(it, clean.length) } == true
         fun finish(success: Boolean, fallback: Boolean) {
             if (generation != cloudGeneration) return
             stopCloud(); cancelWatchdog(); abandonFocus()
@@ -251,7 +274,12 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
                 val err = lastCloudError
                 val isQuota = err is GeminiSpeechHttpException && GeminiSpeechPolicy.isQuotaError(err.httpCode, err.message)
                 val cooldownMs = if (isQuota) GeminiSpeechPolicy.QUOTA_COOLDOWN_MS else GeminiSpeechPolicy.TRANSIENT_COOLDOWN_MS
-                _ttsStatus.value = if (isQuota) "Gemini TTS quota reached — offline voice fallback active (auto-recovery in ${cooldownMs / 1000}s)" else "Cloud speech unavailable — offline voice fallback"
+                val detail = err?.message?.take(120).orEmpty()
+                _ttsStatus.value = when {
+                    isQuota -> "Gemini TTS quota (${detail.ifBlank { "HTTP 429" }}) -> voice fallback (${cooldownMs / 1000}s)"
+                    detail.isNotBlank() -> "$provider TTS error ($detail) -> voice fallback"
+                    else -> "$provider TTS fallback -> Android voice"
+                }
                 if (fallback && !started && stillAllowed()) { cloudCooldownUntil = android.os.SystemClock.elapsedRealtime() + cooldownMs; speakInternal(clean) }
                 else onSpeechFinishedCallback?.invoke()
             }
@@ -273,13 +301,32 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
                             GeminiSpeechPreferences.discoveredModels(appContext),
                             GeminiSpeechPreferences.lastActiveModel(appContext)
                         )
-                        val res = GeminiSpeechClient.synthesizeWithAutoSwitch(s.geminiApiKey.trim(), clean, speaker, candidates)
-                        activeModel = res.usedModel
-                        GeminiSpeechPreferences.lastActiveModel(appContext, res.usedModel)
-                        res.wavBytes
+                        try {
+                            val res = GeminiSpeechClient.synthesizeWithAutoSwitch(s.effectiveGeminiKey().trim(), clean, speaker, candidates)
+                            activeModel = res.usedModel
+                            GeminiSpeechPreferences.lastActiveModel(appContext, res.usedModel)
+                            res.wavBytes
+                        } catch (gemErr: Exception) {
+                            // Target 14: Automatic voice engine switching to permitted Cloud/Onyx slot before Android local fallback
+                            if (activeVoiceSlot != null && CloudVoicePreferences.enabled(appContext) &&
+                                com.example.ai.ZeroPaidCreditsPolicy.allowsPaidCloudVoice(s.zeroPaidCreditsMode) &&
+                                activeVoiceSlot.effectiveBaseUrl() in CloudVoicePolicy.SUPPORTED_TTS_BASES
+                            ) {
+                                val fallbackChoice = CloudVoicePolicy.selectForBase(
+                                    activeVoiceSlot.effectiveBaseUrl(), clean,
+                                    CloudVoicePreferences.voice(appContext, "en"),
+                                    CloudVoicePreferences.voice(appContext, "te"),
+                                    CloudVoicePreferences.hd(appContext)
+                                )
+                                activeModel = fallbackChoice.model
+                                CloudVoiceClient.synthesize(activeVoiceSlot.apiKey, clean, fallbackChoice, activeVoiceSlot.effectiveBaseUrl())
+                            } else throw gemErr
+                        }
+                    } else if (resolvedCloudBase != CloudVoicePolicy.BASE || s.effectiveOpenRouterKey().isBlank()) {
+                        CloudVoiceClient.synthesize(resolvedCloudKey, clean, choice, resolvedCloudBase)
                     } else CloudVoiceClient.synthesize(s.effectiveOpenRouterKey(), clean, choice)
                 } ?: run {
-                    lastCloudError = java.io.IOException("Cloud TTS synthesis timed out after ${synthTimeoutMs}ms")
+                    lastCloudError = java.io.IOException("$provider TTS timed out after ${synthTimeoutMs}ms")
                     finish(false, true)
                     return@launch
                 }
@@ -306,8 +353,8 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
                     }
                 }
                 player.setOnCompletionListener { finish(true,false) }
-                player.setOnErrorListener { _, _, _ -> finish(false,true); true }
-                val watchdog = Runnable { finish(false, !started) }
+                player.setOnErrorListener { _, what, extra -> lastCloudError = java.io.IOException("MediaPlayer error ($what/$extra)"); finish(false,true); true }
+                val watchdog = Runnable { lastCloudError = java.io.IOException("Audio playback watchdog timeout"); finish(false, !started) }
                 playbackWatchdog = watchdog; main.postDelayed(watchdog, VoiceSessionPolicy.ttsTimeoutMs(clean.length))
                 player.prepareAsync()
             } catch (e: CancellationException) { throw e }
@@ -380,7 +427,7 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
                 if ((!CloudVoicePreferences.enabled(appContext) || !VoicePackPolicy.allowNetworkVoice(localOnly, appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked)) && chosen.isNetworkConnectionRequired) { complete(id,"TTS privacy policy blocked network voice"); break }
                 if(runCatching { tts?.speak(chunk, if(index==0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, params, ids[index]) }.getOrNull()!=TextToSpeech.SUCCESS) { complete(id,"TTS playback failed"); break }
             }
-        } }, 150)
+        } }, 40L)
     }
 
     fun stop() {

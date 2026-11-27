@@ -56,20 +56,34 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.TtsEmotionStyle
 import com.example.ui.components.ParticleAiOrb
+import com.example.ui.theme.DeepBlue
+import com.example.ui.theme.ElectricBlue
+import com.example.ui.theme.IceWhite
+import com.example.ui.theme.MidnightNavy
+import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.OmegaColors
 import com.example.ui.theme.OmegaLiquidBackdrop
+import com.example.ui.theme.RoyalViolet
 import com.example.ui.theme.accentColor
 import com.example.ui.theme.mutedText
 import com.example.ui.theme.omegaSwitchColors
 import com.example.ui.theme.omegaTextFieldColors
 import com.example.ui.theme.primaryText
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 
+private enum class BrainManagerTab(val label: String) {
+    SLOTS("API Slots"),
+    PROVIDERS("Gateway & Gemini"),
+    BRAINS("10 Brains")
+}
+
 /**
- * Premium Grouped List Settings UI (v21.1):
- * Pure AMOLED black, zero aura light, clean grouped list rows with icon plates & hairline dividers.
+ * V110.1 Compact Premium Settings Dashboard (Module 4, Targets 22-30):
+ * Auto-saving preferences, grouped submenus, unified Midnight Navy/Neon Cyan palette,
+ * and integrated Smart API Slot Manager + 10-Brain Manager.
  */
 @Composable
 fun SettingsScreen(
@@ -89,7 +103,13 @@ fun SettingsScreen(
     onClearCrashLogs: () -> Unit,
     onClearHistory: () -> Unit,
     onOpenMemory: () -> Unit,
-    onOpenLab: () -> Unit
+    onOpenLab: () -> Unit,
+    onUpsertApiSlot: (com.example.ai.SmartApiSlot) -> Unit = {},
+    onToggleApiSlot: (String, Boolean) -> Unit = { _, _ -> },
+    onDeleteApiSlot: (String) -> Unit = {},
+    onSetSlotRoutingMode: (com.example.ai.SlotRoutingMode) -> Unit = {},
+    onTestApiSlot: (String) -> Unit = {},
+    onTestAllApiSlots: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settings = uiState.settings
@@ -169,9 +189,24 @@ fun SettingsScreen(
     val latestExitGuard by rememberUpdatedState<() -> Boolean>({ persistDrafts() })
     DisposableEffect(Unit) {
         registerExitGuard { latestExitGuard() }
-        onDispose { registerExitGuard(null) }
+        onDispose {
+            latestExitGuard()
+            registerExitGuard(null)
+        }
+    }
+    // Target 23: Auto-save text field drafts seamlessly without a global Save button
+    LaunchedEffect(
+        userNameDraft, assistantNameDraft, geminiKeyDraft, openRouterKeyDraft,
+        geminiChatModelDraft, geminiLiveModelDraft, openRouterModelDraft, gatewayUrlDraft,
+        secondaryUrlDraft, secondaryKeyDraft, secondaryModelDraft, providerDraft,
+        wakeWordDraft, customWakeAckDraft
+    ) {
+        delay(320L)
+        persistDrafts()
     }
     var page by rememberSaveable(uiState.initialSettingsPage) { mutableStateOf(uiState.initialSettingsPage.coerceIn(-1,14)) }
+    var brainTabName by rememberSaveable { mutableStateOf(BrainManagerTab.SLOTS.name) }
+    val brainTab = BrainManagerTab.valueOf(brainTabName)
     var search by rememberSaveable { mutableStateOf("") }
     var confirmHistory by remember { mutableStateOf(false) }
     var confirmOwner by remember { mutableStateOf(false) }
@@ -217,18 +252,17 @@ fun SettingsScreen(
                 IconButton(onClick={goBack()},modifier=Modifier.size(48.dp).background(ObsidianPanel,CircleShape)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Back",tint=ObsidianAccent) }
                 Column(modifier=Modifier.weight(1f).padding(horizontal=8.dp),horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(if(page == -1) "Settings" else categories[page].first, color = ObsidianText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("JARVIS INFINITY ${BuildConfig.VERSION_NAME.substringBefore('-')} • ${preset.label}", color = ObsidianMuted, fontSize = 11.sp)
+                    Text("JARVIS INFINITY ${BuildConfig.VERSION_NAME} • ${uiState.lastVerificationBadge}", color = ObsidianMuted, fontSize = 10.5.sp, maxLines = 1)
                 }
                 Box(
                     modifier = Modifier
-                        .heightIn(min=48.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(accent)
-                        .clickable { persistDrafts() }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (savedBanner) OmegaColors.EmeraldLive.copy(alpha = 0.16f) else ElectricBlue.copy(alpha = 0.2f))
+                        .border(1.dp, (if (savedBanner) OmegaColors.EmeraldLive else NeonCyan).copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Save", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    Text(if (savedBanner) "Synced" else "Auto-Save", color = if (savedBanner) OmegaColors.EmeraldLive else NeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -287,7 +321,32 @@ fun SettingsScreen(
                     }
                     if(visibleCategories.isEmpty()) Column { Text("No matching settings",color=ObsidianMuted); TextButton(onClick={search=""}) { Text("Clear search") } }
                 } else when(page) {
-                    0 -> SettingsGroupSection(title = categories[0].first.uppercase()) {
+                    0 -> SettingsGroupSection(title = "AI & API BRAIN MANAGER") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            BrainManagerTab.entries.forEach { tab ->
+                                FilterChip(
+                                    selected = brainTab == tab,
+                                    onClick = { brainTabName = tab.name },
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text(tab.label, fontSize = 10.5.sp, maxLines = 1) }
+                                )
+                            }
+                        }
+                        SettingsHairlineDivider()
+                        if (brainTab == BrainManagerTab.SLOTS) {
+                            SmartApiSlotManagerPanel(
+                                uiState = uiState,
+                                onUpsertSlot = onUpsertApiSlot,
+                                onToggleSlot = onToggleApiSlot,
+                                onDeleteSlot = onDeleteApiSlot,
+                                onSetRoutingMode = onSetSlotRoutingMode,
+                                onTestSlot = onTestApiSlot,
+                                onTestAllSlots = onTestAllApiSlots
+                            )
+                        } else if (brainTab == BrainManagerTab.PROVIDERS) {
 
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Icon(Icons.Rounded.Cloud, null, tint = accent, modifier = Modifier.size(28.dp)); Text("Universal Smart API", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
@@ -378,7 +437,6 @@ fun SettingsScreen(
                             }
                         }
                         SettingsSwitchRow(Icons.Rounded.Mic, "Gemini Live duplex", "Separate real-time voice session (disabled in Strict Free mode)", settings.useGeminiLiveAudio, theme, preset) { v -> onSaveSettings { it.copy(useGeminiLiveAudio = v && it.smartMode != SmartModelPolicy.Mode.FREE && it.providerBudgetUsd == 0.0) } }
-                        OutlinedButton(onClick = { persistDrafts() }, modifier = Modifier.fillMaxWidth()) { Text("Save API settings", color = accent) }
 
                         SettingsHairlineDivider()
                         Text("Slot 3 • Secondary OpenAI-Compatible Provider (Optional)", color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -395,8 +453,9 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(value = secondaryModelDraft, onValueChange = { secondaryModelDraft = it; savedBanner = false }, label = { Text("Secondary preferred model ID (optional)") }, singleLine = true, colors = tfColors, modifier = Modifier.fillMaxWidth())
-
-                        SettingsHairlineDivider()
+                        }
+                        } else {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Unified 10-Brain Intelligence Dashboard", color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         Text("Thinking Depth Mode", color = ObsidianMuted, fontSize = 12.sp)
                         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -428,6 +487,7 @@ fun SettingsScreen(
                     Text("Online AI only: general answers use your configured cloud provider. Explicit device controls and private memory remain local.", color=ObsidianMuted, fontSize=12.sp, modifier=Modifier.padding(14.dp))
                     SettingsHairlineDivider()
                     SettingsSwitchRow(Icons.Rounded.Search, "Google Search Grounding", "Use web grounding on compatible cloud models", settings.webSearchGrounding, theme, preset) { v -> onSaveSettings { it.copy(webSearchGrounding = v) } }
+                    }
                     }
                     1 -> SettingsGroupSection(title = categories[1].first.uppercase()) {
                     // 1. Language & Auto-Detection
@@ -785,11 +845,11 @@ SettingsActionRow(Icons.Rounded.Refresh,"Release updates","Open existing verifie
 }
 
 private val LocalInfinityPreset = staticCompositionLocalOf { OrbColorPreset.AURORA_CYAN }
-private val ObsidianAccent: Color @Composable get() = Color(LocalInfinityPreset.current.primaryHex)
-private val ObsidianText = Color(0xFFEDFAFF)
-private val ObsidianMuted = Color(0xFF91ADB7)
-private val ObsidianPanel: Color @Composable get() = Color(LocalInfinityPreset.current.surfaceHex)
-private val ObsidianBorder: Color @Composable get() = Color(LocalInfinityPreset.current.primaryHex).copy(alpha=.27f)
+private val ObsidianAccent: Color @Composable get() = NeonCyan
+private val ObsidianText = IceWhite
+private val ObsidianMuted = Color(0xFF9FB4D0)
+private val ObsidianPanel: Color @Composable get() = DeepBlue
+private val ObsidianBorder: Color @Composable get() = NeonCyan.copy(alpha = 0.28f)
 
 @Composable
 private fun SettingsGroupSection(
