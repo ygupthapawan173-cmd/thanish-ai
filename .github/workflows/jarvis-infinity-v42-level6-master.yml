@@ -60,6 +60,22 @@ jobs:
           for name, digest in expected.items():
               assert hashlib.sha256((root/name).read_bytes()).hexdigest() == digest, name
           PY
+      - name: Apply verified V42 theme grid scope fix
+        working-directory: infinity-v42-level6-master-build
+        run: |
+          python3 - <<'PY'
+          import pathlib, hashlib
+          p = pathlib.Path('app/src/main/java/com/example/ui/SettingsScreen.kt')
+          original = p.read_bytes()
+          assert hashlib.sha256(original).hexdigest() == '754b51a9a12897f7ea76f7797be43beb2a06999ebd9b8668665a8f2259d36b4e'
+          old = b'                                if(columns==2 && pair.size==1) Spacer(Modifier.weight(1f))'
+          new = b'                                if(pair.size==1) Spacer(Modifier.weight(1f))'
+          assert original.count(old) == 1
+          fixed = original.replace(old, new)
+          assert hashlib.sha256(fixed).hexdigest() == '3341de7b36a62593fdb8db9d3fbcd38c8a1492fa6a55a193cecd3fd4daee8084'
+          p.write_bytes(fixed)
+          print('V42 theme grid scope fix verified and applied; archive remains unchanged')
+          PY
       - name: Install Android SDK 36
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
