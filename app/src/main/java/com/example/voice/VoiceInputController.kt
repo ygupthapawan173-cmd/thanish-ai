@@ -36,7 +36,7 @@ class VoiceInputController(private val context: Context, private val owner: Stri
     private var attempts = 0
     private var language = "auto"
     private var offline = false
-    private var lastLocale = "en-IN"
+    private var lastLocale = AutoLanguageSession.DEFAULT_AUTO_LOCALE
     private var sessionTimeoutMs = 30000L
     private val _state = MutableStateFlow(VoiceInputState())
     val state: StateFlow<VoiceInputState> = _state.asStateFlow()
@@ -56,17 +56,17 @@ class VoiceInputController(private val context: Context, private val owner: Stri
                     handler.postDelayed({
                         if (pending == generation && !released) {
                             if (VoiceMic.lease.acquire(this)) begin()
-                            else if (attempt < 4) waitForLease(attempt + 1)
+                            else if (attempt < 6) waitForLease(attempt + 1)
                             else finishError(8,"Microphone occupied by another voice engine")
                         }
-                    }, 350L)
+                    }, 150L)
                 }
                 waitForLease(1)
                 return@post
             }
             val token = generation
             _state.value = VoiceInputState(isListening = true, diagnosticsNote = "Preparing microphone")
-            handler.postDelayed({ if (token == generation) begin() }, 300)
+            handler.postDelayed({ if (token == generation) begin() }, 120)
         }
     }
     private fun privacyRestricted() = appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked || !appContext.getSystemService(android.os.PowerManager::class.java).isInteractive
@@ -80,7 +80,7 @@ class VoiceInputController(private val context: Context, private val owner: Stri
         val validated = network != null && cm?.getNetworkCapabilities(network)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         if (!validated) { finishError(2, "Internet connection required for online recognition"); return }
         offline = VoiceSessionPolicy.localOnly(offline, privacyRestricted())
-        val locale = if (language == "auto") lastLocale else language
+        val locale = if (language == "auto") AutoLanguageSession.resolveEffectiveLocale("auto", lastLocale) else language
         lastLocale = locale
         val localAvailable = android.os.Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
         val systemAvailable = SpeechRecognizer.isRecognitionAvailable(appContext)
@@ -110,7 +110,7 @@ class VoiceInputController(private val context: Context, private val owner: Stri
                 if (!current() || enforcePrivacy()) return
                 val final = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
                 if (final.isBlank()) { retry(7); return }
-                if (language == "auto") lastLocale = VoiceRecoveryPolicy.localeFromText(final, lastLocale)
+                if (language == "auto") lastLocale = AutoLanguageSession.recordRecognizedText(final)
                 Log.i("OmegaVoice", "ASR_RESULT length=${final.length}")
                 stopInternal()
                 _state.value = VoiceInputState(partialTranscript = final, activeLocale = lastLocale, diagnosticsNote = "Captured (${final.length} chars)", errorMessage = if(final.isBlank()) "No speech recognized" else null)
@@ -120,7 +120,7 @@ class VoiceInputController(private val context: Context, private val owner: Stri
             override fun onLanguageDetection(results: Bundle) {
                 if (!current() || enforcePrivacy() || language != "auto" || android.os.Build.VERSION.SDK_INT < 34) return
                 val detected = results.getString(SpeechRecognizer.DETECTED_LANGUAGE).orEmpty()
-                if (detected.substringBefore('-').equals("te", true)) lastLocale = "te-IN" else if (detected.substringBefore('-').equals("en", true)) lastLocale = "en-IN"
+                if (detected.substringBefore('-').equals("te", true)) lastLocale = AutoLanguageSession.recordRecognizedText("", "te-IN") else if (detected.substringBefore('-').equals("en", true)) lastLocale = AutoLanguageSession.recordRecognizedText("", "en-IN")
                 _state.value = _state.value.copy(activeLocale = lastLocale, diagnosticsNote = "Detected $detected")
             }
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -166,7 +166,7 @@ class VoiceInputController(private val context: Context, private val owner: Stri
                     override fun onError(error: Int) { if (current() && !launched) { Log.i("OmegaVoice", "ASR_SUPPORT_ERROR $error"); fallback() } }
                 })
             }.onFailure { fallback() }
-            handler.postDelayed({ if (current() && !launched) fallback() }, 1000)
+            handler.postDelayed({ if (current() && !launched) fallback() }, 500)
         } else launchCapture()
     }
     private fun retry(code: Int) {

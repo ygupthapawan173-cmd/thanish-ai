@@ -137,7 +137,13 @@ class PanduAiRepository(
     suspend fun answerBackgroundQuestion(prompt: String, history: List<Pair<String,String>> = emptyList()): Result<String> = withContext(Dispatchers.IO) {
         CreatorIdentity.reply(prompt)?.let { return@withContext Result.success(it) }
         val s = settingsProvider()
-        val instruction = "Answer briefly in the user's language, Telugu or English. You cannot execute actions, access private data, or make calls. If asked to perform an action, tell the user to open the app. ${CreatorIdentity.SYSTEM_CONTEXT}"
+        val effectiveLang = com.example.voice.TeluguVoiceReplies.effectiveLocale(s.languageTag, utterance = prompt)
+        val langRule = if (effectiveLang.startsWith("te", ignoreCase = true)) {
+            "Respond naturally in complete, clear Telugu sentences (not just 'Yes, Boss'), unless the user explicitly asks for English."
+        } else {
+            "Answer clearly and concisely in complete English sentences, or Telugu if the user speaks Telugu."
+        }
+        val instruction = "$langRule You cannot execute actions, access private data, or make calls. If asked to perform an action, tell the user to open the app. ${CreatorIdentity.SYSTEM_CONTEXT}"
         val gemini = s.effectiveGeminiKey()
         val context = history.takeLast(2).joinToString("\n") { (q,a) -> "User: ${q.take(500)}\nAssistant: ${a.take(700)}" }
         val requestText = if(context.isBlank()) prompt else "Recent conversation for context only:\n$context\nCurrent question: $prompt"
@@ -447,18 +453,20 @@ class PanduAiRepository(
         }
     }
 
-    private fun buildGeminiFallbackList(primary: String): List<String> {
-        val list = LinkedHashSet<String>()
-        if (GeminiCompatibility.isChat(primary.trim())) list.add(primary.trim().removePrefix("models/"))
-        cachedDiscoveredGeminiModels.filter { GeminiCompatibility.isChat(it) }.take(5).forEach { list.add(it) }
-        list.add("gemini-3.8-flash")
-        list.add("gemini-2.5-flash")
-        list.add("gemini-2.5-flash-lite")
-        return list.toList()
-    }
+    private fun buildGeminiFallbackList(primary: String): List<String> =
+        GeminiModelSelectionPolicy.buildCandidates(primary, cachedDiscoveredGeminiModels)
 
     private suspend fun postGeminiWithFallback(apiKey: String, models: List<String>, payload: JSONObject): Pair<JSONObject, String> {
         var lastErr: IOException? = null
+        val effectiveModels = if (cachedDiscoveredGeminiModels.isEmpty() && apiKey.isNotBlank()) {
+            val discovered = kotlinx.coroutines.withTimeoutOrNull(3_500L) {
+                runCatching { discoveryService.discoverGeminiModels(apiKey).getOrNull()?.chatModels }.getOrNull()
+            }.orEmpty()
+            if (discovered.isNotEmpty()) {
+                cachedDiscoveredGeminiModels = discovered
+                GeminiModelSelectionPolicy.buildCandidates(models.firstOrNull().orEmpty(), discovered)
+            } else models
+        } else models
         val contents = payload.optJSONArray("contents")
         val hasToolHistory = (0 until (contents?.length() ?: 0)).any { i ->
             val parts = contents?.optJSONObject(i)?.optJSONArray("parts")
@@ -467,7 +475,7 @@ class PanduAiRepository(
                 part?.has("functionCall") == true || part?.has("functionResponse") == true
             }
         }
-        for (model in models.map { it.removePrefix("models/") }.distinct()) {
+        for (model in effectiveModels.map { it.removePrefix("models/") }.distinct()) {
             try { return postGemini(apiKey, model, payload) to model }
             catch (e: IOException) {
                 lastErr = e

@@ -23,6 +23,7 @@ import com.example.data.OmegaSettings
 import com.example.data.AiProvider
 import com.example.ai.SmartModelPolicy
 import kotlinx.coroutines.*
+import kotlinx.coroutines.withTimeoutOrNull
 
 class TeluguTtsController(context: Context, private val backgroundOwned: Boolean = false, private val cloudSettings: (() -> OmegaSettings)? = null, private val backgroundCloudAllowed: () -> Boolean = { false }) {
 
@@ -173,7 +174,7 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
         this.localOnly=localOnly
         lastConfig = { configure(localeTag,speed,pitch,style,localOnly) }
         if (!isReady) { pendingConfig={ configure(localeTag,speed,pitch,style,localOnly) }; return }
-        val tag = if (localeTag == "auto") "en-IN" else localeTag
+        val tag = AutoLanguageSession.resolveEffectiveLocale(localeTag)
         val res = tts?.setLanguage(Locale.forLanguageTag(tag))
         if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
             tts?.language = Locale.getDefault()
@@ -210,7 +211,19 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
     private fun startCloud(raw: String): Boolean {
         val s = cloudSettings?.invoke() ?: return false
         val clean = raw.replace("*", "").replace("#", "").replace("`", "").trim()
+        val lang = InstalledSpeechPolicy.language(clean)
         val gemini = GeminiSpeechPreferences.enabled(appContext)
+        val paidCloud = CloudVoicePreferences.enabled(appContext)
+        val explicitAndroid = VoicePackCatalog.engine(appContext, lang).isNotBlank() ||
+            VoicePackCatalog.selected(appContext, lang).isNotBlank()
+        val route = TtsRoutingPolicy.decide(
+            localFirstEnabled = TtsRoutingPreferences.isLocalFirst(appContext),
+            geminiTtsExplicitlyEnabled = gemini,
+            cloudTtsExplicitlyEnabled = paidCloud,
+            androidEngineExplicitlySelected = explicitAndroid,
+            forceLocalOnly = localOnly
+        )
+        if (route == TtsRouteDecision.ANDROID_LOCAL) return false
         if (released || android.os.SystemClock.elapsedRealtime() < cloudCooldownUntil || !(if (gemini) geminiAllowed(s, clean.length) else cloudAllowed(s, clean.length))) return false
         val generation = ++cloudGeneration
         val choice = CloudVoicePolicy.select(clean, CloudVoicePreferences.voice(appContext, "en"), CloudVoicePreferences.voice(appContext, "te"), CloudVoicePreferences.hd(appContext))
@@ -250,16 +263,23 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
         cloudPrivacyCheck = privacyCheck; main.postDelayed(privacyCheck,250L)
         cloudJob = cloudScope.launch {
             try {
-                val bytes = if (gemini) {
-                    val candidates = GeminiSpeechPolicy.candidateModels(
-                        GeminiSpeechPreferences.discoveredModels(appContext),
-                        GeminiSpeechPreferences.lastActiveModel(appContext)
-                    )
-                    val res = GeminiSpeechClient.synthesizeWithAutoSwitch(s.geminiApiKey.trim(), clean, speaker, candidates)
-                    activeModel = res.usedModel
-                    GeminiSpeechPreferences.lastActiveModel(appContext, res.usedModel)
-                    res.wavBytes
-                } else CloudVoiceClient.synthesize(s.effectiveOpenRouterKey(), clean, choice)
+                val synthTimeoutMs = TtsRoutingPolicy.cloudSynthesisTimeoutMs(clean.length <= 48)
+                val bytes = withTimeoutOrNull(synthTimeoutMs) {
+                    if (gemini) {
+                        val candidates = GeminiSpeechPolicy.candidateModels(
+                            GeminiSpeechPreferences.discoveredModels(appContext),
+                            GeminiSpeechPreferences.lastActiveModel(appContext)
+                        )
+                        val res = GeminiSpeechClient.synthesizeWithAutoSwitch(s.geminiApiKey.trim(), clean, speaker, candidates)
+                        activeModel = res.usedModel
+                        GeminiSpeechPreferences.lastActiveModel(appContext, res.usedModel)
+                        res.wavBytes
+                    } else CloudVoiceClient.synthesize(s.effectiveOpenRouterKey(), clean, choice)
+                } ?: run {
+                    lastCloudError = java.io.IOException("Cloud TTS synthesis timed out after ${synthTimeoutMs}ms")
+                    finish(false, true)
+                    return@launch
+                }
                 if (generation != cloudGeneration) return@launch
                 if (!stillAllowed()) { finish(false,false); return@launch }
                 val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()

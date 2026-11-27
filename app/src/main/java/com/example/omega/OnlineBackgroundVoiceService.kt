@@ -5,6 +5,13 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.ServiceCompat
+import com.example.voice.OwnerModelRecoveryTracker
+import com.example.voice.OwnerSpeaker
+import com.example.voice.SpeakerProfilePolicy
+import com.example.voice.TeluguVoiceReplies
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
@@ -44,11 +51,23 @@ class OnlineBackgroundVoiceService : Service() {
     private lateinit var repository: PanduAiRepository
     private lateinit var input: VoiceInputController
     private lateinit var tts: TeluguTtsController
+    private lateinit var ownerSpeaker: OwnerSpeaker
+    private val ownerModelRecovery = OwnerModelRecoveryTracker()
     private var started = false
     private var wakeMode = false
     private var closed = false
     private val main = Handler(Looper.getMainLooper())
     private val wakeLease = Any()
+    private val fastWake by lazy {
+        FastWakeDetector(
+            lease = VoiceMic.lease,
+            leaseOwner = wakeLease,
+            sensitivityProvider = { prefs.settings.value.wakeSensitivity },
+            ownerFilterEnabled = { ::ownerSpeaker.isInitialized && ownerSpeaker.enabled && ownerSpeaker.enrolled },
+            ownerVerify = { json -> ownerSpeaker.verify(json) },
+            minOwnerFrames = { SpeakerProfilePolicy.minFrames }
+        )
+    }
     private var wakeModel: Model? = null
     private var wakeRecognizer: Recognizer? = null
     private var wakeSpeech: SpeechService? = null
@@ -72,21 +91,27 @@ class OnlineBackgroundVoiceService : Service() {
     }
     private fun resumeAfterForeground() {
         if (!started || !wakeMode || phase != "Wake idle") return
-        retryAt = SystemClock.elapsedRealtime() + 250L
+        retryAt = SystemClock.elapsedRealtime() + 150L
     }
     private fun releaseWake() {
         ++wakeGeneration
         val old = wakeSpeech; wakeSpeech = null
-        runCatching { old?.cancel() }; runCatching { old?.shutdown() }
-        runCatching { wakeRecognizer?.close() }; wakeRecognizer = null
-        VoiceMic.lease.release(wakeLease)
+        val oldRec = wakeRecognizer; wakeRecognizer = null
+        val cleanedBound = fastWake.stopAndReleaseMic {
+            VoiceMic.lease.release(wakeLease)
+        }
+        if (!cleanedBound) {
+            runCatching { old?.cancel() }; runCatching { old?.shutdown() }
+            runCatching { oldRec?.close() }
+            if (VoiceMic.lease.owns(wakeLease)) VoiceMic.lease.release(wakeLease)
+        }
     }
     private fun returnToWake(message: String) {
         phase = "Wake idle"; sessionDeadline = 0L; ackDeadline = 0L
         responseJob?.cancel(); responseJob = null
         input.stopListening(); tts.stop(); releaseWake()
         turns = 0; history.clear()
-        retryAt = SystemClock.elapsedRealtime() + 900L
+        retryAt = SystemClock.elapsedRealtime() + 450L
         publish(message)
     }
     private fun endTurnSession(message: String) {
@@ -97,10 +122,40 @@ class OnlineBackgroundVoiceService : Service() {
         // A text request during model loading must not invalidate the loading phase.
         if (phase == "Wake loading") return
         returnToWake("Wake paused for foreground voice")
-        retryAt = SystemClock.elapsedRealtime() + 2500L
+        retryAt = SystemClock.elapsedRealtime() + 1200L
+    }
+    private fun ensureOwnerSpeakerModelLoaded() {
+        if (!::ownerSpeaker.isInitialized || !ownerSpeaker.enabled || !ownerSpeaker.enrolled) return
+        if (ownerSpeaker.model != null) {
+            ownerModelRecovery.onLoadSuccess()
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (!ownerModelRecovery.beginLoad(now)) return
+        scope.launch(Dispatchers.IO) {
+            val loaded = runCatching { ownerSpeaker.load(); ownerSpeaker.model != null }.getOrDefault(false)
+            main.post {
+                if (closed || !started) return@post
+                if (loaded) {
+                    ownerModelRecovery.onLoadSuccess()
+                    retryAt = 0L
+                } else {
+                    val failState = ownerModelRecovery.onLoadFailure(SystemClock.elapsedRealtime())
+                    if (failState == OwnerModelRecoveryTracker.LoadState.FAILED_BOUNDED) {
+                        retryAt = Long.MAX_VALUE
+                        publish("Owner speaker model unavailable — wake blocked")
+                    } else {
+                        retryAt = ownerModelRecovery.nextRetryAtMs
+                        publish("Owner speaker model retry ${ownerModelRecovery.attempts}/${OwnerModelRecoveryTracker.MAX_LOAD_ATTEMPTS}")
+                    }
+                }
+            }
+        }
     }
     private fun loadWake() {
+        ownerModelRecovery.reset()
         publish("Loading Hey JARVIS detector")
+        ensureOwnerSpeakerModelLoaded()
         StorageService.unpack(this, "model-en-us", "omega-vosk-en", { model ->
             main.post { if (closed || !started) model.close() else { wakeModel = model; phase = "Wake idle"; retryAt = 0L } }
         }, { _ -> main.post { if (started && !closed) finish("Hey JARVIS model unavailable") } })
@@ -109,14 +164,35 @@ class OnlineBackgroundVoiceService : Service() {
         val model = wakeModel ?: return
         if (!wakeAllowed() || foregroundBusy()) return
         if (!VoiceMic.lease.acquire(wakeLease)) {
-            retryAt = SystemClock.elapsedRealtime() + 500L
+            retryAt = SystemClock.elapsedRealtime() + 200L
             if (_status.value != "Wake waiting for microphone release") publish("Wake waiting for microphone release")
             return
         }
         try {
+            val ownerFilterActive = ::ownerSpeaker.isInitialized && ownerSpeaker.enabled && ownerSpeaker.enrolled
+            if (!ownerModelRecovery.canArmWake(ownerFilterActive, ownerSpeaker.model != null)) {
+                releaseWake()
+                if (ownerModelRecovery.state == OwnerModelRecoveryTracker.LoadState.FAILED_BOUNDED) {
+                    retryAt = Long.MAX_VALUE
+                    publish("Owner speaker model unavailable — wake blocked")
+                } else {
+                    ensureOwnerSpeakerModelLoaded()
+                    retryAt = maxOf(ownerModelRecovery.nextRetryAtMs, SystemClock.elapsedRealtime() + 750L)
+                    publish("Owner speaker model loading — retrying wake")
+                }
+                return
+            }
             val recognizer = Recognizer(model, 16000f, JSONArray(HandsFreeWakePolicy.phrases + "[unk]").toString())
             wakeRecognizer = recognizer; recognizer.setWords(true)
+            if (ownerFilterActive) {
+                recognizer.setSpeakerModel(ownerSpeaker.model ?: run { releaseWake(); return })
+            }
             val speech = SpeechService(recognizer, 16000f); wakeSpeech = speech
+            fastWake.bindSession(object : FastWakeDetector.Session {
+                override fun cancel() { speech.cancel() }
+                override fun shutdown() { speech.shutdown() }
+                override fun closeRecognizer() { recognizer.close() }
+            })
             val token = ++wakeGeneration
             fun current() = started && !closed && wakeMode && token == wakeGeneration && phase == "Wake idle"
             fun failed() {
@@ -133,6 +209,7 @@ class OnlineBackgroundVoiceService : Service() {
                     val words = json.optJSONArray("result") ?: return
                     val confidence = (0 until words.length()).map { words.optJSONObject(it)?.optDouble("conf", Double.NaN) ?: Double.NaN }
                     if (!HandsFreeWakePolicy.accept(json.optString("text"), confidence, AudioCapturePolicy.wakeThreshold(prefs.settings.value.wakeSensitivity))) return
+                    if (!fastWake.evaluateResult(hypothesis.orEmpty(), isPartial = false)) return
                     releaseWake(); wakeFailures = 0
                     if (!screenReady()) {
                         // Local keyword only while locked. No cloud audio, AI requests or device actions.
@@ -146,11 +223,11 @@ class OnlineBackgroundVoiceService : Service() {
                     } else {
                         turns = 0; history.clear(); sessionDeadline = SystemClock.elapsedRealtime() + 180_000L
                         if (prefs.settings.value.autoSpeak) {
-                            phase = "Acknowledging"; ackDeadline = SystemClock.elapsedRealtime() + 8000L
+                            phase = "Acknowledging"; ackDeadline = SystemClock.elapsedRealtime() + 4000L
                             publish("Hey JARVIS — ready")
                             val s = prefs.settings.value
-                            tts.configure("en-IN", s.ttsSpeed, s.ttsPitch, s.ttsStyle)
-                            tts.speak("Yes, Boss")
+                            tts.configure(TeluguVoiceReplies.wakeAckLocale(s.languageTag), s.ttsSpeed, s.ttsPitch, s.ttsStyle)
+                            tts.speak(TeluguVoiceReplies.wakeAck(s.languageTag))
                         } else listen()
                     }
                 }
@@ -177,6 +254,7 @@ class OnlineBackgroundVoiceService : Service() {
         db = AppDatabase(this)
         repository = PanduAiRepository({ prefs.settings.value }, DeviceActionExecutor(this, db, prefs), db)
         input = VoiceInputController(this, owner = "background-capture") { text -> accept(text) }
+        ownerSpeaker = OwnerSpeaker(this)
         tts = TeluguTtsController(this, backgroundOwned = true, cloudSettings = { prefs.settings.value }, backgroundCloudAllowed = { phase == "Speaking" && allowed() || phase == "Acknowledging" && allowed() })
         tts.setOnSpeechFinished {
             if (phase == "Acknowledging" && allowed()) { ackDeadline = 0L; listen() }
@@ -195,10 +273,13 @@ class OnlineBackgroundVoiceService : Service() {
         wakeMode = intent?.action == START_WAKE
         started = true
         if (!allowed()) { finish("Microphone, notification permission and unlocked screen required"); return START_NOT_STICKY }
-        try { startForeground(ID, notification("Starting online voice")) } catch (_: Exception) { finish("Android rejected microphone foreground service"); return START_NOT_STICKY }
+        try {
+            val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+            ServiceCompat.startForeground(this, ID, notification("Starting online voice"), fgsType)
+        } catch (_: Exception) { finish("Android rejected microphone foreground service"); return START_NOT_STICKY }
         scope.launch {
             while (started) {
-                delay(200)
+                delay(100)
                 if (!wakeAllowed()) { finish("Stopped for microphone or notification privacy"); break }
                 if (!screenReady() && (!wakeMode || phase !in listOf("Wake idle", "Wake loading"))) {
                     if (!wakeMode) { finish("Stopped for screen privacy"); break }
@@ -238,7 +319,7 @@ class OnlineBackgroundVoiceService : Service() {
             if (!prefs.settings.value.autoSpeak) { endTurnSession("Auto speak is disabled"); return@launch }
             val s = prefs.settings.value
             phase = "Speaking"; publish("Speaking — online AI reply")
-            tts.configure(s.languageTag, s.ttsSpeed, s.ttsPitch, s.ttsStyle)
+            tts.configure(TeluguVoiceReplies.effectiveLocale(s.languageTag, utterance = reply), s.ttsSpeed, s.ttsPitch, s.ttsStyle)
             tts.speak(reply.take(1000))
         }
     }
@@ -255,7 +336,7 @@ class OnlineBackgroundVoiceService : Service() {
         responseJob?.cancel(); input.stopListening(); tts.stop(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
     }
     override fun onDestroy() {
-        started = false; closed = true; releaseWake(); wakeModel?.let { runCatching { it.close() } }; wakeModel = null; if (instance === this) instance = null; scope.cancel(); input.release(); tts.release(); prefs.close(); db.close(); stopForeground(STOP_FOREGROUND_REMOVE)
+        started = false; closed = true; releaseWake(); if (::ownerSpeaker.isInitialized) runCatching { ownerSpeaker.close() }; wakeModel?.let { runCatching { it.close() } }; wakeModel = null; if (instance === this) instance = null; scope.cancel(); input.release(); tts.release(); prefs.close(); db.close(); stopForeground(STOP_FOREGROUND_REMOVE)
         if (phase != "Idle") _status.value = "Stopped"
         super.onDestroy()
     }

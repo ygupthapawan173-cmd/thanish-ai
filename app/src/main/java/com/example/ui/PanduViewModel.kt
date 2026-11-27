@@ -262,7 +262,14 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 emergencyStopped = false
                 if (cmd.isNotBlank()) handleInlineWakeCommand(cmd) else if(_uiState.value.settings.autoSpeak) {
                     wakeAckPending=true; val token=++wakeAckGeneration
-                    ttsController.speak("Yes, Boss")
+                    val lang = _uiState.value.settings.languageTag
+                    ttsController.configure(
+                        com.example.voice.TeluguVoiceReplies.wakeAckLocale(lang),
+                        _uiState.value.settings.ttsSpeed,
+                        _uiState.value.settings.ttsPitch,
+                        _uiState.value.settings.ttsStyle
+                    )
+                    ttsController.speak(com.example.voice.TeluguVoiceReplies.wakeAck(lang))
                     viewModelScope.launch {
                         delay(5000)
                         if(wakeAckPending && token==wakeAckGeneration) {
