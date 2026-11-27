@@ -1,4 +1,4 @@
-name: OMEGA V21.1 ELITE VOICE MASTER
+name: OMEGA V21.1 ELITE CAM VOICE MASTER
 on:
   push:
     branches: [build/omega-pandu-v21-1-elite-cam-voice-master]
@@ -26,7 +26,7 @@ jobs:
           gradle-version: '8.11.1'
       - name: Verify and extract V21.1 source
         run: |
-          echo "03e7437870cf894bc32974188885ec770a0c41d65052f2a56e7f3b9bc43f57c6  OMEGA-PANDU-v21.1-ELITE-CAM-VOICE-MASTER.zip" | sha256sum -c -
+          echo "5c6452fb59bfb08b9d8aff0c468027887556ca952e8ed3834a5b88b61f8a424d  OMEGA-PANDU-v21.1-ELITE-CAM-VOICE-MASTER.zip" | sha256sum -c -
           python3 - <<'PY'
           import zipfile,pathlib,stat,hashlib
           with zipfile.ZipFile('OMEGA-PANDU-v21.1-ELITE-CAM-VOICE-MASTER.zip') as z:
