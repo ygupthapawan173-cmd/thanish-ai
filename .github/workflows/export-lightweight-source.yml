@@ -1,0 +1,29 @@
+name: V108.1 Lightweight Source Export
+on:
+  push:
+    branches: [ v108-1-lightweight-source ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage tracked source files
+        run: |
+          mkdir -p export
+          git archive HEAD | tar -x -C export
+          rm -f export/.github/workflows/export-lightweight-source.yml
+          du -sh export
+          test -f export/app/src/main/java/com/example/omega/OnlineBackgroundVoiceService.kt
+          test -f export/app/src/main/java/com/example/ai/PanduAiRepository.kt
+          test -f export/app/src/main/java/com/example/voice/TeluguTtsController.kt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V108.1-LIGHTWEIGHT-SOURCE
+          path: export/
+          include-hidden-files: true
+          if-no-files-found: error
