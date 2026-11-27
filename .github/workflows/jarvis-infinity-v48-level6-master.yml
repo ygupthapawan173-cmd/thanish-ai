@@ -1,0 +1,113 @@
+name: JARVIS INFINITY V48 LEVEL6 MASTER INTEGRATION TEST
+on:
+  push:
+    branches: [main]
+    paths:
+      - JARVIS-INFINITY-V48-20-IN-1-MASTER-PATCH.zip
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Verify exact ZIP and extract
+        run: |
+          echo '19c2fb705a527728c4520b6d4120aa95129b043554c03f6a2e6c8ce1197fd81b  JARVIS-INFINITY-V48-20-IN-1-MASTER-PATCH.zip' | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile,pathlib,stat,hashlib
+          root=pathlib.Path('infinity-v48-level6-master-build')
+          with zipfile.ZipFile('JARVIS-INFINITY-V48-20-IN-1-MASTER-PATCH.zip') as z:
+              assert len(z.namelist()) < 1000 and sum(i.file_size for i in z.infolist()) < 100_000_000
+              assert len(set(z.namelist())) == len(z.namelist()) and z.testzip() is None
+              for i in z.infolist():
+                  p=pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts and not stat.S_ISLNK(i.external_attr >> 16)
+              z.extractall(root)
+          expected={}
+          for line in (root/'SOURCE-MANIFEST.sha256').read_text().splitlines():
+              digest,name=line.split('  ',1)
+              p=pathlib.PurePosixPath(name)
+              assert name not in expected and not p.is_absolute() and '..' not in p.parts
+              expected[name]=digest
+          actual={str(f.relative_to(root)) for f in root.rglob('*') if f.is_file() and f.name!='SOURCE-MANIFEST.sha256'}
+          assert actual==set(expected)
+          for name,digest in expected.items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest,name
+          PY
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+      - name: Provision voice models
+        working-directory: infinity-v48-level6-master-build
+        run: |
+          bash ci/provision-vosk.sh
+          bash ci/provision-neural-vad.sh
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test neural VAD
+        working-directory: infinity-v48-level6-master-build
+        run: |
+          python3 -m venv "$RUNNER_TEMP/vad-test-env"
+          "$RUNNER_TEMP/vad-test-env/bin/pip" install onnxruntime==1.22.0
+          "$RUNNER_TEMP/vad-test-env/bin/python" ci/check-neural-model.py
+      - name: Migration and source checks
+        working-directory: infinity-v48-level6-master-build
+        run: |
+          python3 ci/check-level6-sql.py
+          python3 ci/check-v47-source.py
+      - name: Compile and run regression tests
+        working-directory: infinity-v48-level6-master-build
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Build test APK
+        working-directory: infinity-v48-level6-master-build
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify signature, package, version and bundled models
+        run: |
+          mkdir -p out
+          cp infinity-v48-level6-master-build/app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V48-LEVEL6-MASTER-TEST.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/*.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "versionName='48.0-voice-routing-candidate'"
+          python3 - <<'PY'
+          import zipfile,hashlib
+          with zipfile.ZipFile('out/JARVIS-INFINITY-V48-LEVEL6-MASTER-TEST.apk') as z:
+              assert z.testzip() is None
+              for lib in ('libvosk.so','libonnxruntime.so'):
+                  assert 'lib/arm64-v8a/'+lib in z.namelist()
+              prefix='assets/neural-vad/'
+              assert hashlib.sha256(z.read(prefix+'silero_vad.onnx')).hexdigest()==z.read(prefix+'model.sha256').decode().strip()
+              assert z.read(prefix+'LICENSE')
+              for pack in ('model-en-us','model-te-in','model-spk'):
+                  prefix='assets/'+pack+'/'
+                  lines=z.read(prefix+'pack.sha256').decode().splitlines()
+                  required=['final.ext.raw','mean.vec','transform.mat','mfcc.conf'] if pack=='model-spk' else ['am/final.mdl','conf/model.conf','uuid']
+                  names=[line.split('  ',1)[1] for line in lines]
+                  assert all(n in names for n in required)
+                  for line in lines:
+                      digest,name=line.split('  ',1)
+                      assert hashlib.sha256(z.read(prefix+name)).hexdigest()==digest
+          PY
+          sha256sum out/*.apk > out/SHA256SUMS.txt
+          cp infinity-v48-level6-master-build/V48-STATUS.md out/
+          cp infinity-v48-level6-master-build/V48-LOCAL-TESTS.txt out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V48-LEVEL6-MASTER-TEST
+          path: out/
+          if-no-files-found: error
