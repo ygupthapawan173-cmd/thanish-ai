@@ -80,10 +80,10 @@ object ApiQuotaTracker {
         publish(cur.copy(totalRequests = inc(cur.totalRequests),
             reportedPromptTokens = add(cur.reportedPromptTokens, prompt ?: 0),
             reportedOutputTokens = add(cur.reportedOutputTokens, output ?: 0),
-            requestsWithoutUsage = if (prompt == null && output == null) inc(cur.requestsWithoutUsage) else cur.requestsWithoutUsage,
-            knownCostUsd = cur.knownCostUsd + (cost ?: 0.0),
+            requestsWithoutUsage = if (prompt == null || output == null) inc(cur.requestsWithoutUsage) else cur.requestsWithoutUsage,
+            knownCostUsd = (cur.knownCostUsd + (cost ?: 0.0)).coerceAtMost(Double.MAX_VALUE),
             requestsWithoutCost = if (cost == null) inc(cur.requestsWithoutCost) else cur.requestsWithoutCost,
-            averageLatencyMs = ((cur.averageLatencyMs * successes) + latencyMs.coerceAtLeast(0)) / (successes + 1),
+            averageLatencyMs = (cur.averageLatencyMs.toDouble() + (latencyMs.coerceAtLeast(0).toDouble() - cur.averageLatencyMs.toDouble()) / (successes.toLong() + 1L)).toLong().coerceAtLeast(0),
             lastUsedModel = model.take(512)))
     }
     @Synchronized fun recordFailure(model: String = "") {
