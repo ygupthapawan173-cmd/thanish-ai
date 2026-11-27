@@ -86,10 +86,10 @@ object ApiQuotaTracker {
             averageLatencyMs = ((cur.averageLatencyMs * successes) + latencyMs.coerceAtLeast(0)) / (successes + 1),
             lastUsedModel = model.take(512)))
     }
-    @Synchronized fun recordFailure(model: String) {
+    @Synchronized fun recordFailure(model: String = "") {
         val cur = _snapshot.value
         if (cur.totalRequests == Int.MAX_VALUE) return
-        publish(cur.copy(totalRequests = inc(cur.totalRequests), failedRequests = inc(cur.failedRequests), lastUsedModel = model.take(512)))
+        publish(cur.copy(totalRequests = inc(cur.totalRequests), failedRequests = inc(cur.failedRequests), lastUsedModel = model.ifBlank { cur.lastUsedModel }.take(512)))
     }
     @Synchronized fun recordTtsUsage(model: String, characters: Int, fallbackUsed: Boolean) {
         val cur = _snapshot.value
