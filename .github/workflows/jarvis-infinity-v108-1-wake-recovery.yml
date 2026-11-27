@@ -90,3 +90,68 @@ jobs:
           name: JARVIS-INFINITY-V108.1-WAKE-RECOVERY
           path: out/
           if-no-files-found: error
+
+      - name: Save matching source snapshots
+        run: |
+          mkdir -p source-out
+          python3 - <<'PY'
+          import hashlib, io, json, os, pathlib, subprocess, tarfile, zipfile
+          from datetime import datetime, timezone
+
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert sha == os.environ["GITHUB_SHA"], "Checkout does not match build commit"
+          version = "V108.1-WAKE-RECOVERY"
+          archive = subprocess.check_output(["git", "archive", "--format=tar", sha])
+          out = pathlib.Path("source-out")
+          full = out / f"JARVIS-INFINITY-{version}-SOURCE.zip"
+          light = out / f"JARVIS-INFINITY-{version}-LIGHTWEIGHT-SOURCE.zip"
+          omitted = []
+          count = 0
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar, \
+               zipfile.ZipFile(full, "w", compression=zipfile.ZIP_DEFLATED) as complete, \
+               zipfile.ZipFile(light, "w", compression=zipfile.ZIP_DEFLATED) as small:
+              for entry in tar:
+                  if not entry.isfile():
+                      continue
+                  name = entry.name
+                  low = name.lower()
+                  basename = pathlib.PurePosixPath(low).name
+                  if low.endswith((".zip", ".apk", ".aab", ".jks", ".keystore", ".p12", ".pem", ".key")) or basename in {".env", "local.properties", "google-services.json", "source-manifest.sha256", "credentials.json", "secrets.json"}:
+                      omitted.append(name)
+                      continue
+                  data = tar.extractfile(entry).read()
+                  complete.writestr(name, data)
+                  if not name.startswith("app/src/main/assets/model-spk/"):
+                      small.writestr(name, data)
+                  count += 1
+              metadata = {
+                  "source_commit": sha,
+                  "version": version,
+                  "version_code": 116,
+                  "build_run": os.environ["GITHUB_RUN_ID"],
+                  "created_utc": datetime.now(timezone.utc).isoformat(),
+                  "excluded_tracked_files": omitted,
+                  "tracked_files_in_full": count,
+                  "rebuild": "Use the matching workflow and CI model provisioning scripts. Restore any required excluded configuration from authorized local copies. Lightweight source additionally omits speaker-model weights.",
+                  "note": "Source snapshots contain committed inputs, not generated binaries or CI secrets. Exclusion patterns are not a comprehensive secret scan."
+              }
+              for z in (complete, small):
+                  z.writestr("BUILD-SOURCE-METADATA.json", json.dumps(metadata, indent=2) + "\n")
+          for file in (full, light):
+              with zipfile.ZipFile(file) as z:
+                  assert z.testzip() is None
+                  for required in ("app/build.gradle.kts", "app/src/main/java/com/example/omega/OnlineBackgroundVoiceService.kt"):
+                      assert required in z.namelist(), required
+              digest = hashlib.sha256(file.read_bytes()).hexdigest()
+              (out / (file.name + ".sha256")).write_text(f"{digest}  {file.name}\n")
+              print(file.name, file.stat().st_size, digest)
+          (out / "BUILD-SOURCE-METADATA.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          PY
+
+      - name: Upload matching source backups
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V108.1-SOURCE-BACKUPS
+          path: source-out/
+          if-no-files-found: error
+          retention-days: 90
