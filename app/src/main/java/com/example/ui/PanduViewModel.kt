@@ -466,7 +466,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isCheckingUpdate = true, updateStatusMessage = "Checking latest verified release...") }
-            val check = selfUpdater.checkLatestRelease(s.githubRepoSlug, s.githubToken)
+            val check = secureUpdater.checkLatestRelease(s.githubRepoSlug, s.githubToken)
             check.onSuccess { rel ->
                 _uiState.update { it.copy(isCheckingUpdate = false, availableRelease = rel) }
                 if (!rel.isNewerThanInstalled) {
