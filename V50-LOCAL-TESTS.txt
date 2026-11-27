@@ -1,0 +1,8 @@
+V48 source archive manifest: all entries verified before edits.
+34/34 V50 pure JVM policy checks passed.
+19/19 V48 JVM policy checks passed against V50 policies.
+14/14 V50 static source guards passed.
+7 source guards (updated for deliberate V50 LLM removal) + 1 desktop SQLite collision example passed.
+Desktop SQLite: five table rows preserved by actual index SQL.
+Shell syntax checks on model provisioning and signing passed.
+These are not full Android runtime tests. Android SDK/Gradle not available locally, no signed V50 APK built here.

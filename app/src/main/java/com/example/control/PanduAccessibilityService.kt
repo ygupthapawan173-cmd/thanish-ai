@@ -1,260 +1,231 @@
 package com.example.control
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
+import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
+import android.graphics.Path
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.view.Display
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import org.json.JSONObject
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import android.app.KeyguardManager
+import kotlin.coroutines.resume
 
 /**
- * User-consented service for system navigation and one-step, confirmed phone-agent actions.
- * Screen capture is allowed only while the user has explicitly started an Agent task.
+ * Permission-based Cross-App Automation & Visual HUD Service (NO screen-reader narration).
  */
 class PanduAccessibilityService : AccessibilityService() {
 
-    private var agentNodes: List<AccessibilityNodeInfo> = emptyList()
-    private var agentNodeLabels: List<String> = emptyList()
-
-    private fun captureVisibleAgentScreen(): String? {
-        if (!agentScreenCaptureGranted) return null
-        val root = rootInActiveWindow ?: return null
-        val packageName = root.packageName?.toString().orEmpty()
-        if (packageName in BLOCKED_AGENT_PACKAGES) return null
-
-        val nodes = mutableListOf<AccessibilityNodeInfo>()
-        val labels = mutableListOf<String>()
-        val screen = StringBuilder("App: $packageName\n")
-
-        fun walk(node: AccessibilityNodeInfo) {
-            if (!node.isVisibleToUser || node.isPassword) return
-
-            val editable = node.isEditable
-            // Do not send the current value of editable fields to the AI provider.
-            val rawLabel = if (editable) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    node.hintText?.toString()?.takeIf { it.isNotBlank() }
-                } else {
-                    null
-                }
-            } else {
-                node.text?.toString()?.takeIf { it.isNotBlank() }
-                    ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
-            }
-
-            val useful = node.isClickable || editable || node.isScrollable || !rawLabel.isNullOrBlank()
-            if (useful && nodes.size < 100) {
-                val kind = when {
-                    editable -> "input"
-                    node.isScrollable -> "scrollable"
-                    node.isClickable -> "button"
-                    else -> "text"
-                }
-                val label = (rawLabel ?: if (editable) "text field" else kind)
-                    .replace("\n", " ")
-                    .replace("\r", " ")
-                    .replace("\"", "'")
-                    .take(90)
-                val id = nodes.size
-                nodes += node
-                labels += "$kind $label"
-                screen.append("[$id] $kind \"$label\"\n")
-            }
-
-            for (index in 0 until node.childCount) {
-                node.getChild(index)?.let(::walk)
-            }
-        }
-
-        walk(root)
-        agentNodes = nodes
-        agentNodeLabels = labels
-        return screen.toString().take(7_000)
-    }
-
-    private fun describeAgentAction(name: String, args: JSONObject): String? {
-        return when (name) {
-            "open_app" -> "Open app: " + args.optString("name").take(60)
-            "tap" -> agentNodeLabels.getOrNull(args.optInt("id", -1))?.let { "Tap $it" }
-            "set_text" -> {
-                val id = args.optInt("id", -1)
-                val node = agentNodes.getOrNull(id)
-                val text = args.optString("text").take(100)
-                if (node != null && node.isEditable && !node.isPassword && text.isNotBlank()) {
-                    "Enter \"$text\" into " + (agentNodeLabels.getOrNull(id) ?: "input field")
-                } else {
-                    null
-                }
-            }
-            "scroll" -> "Scroll " + args.optString("direction")
-            "press" -> "Press " + args.optString("key")
-            else -> null
-        }
-    }
-
-    private fun executeAgentAction(name: String, argsJson: String): CommandExecutionResult {
-        return runCatching {
-            val args = JSONObject(argsJson)
-            when (name) {
-                "open_app" -> {
-                    val requested = args.optString("name").trim()
-                    require(requested.isNotBlank() && requested.length <= 60)
-                    val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                    val match = packageManager.queryIntentActivities(launch, 0).firstOrNull {
-                        it.loadLabel(packageManager).toString().equals(requested, ignoreCase = true)
-                    } ?: packageManager.queryIntentActivities(launch, 0).firstOrNull {
-                        it.loadLabel(packageManager).toString().contains(requested, ignoreCase = true)
-                    } ?: error("App not found: $requested")
-                    val intent = packageManager.getLaunchIntentForPackage(match.activityInfo.packageName)
-                        ?: error("App cannot be launched.")
-                    startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }
-                "tap" -> {
-                    val node = agentNodes.getOrNull(args.optInt("id", -1)) ?: error("Screen item expired.")
-                    require(node.refresh() && node.isVisibleToUser && !node.isPassword)
-                    var current: AccessibilityNodeInfo? = node
-                    var clicked = false
-                    while (current != null && !clicked) {
-                        val parent = current.parent
-                        if (current.isClickable) {
-                            clicked = current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        }
-                        current = if (clicked) null else parent
-                    }
-                    require(clicked) { "That control is no longer clickable." }
-                }
-                "set_text" -> {
-                    val node = agentNodes.getOrNull(args.optInt("id", -1)) ?: error("Input field expired.")
-                    require(node.refresh() && node.isVisibleToUser && node.isEditable && !node.isPassword)
-                    val value = args.optString("text")
-                    require(value.isNotBlank() && value.length <= 300)
-                    val bundle = Bundle().apply {
-                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
-                    }
-                    require(node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)) {
-                        "Could not enter text in that field."
-                    }
-                }
-                "scroll" -> {
-                    val direction = args.optString("direction")
-                    require(direction == "up" || direction == "down")
-                    val target = if (args.has("id")) {
-                        agentNodes.getOrNull(args.optInt("id", -1))
-                    } else {
-                        agentNodes.firstOrNull { it.isScrollable }
-                    }
-                    require(target != null && target.refresh() && target.isVisibleToUser && target.isScrollable)
-                    val action = if (direction == "down") {
-                        AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-                    } else {
-                        AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-                    }
-                    require(target.performAction(action)) { "Nothing to scroll." }
-                }
-                "press" -> {
-                    val action = when (args.optString("key")) {
-                        "back" -> GLOBAL_ACTION_BACK
-                        "home" -> GLOBAL_ACTION_HOME
-                        "recents" -> GLOBAL_ACTION_RECENTS
-                        "notifications" -> GLOBAL_ACTION_NOTIFICATIONS
-                        else -> error("Unsupported navigation key.")
-                    }
-                    require(performGlobalAction(action))
-                }
-                else -> error("Unsupported action.")
-            }
-            CommandExecutionResult(true, "చేశాను బాస్.")
-        }.getOrElse {
-            CommandExecutionResult(false, "Agent action చేయలేకపోయాను: " + (it.localizedMessage ?: "unknown error"))
-        }
-    }
+    private lateinit var haptics: HapticFeedbackHelper
+    private var serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        serviceScope.cancel()
+        serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        android.util.Log.i("OmegaAccessibility", "SERVICE_CONNECTED")
         instance = this
-        _isConnected.value = true
+        haptics = HapticFeedbackHelper(this)
+
+        serviceScope.launch {
+            AgentHudBus.abortSignal.collect {
+                haptics.abortPulse()
+                AgentHudBus.updateState(AgentHudState.Hidden)
+            }
+        }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Agent screen snapshots are captured only on demand, never collected in the background.
+    private fun available() = instance === this && !getSystemService(KeyguardManager::class.java).isDeviceLocked
+
+    suspend fun performVisualTap(x: Float, y: Float, label: String, highlightBox: Rect? = null): Boolean =
+        withContext(Dispatchers.Main) {
+            if (!available() || !x.isFinite() || !y.isFinite() || x < 0 || y < 0 || x >= resources.displayMetrics.widthPixels || y >= resources.displayMetrics.heightPixels) return@withContext false
+            haptics.softTap()
+            withTimeoutOrNull(2500L) { suspendCancellableCoroutine<Boolean> { cont ->
+                AgentHudBus.updateState(AgentHudState.Active(label, highlightBox = highlightBox, audioAmplitude = 0.6f))
+                AgentHudBus.emitEvent(HudVisualEvent.TapRipple(x, y))
+                val path = Path().apply { moveTo(x, y) }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0L, 60L))
+                    .build()
+                val ok = dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(true) }
+                    override fun onCancelled(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(false) }
+                }, null)
+                if (!ok && cont.isActive) cont.resume(false)
+            } } ?: false
+        }
+
+    suspend fun tapNormalizedCoordinates(xNorm: Int, yNorm: Int, label: String): String {
+        val m = resources.displayMetrics
+        val px = (xNorm.coerceIn(0, 1000) / 1000f) * m.widthPixels
+        val py = (yNorm.coerceIn(0, 1000) / 1000f) * m.heightPixels
+        val box = Rect((px - 42).toInt(), (py - 42).toInt(), (px + 42).toInt(), (py + 42).toInt())
+        val ok = performVisualTap(px, py, label.ifBlank { "Tap ($xNorm,$yNorm)" }, box)
+        delay(220)
+        return if (ok) "Tapped ($xNorm, $yNorm)." else "Tap cancelled."
     }
 
-    override fun onInterrupt() = Unit
+    suspend fun typeTextIntoFocusedField(text: String): String = withContext(Dispatchers.Main) {
+        if (!available()) return@withContext "Accessibility unavailable or device locked."
+        val root = rootInActiveWindow ?: return@withContext "No active window found."
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findFirstEditable(root)
+            ?: return@withContext "No editable text field found."
+        if (focused.isPassword || !focused.isEditable) return@withContext "Protected or non-editable field."
+        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+        if (focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) "Typed text." else "Unable to type."
+    }
 
-    override fun onUnbind(intent: Intent?): Boolean {
-        markDisconnected()
+    private fun findFirstEditable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? = findBounded(node) { it.isEditable }
+
+    // Bound traversal on large or malformed windows; avoid recursive stack overflow on the UI thread.
+    private fun findBounded(root: AccessibilityNodeInfo?, matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        if (root == null) return null
+        val pending = java.util.ArrayDeque<AccessibilityNodeInfo>()
+        pending.add(root)
+        var visited = 0
+        while (pending.isNotEmpty() && visited++ < 1500) {
+            val node = pending.removeLast()
+            if (matches(node)) return node
+            for (i in minOf(node.childCount, 1500) - 1 downTo 0) {
+                if (pending.size + visited >= 1500) break
+                node.getChild(i)?.let { pending.add(it) }
+            }
+        }
+        return null
+    }
+
+    suspend fun scrollScreen(direction: String): String = withContext(Dispatchers.Main) {
+        if (!available() || direction.lowercase() !in setOf("up", "down")) return@withContext "Scroll unavailable or invalid direction."
+        val m = resources.displayMetrics
+        val cx = m.widthPixels * 0.5f
+        val isDown = direction.lowercase() != "up"
+        val startY = if (isDown) m.heightPixels * 0.74f else m.heightPixels * 0.28f
+        val endY = if (isDown) m.heightPixels * 0.28f else m.heightPixels * 0.74f
+        AgentHudBus.emitEvent(HudVisualEvent.SwipeTrail(cx, startY, cx, endY))
+        val ok = withTimeoutOrNull(3000L) { suspendCancellableCoroutine<Boolean> { cont ->
+            val path = Path().apply { moveTo(cx, startY); lineTo(cx, endY) }
+            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 320L)).build()
+            val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(true) }
+                override fun onCancelled(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(false) }
+            }, null)
+            if (!dispatched && cont.isActive) cont.resume(false)
+        } } ?: false
+        if (ok) "Scrolled ${if (isDown) "down" else "up"}." else "Scroll cancelled."
+    }
+
+    suspend fun clickNodeByText(targetText: String): String = withContext(Dispatchers.Main) {
+        if (!available()) return@withContext "Accessibility unavailable or device locked."
+        val q = targetText.trim()
+        if (q.isEmpty()) return@withContext "Target empty."
+        val root = rootInActiveWindow ?: return@withContext "No active window."
+        val exact = mutableListOf<AccessibilityNodeInfo>()
+        val pending = java.util.ArrayDeque<AccessibilityNodeInfo>(); pending.add(root)
+        var visited = 0
+        while (pending.isNotEmpty() && visited++ < 1500) {
+            val node = pending.removeLast()
+            if (node.isVisibleToUser && !node.isPassword && (node.text?.toString()?.equals(q, true) == true || node.contentDescription?.toString()?.equals(q, true) == true)) exact.add(node)
+            if (exact.size > 1) break
+            for (i in minOf(node.childCount, 1500) - 1 downTo 0) {
+                if (pending.size + visited >= 1500) break
+                node.getChild(i)?.let { pending.add(it) }
+            }
+        }
+        if (pending.isNotEmpty() && exact.size < 2) return@withContext "Window too complex; use a more specific action."
+        if (exact.size > 1) return@withContext "Multiple matching controls; specify a unique target."
+        val matched = exact.singleOrNull() ?: return@withContext "Could not find a unique exact control '$q'."
+        val rect = Rect()
+        matched.getBoundsInScreen(rect)
+        if (!rect.isEmpty) {
+            val tapped = performVisualTap(rect.exactCenterX(), rect.exactCenterY(), "Tapping '$q'", rect)
+            delay(220)
+            if (tapped) return@withContext "Tapped '$q'."
+        }
+        var node: AccessibilityNodeInfo? = matched
+        var depth = 0
+        while (node != null && !node.isClickable && depth++ < 64) node = node.parent
+        if (node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) "Clicked '$q'." else "Could not click '$q'."
+    }
+
+    fun performDeviceNavigation(action: String): String {
+        if (!available()) return "Accessibility unavailable or device locked."
+        val code = when (action.lowercase()) {
+            "back" -> GLOBAL_ACTION_BACK
+            "home" -> GLOBAL_ACTION_HOME
+            "recents" -> GLOBAL_ACTION_RECENTS
+            "notifications" -> GLOBAL_ACTION_NOTIFICATIONS
+            else -> return "Unknown action: $action"
+        }
+        return if (performGlobalAction(code)) "Performed $action." else "Failed $action."
+    }
+
+    suspend fun captureScreenBase64Jpeg(): String? = withContext(Dispatchers.Main) {
+        if (!available() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext null
+        withTimeoutOrNull(5000L) { suspendCancellableCoroutine<String?> { cont ->
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    try {
+                        val buffer = screenshot.hardwareBuffer
+                        val hw = try { if (cont.isActive) Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace) else null } finally { buffer.close() }
+                        if (hw != null) {
+                            val sw = hw.copy(Bitmap.Config.ARGB_8888, false)
+                            hw.recycle()
+                            val b64 = VisionHelper.bitmapToBase64Jpeg(sw)
+                            sw.recycle()
+                            if (cont.isActive) cont.resume(b64)
+                        } else if (cont.isActive) cont.resume(null)
+                    } catch (_: Exception) { if (cont.isActive) cont.resume(null) }
+                }
+                override fun onFailure(errorCode: Int) { if (cont.isActive) cont.resume(null) }
+            })
+        } }
+    }
+
+    private fun findByDesc(node: AccessibilityNodeInfo?, query: String): AccessibilityNodeInfo? =
+        findBounded(node) { it.contentDescription?.toString()?.contains(query, ignoreCase = true) == true }
+
+    override fun onKeyEvent(event: KeyEvent?): Boolean {
+        if (event?.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.action == KeyEvent.ACTION_DOWN) {
+            AgentHudBus.triggerAbort()
+        }
+        return super.onKeyEvent(event)
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        if (instance === this) instance = null
+        serviceScope.cancel()
+        AgentHudBus.updateState(AgentHudState.Hidden)
+        android.util.Log.w("OmegaAccessibility", "SERVICE_UNBOUND")
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        markDisconnected()
+        android.util.Log.i("OmegaAccessibility", "SERVICE_DESTROYED")
+        if (instance == this) instance = null
+        serviceScope.cancel()
         super.onDestroy()
     }
 
-    private fun markDisconnected() {
-        if (instance === this) {
-            instance = null
-            agentNodes = emptyList()
-            agentNodeLabels = emptyList()
-            agentScreenCaptureGranted = false
-            _isConnected.value = false
-        }
-    }
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onInterrupt() { AgentHudBus.updateState(AgentHudState.Hidden) }
 
     companion object {
         @Volatile
-        private var instance: PanduAccessibilityService? = null
-
-        @Volatile
-        private var agentScreenCaptureGranted = false
-
-        private val BLOCKED_AGENT_PACKAGES = setOf(
-            "com.whatsapp",
-            "com.whatsapp.w4b",
-            "com.google.android.apps.messaging",
-            "com.google.android.gm",
-            "com.google.android.apps.authenticator2",
-            "com.google.android.apps.walletnfcrel",
-            "com.phonepe.app",
-            "net.one97.paytm",
-            "com.google.android.apps.nbu.paisa.user"
-        )
-
-        fun setAgentScreenCaptureConsent(granted: Boolean) {
-            agentScreenCaptureGranted = granted
-            if (!granted) {
-                instance?.agentNodes = emptyList()
-                instance?.agentNodeLabels = emptyList()
-            }
-        }
-
-        fun captureAgentScreen(): String? = instance?.captureVisibleAgentScreen()
-
-        fun describeAgentAction(name: String, args: JSONObject): String? =
-            instance?.describeAgentAction(name, args)
-
-        fun executeAgentAction(name: String, argsJson: String): CommandExecutionResult =
-            instance?.executeAgentAction(name, argsJson)
-                ?: CommandExecutionResult(false, "Accessibility Service కనెక్ట్ కాలేదు బాస్.")
-
-        private val _isConnected = MutableStateFlow(false)
-        val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
-
-        fun performGlobalNav(action: GlobalNavigationAction): Boolean {
-            val service = instance ?: return false
-            val globalConstant = when (action) {
-                GlobalNavigationAction.BACK -> GLOBAL_ACTION_BACK
-                GlobalNavigationAction.HOME -> GLOBAL_ACTION_HOME
-                GlobalNavigationAction.RECENTS -> GLOBAL_ACTION_RECENTS
-                GlobalNavigationAction.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
-            }
-            return runCatching {
-                service.performGlobalAction(globalConstant)
-            }.getOrDefault(false)
-        }
+        var instance: PanduAccessibilityService? = null
+            private set
     }
 }

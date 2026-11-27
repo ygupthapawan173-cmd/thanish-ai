@@ -1,0 +1,2 @@
+Horizon visual renderer origin: https://github.com/The-Geek-Freaks/jarvis-horizon/blob/90eb6398df84705219b995b36a4ea296bf1fd25d/overlay/apps/android/app/src/main/assets/jarvis/horizon/js/jarvis-orb.js
+MIT license retained in LICENSE.txt. Adaptations: cyan/violet palette and explicit shader compilation/link failure handling. No other upstream backend or model assets imported.

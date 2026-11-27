@@ -1,0 +1,15 @@
+PASS Telugu code
+PASS Telugu math
+PASS English chat
+PASS image detection
+PASS chat routing
+PASS code routing
+PASS reason routing
+PASS vision capabilities
+PASS audio excluded
+PASS economy
+PASS manual exact ID
+PASS manual unknown ID
+PASS fallback codes
+PASS auth/payment no retry
+14 checks passed

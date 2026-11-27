@@ -1,0 +1,6 @@
+221/221 V100 pure JVM checks passed (policy cases, not feature count)
+PASS: 7 source guards (updated for V50 intentional LLM removal) + 1 desktop SQLite collision example (not Android runtime tests)
+14/14 V50 static source guards passed
+15/15 V100 source guards passed (static checks)
+PASS: 5 table rows preserved by actual index SQL (SQLite desktop test, not Android migration test)
+50/50 continuation policy checks passed (not feature count)

@@ -1,0 +1,12 @@
+# Final acceptance checklist (pending)
+- Install/update with matching signing key; preserve preferences, memory, routines.
+- Android 16 cold start, process death, background/foreground, locked screen, permissions and battery restrictions.
+- Telugu, English, mixed-language online capture; system provider failure and recovery; no cloud capture while locked or local-only; check missing Android language data behavior.
+- Offline Hey JARVIS, custom phrase, owner enrollment and verification in English; non-owner rejection. Confirm Telugu owner-filtered command restriction is visible; never bypass verification.
+- Gemini Live, interruption, Bluetooth, TTS, microphone handoff, idle/stall recovery.
+- Existing universal gateway: discover actual models, valid/invalid API key, 400/404/429, costs, text and vision routes; no fake status.
+- UI home, menu, settings, existing toggles, diagnostics, font scaling, orb FPS and battery draw.
+- Accessibility permission service stability, tap/scroll/back, no ANR; inspect logcat for disconnect or crash.
+- Personal memory and encrypted backup restore; local commands without internet.
+- Self-coding with owner-approved sandbox branch of extracted source, CI results, no automatic merge; self-update with signed test release, tampered APK rejection, wrong package/cert/version rejection, cancellation, user installer consent.
+- Record actual APK size, 30-minute battery and responsiveness tests. No verified production label until pass.

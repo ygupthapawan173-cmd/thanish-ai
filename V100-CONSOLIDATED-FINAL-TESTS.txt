@@ -1,0 +1,12 @@
+Local tests re-run in this session:
+221/221 base V100 pure JVM policy checks
+50/50 continuation policy checks
+56/56 audio policy checks
+99/99 agents/memory/trigger policy checks
+123/123 final integration policy checks
+549 total; NOT feature count.
+V47 source guards (7) + desktop SQLite collision example: PASS
+V50 static source guards 14/14
+V100 static source guards 15/15
+Desktop SQLite index migration example: 5 rows preserved.
+Android Gradle compilation and on-device checks: NOT RUN (SDK/Gradle absent). Live API, GitHub, signing/install, camera/voice and UI: NOT RUN.

@@ -1,0 +1,5 @@
+19/19 V48 JVM policy checks passed
+PASS: 7 source guards + 1 desktop SQLite collision example (not Android runtime tests)
+PASS: 5 table rows preserved by actual index SQL (SQLite desktop test, not Android migration test)
+
+Android compile/device/API tests: NOT RUN.

@@ -1,0 +1,37 @@
+Modified existing files (excluding regenerated manifest):
+.github/workflows/build-apk.yml
+app/build.gradle.kts
+app/src/main/java/com/example/ai/SmartGatewayClient.kt
+app/src/main/java/com/example/ai/SmartModelPolicy.kt
+app/src/main/java/com/example/autonomous/EngineeringPolicy.kt
+app/src/main/java/com/example/autonomous/SecureSelfUpdater.kt
+app/src/main/java/com/example/autonomous/SelfCodingEngine.kt
+app/src/main/java/com/example/autonomous/UpdateTransferPolicy.kt
+app/src/main/java/com/example/control/VisionHelper.kt
+app/src/main/java/com/example/data/RenderQuality.kt
+app/src/main/java/com/example/data/SemanticMemoryEngine.kt
+app/src/main/java/com/example/security/CrashRecoveryHandler.kt
+app/src/main/java/com/example/ui/InfinityScreens.kt
+app/src/main/java/com/example/ui/SettingsScreen.kt
+app/src/main/java/com/example/ui/components/RenderQualityProvider.kt
+app/src/main/java/com/example/voice/LiveSilencePolicy.kt
+app/src/main/java/com/example/voice/SpeakerProfilePolicy.kt
+app/src/main/java/com/example/voice/VoiceInputController.kt
+app/src/main/java/com/example/voice/VoiceRecoveryPolicy.kt
+ci/archive-build-workflow.yml
+ci/check-v50-source.py
+ci/sign-release.sh
+
+New files (excluding this list):
+V100-DEVICE-TEST.md
+V100-LOCAL-TESTS.txt
+V100-STATUS.md
+app/src/main/java/com/example/ai/BoundedResponse.kt
+app/src/main/java/com/example/autonomous/ReleaseVersionPolicy.kt
+app/src/main/java/com/example/security/DiagnosticRedaction.kt
+app/src/test/java/com/example/V100PolicyRegressionTest.kt
+ci/check-v100-source.py
+ci/check-v100.kt
+ci/check-v100.sh
+
+Removed files: none

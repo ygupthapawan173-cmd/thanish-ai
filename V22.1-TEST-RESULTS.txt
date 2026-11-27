@@ -1,0 +1,33 @@
+PASS Telugu chat: actual=CHAT expected=CHAT
+PASS Telugu coding: actual=CODE expected=CODE
+PASS Telugu reasoning: actual=REASONING expected=REASONING
+PASS Image input: actual=VISION expected=VISION
+PASS Chat model: actual=Model(id=google/gemini-flash-lite, imageInput=true, textOutput=true, promptPrice=0.1, completionPrice=0.2) expected=Model(id=google/gemini-flash-lite, imageInput=true, textOutput=true, promptPrice=0.1, completionPrice=0.2)
+PASS Code model: actual=Model(id=anthropic/claude-sonnet, imageInput=true, textOutput=true, promptPrice=2.0, completionPrice=5.0) expected=Model(id=anthropic/claude-sonnet, imageInput=true, textOutput=true, promptPrice=2.0, completionPrice=5.0)
+PASS Reasoning model: actual=Model(id=deepseek/deepseek-r1, imageInput=false, textOutput=true, promptPrice=1.0, completionPrice=2.0) expected=Model(id=deepseek/deepseek-r1, imageInput=false, textOutput=true, promptPrice=1.0, completionPrice=2.0)
+PASS Economy model: actual=Model(id=google/gemini-flash-lite, imageInput=true, textOutput=true, promptPrice=0.1, completionPrice=0.2) expected=Model(id=google/gemini-flash-lite, imageInput=true, textOutput=true, promptPrice=0.1, completionPrice=0.2)
+PASS Manual exact: actual=[Model(id=anthropic/claude-sonnet, imageInput=true, textOutput=true, promptPrice=2.0, completionPrice=5.0)] expected=[Model(id=anthropic/claude-sonnet, imageInput=true, textOutput=true, promptPrice=2.0, completionPrice=5.0)]
+PASS Manual invalid: actual=0 expected=0
+PASS 429 fallback: actual=true expected=true
+PASS 401 no fallback: actual=false expected=false
+PASS 402 no fallback: actual=false expected=false
+PASS Unsupported vision: actual=false expected=false
+PASS Audio excluded: actual=false expected=false
+PASS Subtraction math: actual=REASONING expected=REASONING
+PASS Tenglish math: actual=REASONING expected=REASONING
+PASS False code match: actual=CHAT expected=CHAT
+PASS Audio input but text output: actual=true expected=true
+PASS Provider synthetic moderation ID: actual=false expected=false
+TOTAL 20 passed, 0 failed
+PASS manual vision not implicitly enabled
+PASS verified manual vision allowed
+PASS auto never assumes vision
+PASS explicit no-image cannot be overridden
+PASS actual tokens
+PASS unknown usage explicit
+PASS unknown cost explicit
+PASS failure excluded from latency
+PASS failure count
+PASS parallel counts exact
+PASS reset
+TOTAL 11 passed

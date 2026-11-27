@@ -1,0 +1,15 @@
+# V20.5 ELITE VOICE MASTER — source candidate
+
+Base: V20.4 ZIP (SHA256 89c7ea87d5debebf65fde44d9b84c35d77b90bc8cf403bbe3361bf6c33f615fe). Package unchanged. VersionCode 24. Existing Compose screens, resources, icons, orb, and visual assets unchanged; notification's restart action replaced by explicit train/delete profile action (restart still handled internally). ViewModel changes limited to Live privacy guard. No API keys are embedded by the dedicated CI workflow.
+
+## Owner speaker profile
+
+Four model files extracted from the user-provided JARVIS-R27.7-IDENTITY-STABILITY-RELEASE.apk (assets/model-spk); bundle contains actual speaker model, not dummy files. Alpha Cephei Vosk speaker model: https://alphacephei.com/vosk/models (Apache-2.0). Original file hashes are checked in dedicated CI. While phone is unlocked and wake listening on, expand wake notification, tap Train owner voice, repeat the configured wake phrase plus `this is my voice profile` three times, waiting for count updates. No raw audio retained; three local speaker embeddings in app-private no-backup storage. Delete through notification while unlocked. Enrolled wake/command verification is experimental, does not provide liveness detection or phone authentication; threshold requires on-device calibration. Short speech can produce no valid speaker vector; use `Hey Jarvis this is my voice` or a longer supported inline command. Owner-enrolled hands-free turns use Vosk English for each command; manual foreground microphone remains available. Owner enrollment and cloud Live are mutually exclusive for hands-free sessions to avoid streaming unverified speech. Native offline Telugu not included. Locked hands-free commands use offline English, with general cloud AI blocked.
+
+## AI compatibility and live audio
+
+Recognized function-calling capability HTTP 400 triggers a text-only retry without tools or tool config, only before tool history; 404/429/503 and known capability errors can try next model. Existing OpenRouter fallback retained. Foreground and opt-in unlocked background Gemini Live have nonblocking playback queue and server interruption flush, device-dependent hardware AGC, adaptive speech/silence tracking, 8s missing-frame watchdog, max two reconnects with bounded delay and documented alternate Live model. Background Live requires existing Live audio setting, Gemini key and online mode; session bounded to 120s, 30s idle cutoff. Cloud audio ends if phone locks or microphone privacy is muted. Other text/TTS path remains half-duplex (full barge-in is not implemented there). Live reconnect starts a new session, not seamless session resume. Live model entitlement, microphone behavior, voice match accuracy and device testing remain unverified.
+
+## Verification
+
+Pure Kotlin smoke checks: HTTP 400 downgrade guard, rejection of invalid vectors, match majority, sustained speech and silence hangover. JUnit regression tests included. Full Android compilation, package signing, model assets and arm64 library verification are deferred to GitHub Actions; device testing required even after green build.

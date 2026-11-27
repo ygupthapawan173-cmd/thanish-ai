@@ -1,0 +1,103 @@
+PASS: 11 palettes
+PASS: 11 unique labels
+PASS: 11 unique background colors
+PASS: default
+PASS: unknown fallback
+PASS: legacy solar
+PASS: legacy cyan
+PASS: wake creator English
+PASS: creator English
+PASS: Telugu
+PASS: Tenglish
+PASS: model provider question not intercepted
+PASS: device action not intercepted
+PASS: compound identity not intercepted
+PASS: creator app phrasing
+PASS: creator mixed casual
+PASS: identity remains bounded
+PASS: adaptive normal
+PASS: adaptive low
+PASS: high ignores low battery
+PASS: system saver overrides high
+PASS: saver always reduced
+PASS: legacy render fallback
+PASS: saved mode
+24/24 passed
+PASS: Hey JARVIS, flashlight ON ????
+PASS: turn off the torch
+PASS: ?????? ??? ????
+PASS: open torch
+PASS: do not turn on flashlight
+PASS: how does flashlight work?
+PASS: flashlight on and open whatsapp
+PASS: what happens if volume 100
+PASS: set volume to 42%
+PASS: volume 101
+PASS: volume mute
+PASS: WhatsApp open chey
+PASS: open YouTube
+PASS: open YouTube and WhatsApp
+PASS: how to open youtube
+PASS: set a timer for 5 minutes
+PASS: timer 0 seconds
+PASS: timer 99999 hours
+PASS: battery percentage
+PASS: battery technology
+PASS: who created you?
+PASS: stop everything
+PASS: emergency stop
+PASS: cancel all
+PASS: ????? ???
+PASS: stop question is not a stop command
+26/26 bugfix policy checks passed
+PASS: cancelled request cancels transport and closes late response
+PASS: successful parse returns value and closes response
+PASS: parse failure propagates and closes response
+PASS: network failure propagates
+4/4 cancellation checks passed (test doubles, not actual OkHttp network)
+8/8 strict free model policy checks passed
+PASS: free blocks Gemini
+PASS: manual permits Gemini
+PASS: smart permits Gemini
+PASS: active unlocked capture
+PASS: lock transition aborts
+PASS: locked offline capture allowed
+PASS: privacy mute blocks locked capture
+PASS: permission loss blocks capture
+8/8 stability policy checks passed
+PASS: persistent request count
+PASS: persistent token count
+PASS: reload retains usage
+PASS: reload retains model
+PASS: reload retains failures
+PASS: unknown cost tracked
+PASS: latency excludes failures
+PASS: write failure exposed
+PASS: write failure leaves live count
+PASS: concurrent persistent counts
+PASS: recovery persists live counters
+PASS: reset persists
+12/12 telemetry checks passed (in-memory storage test double)
+PASS: 5 table rows preserved by actual index SQL (SQLite desktop test, not Android migration test)
+
+19/19 release policy checks passed; 4/4 package identity checks passed. Android build not run.
+
+Version 38: previous lines are historical results, not repeated this revision.
+24/24 new budget, selected dependency and offline converter pure Kotlin checks passed.
+Desktop SQLite migration test rerun: five table rows preserved.
+Android Gradle compilation, JUnit and runtime tests pending.
+
+Neural/security preview (39):
+PASS: 10/10 PCM window checks (not ONNX inference or Android)
+PASS: desktop SQLite existing index preservation (not v3 Keystore migration)
+PASS: 12 XML files parse; provision/sign shell syntax
+Not run: pinned model download, actual CPU model inference, Android Gradle, Android Keystore migration, signing and device testing. Historical counts not rerun.
+
+VersionCode 41 local rerun:
+24/24 budget, selected dependency and offline converter checks passed
+10/10 PCM window policy checks passed (not ONNX runtime)
+9/9 persistent queue approval checks passed
+Desktop SQLite index preservation: five tables
+Native wake/MediaPipe: not run; no Android compilation/device test
+
+V42 local: 12/12 portable crypto checks; desktop SQLite index preservation; 12 XML files parsed; shell syntax. Android build not run.

@@ -1,826 +1,687 @@
 package com.example.ui
 
 import android.app.Application
-import android.content.Intent
-import android.util.Log
+import android.graphics.Bitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.R
-import com.example.ai.AiStreamEvent
-import com.example.ai.AgentAction
+import com.example.ai.ConnectionDiagnosticResult
+import com.example.ai.GeminiLiveDuplexEngine
+import com.example.ai.LiveDuplexState
 import com.example.ai.PanduAiRepository
-import com.example.control.AppControlTarget
-import com.example.control.CommandExecutionResult
-import com.example.control.DeviceControlState
-import com.example.control.DeviceSettingTarget
-import com.example.control.GlobalNavigationAction
-import com.example.control.PendingSensitiveAction
-import com.example.control.PanduAccessibilityService
-import com.example.control.PhoneCommandParser
-import com.example.control.PhoneControlCommand
-import com.example.control.PhoneControlManager
+import com.example.autonomous.AutonomousUpgradeOrchestrator
+import com.example.autonomous.AutonomousUpgradeState
+import com.example.autonomous.GitHubEngineeringClient
+import com.example.autonomous.ReleaseUpdateInfo
+import com.example.autonomous.SecureSelfUpdater
+import com.example.autonomous.SelfCodingEngine
+import com.example.autonomous.SystemDiagnosticsEngine
+import com.example.autonomous.SystemHealthReport
+import com.example.control.AgentHudBus
+import com.example.control.AgentHudState
+import com.example.control.DeviceActionExecutor
+import com.example.control.HapticFeedbackHelper
+import com.example.control.NotificationInbox
+import com.example.control.PendingNotificationReply
+import com.example.control.VisionHelper
+import com.example.data.AiProvider
+import com.example.data.ApiQuotaTracker
+import com.example.data.ApiTelemetrySnapshot
 import com.example.data.AppDatabase
+import com.example.data.AuditLogEntry
 import com.example.data.ChatMessageEntity
-import com.example.data.ChatRepository
-import com.example.data.TtsPreferencesRepository
-import com.example.voice.SpeechLocaleOption
-import com.example.voice.TeluguTtsConfig
+import com.example.data.LocationReminder
+import com.example.data.MemoryFact
+import com.example.data.OmegaPreferences
+import com.example.data.OmegaSettings
+import com.example.data.VoiceRoutine
+import com.example.omega.OmegaWakeService
+import com.example.omega.SmartTriggerBus
+import com.example.omega.SmartTriggerManager
+import com.example.omega.TimeAutomationScheduler
+import com.example.security.CrashRecoveryHandler
+import com.example.voice.BluetoothAudioRouter
 import com.example.voice.TeluguTtsController
-import com.example.voice.TeluguVoiceOption
-import com.example.voice.TtsPersonalityPreset
-import com.example.voice.TtsReadiness
 import com.example.voice.VoiceInputController
-import com.example.voice.VoiceInputState
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-private const val TAG = "PanduViewModel"
-
-sealed interface AiGenState {
-    data object Idle : AiGenState
-    data object Thinking : AiGenState
-    data class Streaming(val partialText: String) : AiGenState
-    data class Error(val message: String) : AiGenState
-}
-
-enum class JarvisStatus {
-    ONLINE,
-    LISTENING,
-    THINKING,
-    SPEAKING,
-    ALERT
-}
+enum class OmegaScreen { HOME, LISTENING, CHAT, ROUTINES, AUTONOMOUS_LAB, CONTROL, SETTINGS }
 
 data class PanduUiState(
+    val currentScreen: OmegaScreen = OmegaScreen.HOME,
+    val voiceSession: Boolean = false,
+    val initialSettingsPage: Int = -1,
+    val settings: OmegaSettings = OmegaSettings(),
     val messages: List<ChatMessageEntity> = emptyList(),
-    val aiGenState: AiGenState = AiGenState.Idle,
-    val voiceInputState: VoiceInputState = VoiceInputState.Idle,
+    val memories: List<MemoryFact> = emptyList(),
+    val routines: List<VoiceRoutine> = emptyList(),
+    val locationReminders: List<LocationReminder> = emptyList(),
+    val auditLogs: List<AuditLogEntry> = emptyList(),
+    val healthReport: SystemHealthReport? = null,
+    val upgradeState: AutonomousUpgradeState = AutonomousUpgradeState(),
+    val isCheckingUpdate: Boolean = false,
+    val availableRelease: ReleaseUpdateInfo? = null,
+    val updateStatusMessage: String? = null,
+    val pendingNotifReply: PendingNotificationReply? = null,
+    val unreadNotifCount: Int = 0,
+    val lastTriggerBanner: String? = null,
+    val isListening: Boolean = false,
+    val isThinking: Boolean = false,
     val isSpeaking: Boolean = false,
-    val speakingMessageId: Long? = null,
-    val ttsReadiness: TtsReadiness = TtsReadiness.INITIALIZING,
-    val ttsConfig: TeluguTtsConfig = TeluguTtsConfig(),
-    val availableTeluguVoices: List<TeluguVoiceOption> = emptyList(),
-    val speechLocale: SpeechLocaleOption = SpeechLocaleOption.TELUGU,
-    val hasMicPermission: Boolean = false,
-    val showPermissionRationale: Boolean = false,
-    val permissionPermanentlyDenied: Boolean = false,
-    val bannerError: String? = null,
-    val lastFailedPrompt: String? = null,
-    val inputText: String = "",
-    val isRecognitionAvailable: Boolean = true,
-    val deviceControlState: DeviceControlState = DeviceControlState(),
-    val pendingSensitiveAction: PendingSensitiveAction? = null
-) {
-    val autoSpeakEnabled: Boolean
-        get() = ttsConfig.autoSpeakEnabled
-
-    val jarvisStatus: JarvisStatus
-        get() = when {
-            voiceInputState is VoiceInputState.Listening -> JarvisStatus.LISTENING
-            aiGenState is AiGenState.Thinking || aiGenState is AiGenState.Streaming -> JarvisStatus.THINKING
-            isSpeaking -> JarvisStatus.SPEAKING
-            bannerError != null || aiGenState is AiGenState.Error -> JarvisStatus.ALERT
-            else -> JarvisStatus.ONLINE
-        }
-}
+    val liveDuplexState: LiveDuplexState = LiveDuplexState(),
+    val liveToolStatus: String? = null,
+    val streamingReply: String = "",
+    val liveTranscript: String = "",
+    val voiceDiagNote: String = "Voice Ready",
+    val ttsStatusNote: String = "TTS Ready",
+    val ttsVoiceChoices: List<com.example.voice.TtsVoiceChoice> = emptyList(),
+    val lastAiReply: String = "",
+    val lastLatencyMs: Long = 0L,
+    val batteryPercent: Int = 100,
+    val audioAmplitude: Float = 0f,
+    val voiceError: String? = null,
+    val isTestingConnection: Boolean = false,
+    val diagnosticResult: ConnectionDiagnosticResult? = null,
+    val isDiscoveringModels: Boolean = false,
+    val discoveredChatModels: List<String> = emptyList(),
+    val discoveredLiveModels: List<String> = emptyList(),
+    val discoveredTtsModels: List<String> = emptyList(),
+    val discoveryStatus: String? = null,
+    val apiTelemetry: ApiTelemetrySnapshot = ApiTelemetrySnapshot(),
+    val crashLogText: String = "",
+    val backupStatusText: String? = null,
+    val pendingWidgetCameraLaunch: Boolean = false
+)
 
 class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val database = AppDatabase.getInstance(application)
-    private val chatRepository = ChatRepository(database.chatMessageDao())
-    private val ttsPrefsRepository = TtsPreferencesRepository(application)
-    private val aiRepository = PanduAiRepository(application)
-    private val ttsController = TeluguTtsController(application)
-    private val phoneControlManager = PhoneControlManager(application)
+    private val appContext = application.applicationContext
+    private val preferences = OmegaPreferences(appContext)
+    private val database = AppDatabase(appContext)
+    private val actionExecutor = DeviceActionExecutor(appContext, database, preferences)
+    private val haptics = HapticFeedbackHelper(appContext)
+    private val smartTriggers = SmartTriggerManager(appContext)
+    private val btRouter = BluetoothAudioRouter(appContext)
+    private val diagnosticsEngine = SystemDiagnosticsEngine(appContext)
 
-    private lateinit var voiceInputController: VoiceInputController
-
-    private val _aiGenState = MutableStateFlow<AiGenState>(AiGenState.Idle)
-    private val _speechLocale = MutableStateFlow(SpeechLocaleOption.TELUGU)
-    private val _hasMicPermission = MutableStateFlow(false)
-    private val _showPermissionRationale = MutableStateFlow(false)
-    private val _permissionPermanentlyDenied = MutableStateFlow(false)
-    private val _bannerError = MutableStateFlow<String?>(null)
-    private val _lastFailedPrompt = MutableStateFlow<String?>(null)
-    private val _inputText = MutableStateFlow("")
-    private val _pendingSensitiveAction = MutableStateFlow<PendingSensitiveAction?>(null)
-
-    private var activeGenerationJob: Job? = null
-    private var currentTtsConfig = TeluguTtsConfig()
-    private var pendingFromVoiceOrChat = false
-
-    private data class AgentSession(
-        val goal: String,
-        val step: Int,
-        val history: List<String>
+    private val aiRepository = PanduAiRepository(
+        settingsProvider = { preferences.settings.value },
+        actionExecutor = actionExecutor,
+        database = database
     )
 
-    private var agentSession: AgentSession? = null
+    private val githubClient = GitHubEngineeringClient()
+    private val selfCodingEngine = SelfCodingEngine(aiRepository)
+    private val upgradeOrchestrator = AutonomousUpgradeOrchestrator(preferences, database, selfCodingEngine, githubClient)
+    private val secureUpdater = SecureSelfUpdater(appContext, preferences)
+
+    private val liveDuplex = GeminiLiveDuplexEngine(
+        context = appContext,
+        apiKeyProvider = { preferences.settings.value.effectiveGeminiKey() },
+        liveModelProvider = { preferences.settings.value.geminiLiveVoiceModel },
+        liveSpeakerProvider = { preferences.settings.value.geminiLiveSpeaker },
+        bluetoothRoutingEnabledProvider = { preferences.settings.value.bluetoothVoiceRouting },
+        allowedProvider = { !preferences.settings.value.micPrivacyMuted && preferences.settings.value.effectiveGeminiKey().isNotBlank() && !preferences.settings.value.preferOfflineSpeech && !appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked }
+    )
+
+    private val ttsController = TeluguTtsController(appContext, cloudSettings = { preferences.settings.value })
+    private var activeJob: Job? = null
+    private var followUpJob: Job? = null
+    private var emergencyStopped = false
+    private var liveFallbackArmed = false
+
+    private val _uiState = MutableStateFlow(
+        PanduUiState(
+            settings = preferences.settings.value,
+            batteryPercent = actionExecutor.getBatteryPercent(),
+            crashLogText = CrashRecoveryHandler.readLogs(appContext)
+        )
+    )
+    val uiState: StateFlow<PanduUiState> = _uiState.asStateFlow()
+
+    private var wakeAckPending = false
+    private var wakeAckGeneration = 0L
+    private val voiceInput = VoiceInputController(appContext) { finalTranscript ->
+        handlePotentialAutonomousVoiceCommand(finalTranscript)
+    }
 
     init {
-        voiceInputController = VoiceInputController(
-            context = application,
-            onFinalResult = { transcript ->
-                sendMessageInternal(
-                    prompt = transcript,
-                    isVoiceInput = true,
-                    saveUserTurn = true
+        aiRepository.seedHistoryFromDatabase()
+        smartTriggers.register()
+        refreshDbState()
+        runSystemDiagnostics()
+
+        ttsController.setOnSpeechFinished {
+            if (emergencyStopped) return@setOnSpeechFinished
+            if(wakeAckPending) {
+                wakeAckPending=false; ++wakeAckGeneration
+                if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
+                return@setOnSpeechFinished
+            }
+            if (_uiState.value.settings.continuousConversation &&
+                _uiState.value.voiceSession &&
+                !_uiState.value.liveDuplexState.isConnected && !_uiState.value.liveDuplexState.isConnecting &&
+                !_uiState.value.settings.micPrivacyMuted
+            ) {
+                followUpJob?.cancel()
+                followUpJob = viewModelScope.launch {
+                    delay(380L)
+                    if (emergencyStopped) return@launch
+                    if (_uiState.value.voiceSession && !_uiState.value.isThinking && !_uiState.value.settings.micPrivacyMuted && AgentHudBus.isAppInForeground.value && !AgentHudBus.isMainMicBusy.value) {
+                        voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech)
+                    }
+                }
+            }
+        }
+
+        if (_uiState.value.messages.isEmpty() && !database.unreadableEncryptedRows) {
+            database.insertMessage(
+                ChatMessageEntity(
+                    text = "Welcome to JARVIS INFINITY. Open Diagnostics to test your engines and configure voice and AI in Settings.",
+                    isFromUser = false
                 )
-            },
-            onError = { errorMsg ->
-                _bannerError.value = errorMsg
-            }
-        )
+            )
+            refreshDbState()
+        }
 
         viewModelScope.launch {
-            ttsPrefsRepository.ttsConfig.collect { config ->
-                currentTtsConfig = config
-                ttsController.applyConfig(config)
+            preferences.settings.collect { s ->
+                if (s.preferOfflineSpeech && !_uiState.value.settings.preferOfflineSpeech) {
+                    voiceInput.stopListening()
+                }
+                if(s.micPrivacyMuted) { liveFallbackArmed=false; voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop() }
+                else if (s.preferOfflineSpeech || s.effectiveGeminiKey().isBlank() || !s.useGeminiLiveAudio) { liveFallbackArmed=false; if(liveDuplex.state.value.isConnected || liveDuplex.state.value.isConnecting) liveDuplex.disconnect() }
+                ttsController.configure(s.languageTag, s.ttsSpeed, s.ttsPitch, s.ttsStyle)
+                _uiState.update { if (sameApiConfig(it.settings, s)) it.copy(settings = s) else it.copy(settings = s, diagnosticResult = null, discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = null) }
             }
         }
-
-        // Refresh dashboard state immediately as Android binds or unbinds the Accessibility service.
+        viewModelScope.launch { upgradeOrchestrator.state.collect { st -> _uiState.update { it.copy(upgradeState = st) }; refreshDbState() } }
+        viewModelScope.launch { NotificationInbox.items.collect { list -> _uiState.update { it.copy(unreadNotifCount = list.size) } } }
+        viewModelScope.launch { NotificationInbox.pendingReply.collect { p -> _uiState.update { it.copy(pendingNotifReply = p) } } }
+        viewModelScope.launch { ApiQuotaTracker.snapshot.collect { snap -> _uiState.update { it.copy(apiTelemetry = snap) } } }
+        viewModelScope.launch { ttsController.voices.collect { choices -> _uiState.update { it.copy(ttsVoiceChoices=choices) } } }
+        viewModelScope.launch { ttsController.ttsStatus.collect { st -> _uiState.update { it.copy(ttsStatusNote = st) } } }
         viewModelScope.launch {
-            PanduAccessibilityService.isConnected.collect {
-                phoneControlManager.refreshState()
+            SmartTriggerBus.events.collect { ev ->
+                _uiState.update { it.copy(lastTriggerBanner = "${ev.title}: ${ev.announcement}") }
+                if (_uiState.value.settings.autoSpeak && AgentHudBus.isAppInForeground.value && !AgentHudBus.isMainMicBusy.value) ttsController.speak(ev.announcement)
+            }
+        }
+        viewModelScope.launch {
+            voiceInput.state.collect { v ->
+                _uiState.update { cur ->
+                    cur.copy(
+                        isListening = v.isListening,
+                        liveTranscript = if (v.partialTranscript.isNotBlank()) v.partialTranscript else cur.liveTranscript,
+                        audioAmplitude = v.audioAmplitude,
+                        voiceError = v.errorMessage,
+                        voiceDiagNote = v.diagnosticsNote
+                    )
+                }
+                if (v.isListening) {
+                    AgentHudBus.updateState(AgentHudState.Active(v.partialTranscript.ifBlank { "Listening..." }, audioAmplitude = v.audioAmplitude))
+                } else if (!_uiState.value.isThinking && !_uiState.value.liveDuplexState.isConnected) {
+                    AgentHudBus.updateState(AgentHudState.Hidden)
+                }
+            }
+        }
+        viewModelScope.launch {
+            liveDuplex.state.collect { ls ->
+                _uiState.update { it.copy(liveDuplexState = ls) }
+                if (ls.isConnected) AgentHudBus.updateState(AgentHudState.Active(ls.statusText, audioAmplitude = ls.amplitude))
+                if(ls.error != null && liveFallbackArmed && AgentHudBus.isAppInForeground.value && _uiState.value.voiceSession && !_uiState.value.settings.micPrivacyMuted) {
+                    liveFallbackArmed=false; liveDuplex.disconnect(); _uiState.update { it.copy(voiceError="Live unavailable; switching to speech recognition") }; voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech)
+                }
+            }
+        }
+        viewModelScope.launch { ttsController.isSpeaking.collect { sp -> _uiState.update { it.copy(isSpeaking = sp) } } }
+        viewModelScope.launch { OmegaWakeService.status.collect { st -> if(!AgentHudBus.isMainMicBusy.value || OmegaWakeService.isBackgroundConversationActive()) _uiState.update { it.copy(voiceDiagNote=st) } } }
+        viewModelScope.launch { AgentHudBus.abortSignal.collect { stopAllActivity() } }
+        viewModelScope.launch {
+            AgentHudBus.wakeTriggers.collect { cmd ->
+                if (!AgentHudBus.isAppInForeground.value || _uiState.value.settings.micPrivacyMuted) return@collect
+                emergencyStopped = false
+                if (cmd.isNotBlank()) handleInlineWakeCommand(cmd) else if(_uiState.value.settings.autoSpeak) {
+                    wakeAckPending=true; val token=++wakeAckGeneration
+                    ttsController.speak("Yes, Boss")
+                    viewModelScope.launch {
+                        delay(5000)
+                        if(wakeAckPending && token==wakeAckGeneration) {
+                            wakeAckPending=false; ttsController.stop()
+                            if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
+                        }
+                    }
+                } else startVoiceListening()
             }
         }
     }
 
-    private data class PermissionSlice(
-        val locale: SpeechLocaleOption,
-        val hasMicPermission: Boolean,
-        val showRationale: Boolean,
-        val permanentlyDenied: Boolean
-    )
-
-    private data class InteractionSlice(
-        val aiGenState: AiGenState,
-        val bannerError: String?,
-        val lastFailedPrompt: String?,
-        val inputText: String,
-        val deviceControlState: DeviceControlState,
-        val pendingSensitiveAction: PendingSensitiveAction?
-    )
-
-    private data class TtsSlice(
-        val isSpeaking: Boolean,
-        val speakingMessageId: Long?,
-        val readiness: TtsReadiness,
-        val config: TeluguTtsConfig,
-        val availableVoices: List<TeluguVoiceOption>
-    )
-
-    private val permissionFlow = combine(
-        _speechLocale,
-        _hasMicPermission,
-        _showPermissionRationale,
-        _permissionPermanentlyDenied
-    ) { locale, hasMic, showRationale, permanentlyDenied ->
-        PermissionSlice(
-            locale = locale,
-            hasMicPermission = hasMic,
-            showRationale = showRationale,
-            permanentlyDenied = permanentlyDenied
-        )
-    }
-
-    private val controlFlow = combine(
-        phoneControlManager.state,
-        _pendingSensitiveAction
-    ) { deviceState, pending ->
-        deviceState to pending
-    }
-
-    private val interactionFlow = combine(
-        _aiGenState,
-        _bannerError,
-        _lastFailedPrompt,
-        _inputText,
-        controlFlow
-    ) { aiGen, banner, failedPrompt, input, controlPair ->
-        InteractionSlice(
-            aiGenState = aiGen,
-            bannerError = banner,
-            lastFailedPrompt = failedPrompt,
-            inputText = input,
-            deviceControlState = controlPair.first,
-            pendingSensitiveAction = controlPair.second
-        )
-    }
-
-    private val ttsFlow = combine(
-        ttsController.isSpeaking,
-        ttsController.speakingMessageId,
-        ttsController.readiness,
-        ttsPrefsRepository.ttsConfig,
-        ttsController.availableTeluguVoices
-    ) { speaking, speakingId, readiness, config, voices ->
-        TtsSlice(
-            isSpeaking = speaking,
-            speakingMessageId = speakingId,
-            readiness = readiness,
-            config = config,
-            availableVoices = voices
-        )
-    }
-
-    val uiState: StateFlow<PanduUiState> = combine(
-        chatRepository.messages,
-        voiceInputController.state,
-        ttsFlow,
-        permissionFlow,
-        interactionFlow
-    ) { messages, voiceState, ttsSlice, permissions, interaction ->
-        PanduUiState(
-            messages = messages,
-            aiGenState = interaction.aiGenState,
-            voiceInputState = voiceState,
-            isSpeaking = ttsSlice.isSpeaking,
-            speakingMessageId = ttsSlice.speakingMessageId,
-            ttsReadiness = ttsSlice.readiness,
-            ttsConfig = ttsSlice.config,
-            availableTeluguVoices = ttsSlice.availableVoices,
-            speechLocale = permissions.locale,
-            hasMicPermission = permissions.hasMicPermission,
-            showPermissionRationale = permissions.showRationale,
-            permissionPermanentlyDenied = permissions.permanentlyDenied,
-            bannerError = interaction.bannerError,
-            lastFailedPrompt = interaction.lastFailedPrompt,
-            inputText = interaction.inputText,
-            isRecognitionAvailable = voiceInputController.isRecognitionAvailable,
-            deviceControlState = interaction.deviceControlState,
-            pendingSensitiveAction = interaction.pendingSensitiveAction
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000L),
-        initialValue = PanduUiState()
-    )
-
-    fun updateMicPermissionStatus(granted: Boolean, permanentlyDenied: Boolean = false) {
-        _hasMicPermission.value = granted
-        if (granted) {
-            _showPermissionRationale.value = false
-            _permissionPermanentlyDenied.value = false
-        } else {
-            _permissionPermanentlyDenied.value = permanentlyDenied
+    private fun refreshDbState() {
+        _uiState.update {
+            it.copy(
+                messages = database.getRecentMessages(80),
+                memories = database.getAllMemories(),
+                routines = database.getAllRoutines(),
+                locationReminders = database.getLocationReminders(),
+                auditLogs = database.getRecentAuditLogs(25),
+                batteryPercent = actionExecutor.getBatteryPercent(),
+                voiceError = if (database.unreadableEncryptedRows) "Some encrypted records could not be read. Original data retained; restore a trusted backup." else it.voiceError
+            )
         }
     }
 
-    fun onMicPermissionResult(granted: Boolean, shouldShowRationale: Boolean) {
-        _hasMicPermission.value = granted
-        if (granted) {
-            _showPermissionRationale.value = false
-            _permissionPermanentlyDenied.value = false
-            _bannerError.value = null
-            startVoiceListening()
-        } else {
-            _showPermissionRationale.value = true
-            _permissionPermanentlyDenied.value = !shouldShowRationale
+    private fun handlePotentialAutonomousVoiceCommand(spoken: String) {
+        if(com.example.voice.BackgroundVoicePolicy.classify(spoken)==com.example.voice.BackgroundVoicePolicy.Action.STOP) { stopAllActivity(); return }
+        val q = spoken.lowercase()
+        when {
+            q.contains("system health") || q.contains("diagnostics") || q.contains("health report") -> {
+                runSystemDiagnostics()
+                val score = _uiState.value.healthReport?.score
+                val reply = if (score != null) "Diagnostics complete. Heuristic health score: $score out of 100." else "Diagnostics report unavailable."
+                database.insertMessage(ChatMessageEntity(text = spoken, isFromUser = true, isVoiceInput = true))
+                database.insertMessage(ChatMessageEntity(text = reply, isFromUser = false, executedTools = listOf("self_diagnostics")))
+                refreshDbState()
+                _uiState.update { it.copy(lastAiReply = reply) }
+                if (_uiState.value.settings.autoSpeak) ttsController.speak(reply)
+            }
+            q.contains("check for update") || q.contains("self update") -> {
+                _uiState.update { it.copy(currentScreen = OmegaScreen.AUTONOMOUS_LAB) }
+                checkReleaseUpdate()
+            }
+            else -> dispatchToAi(spoken, isVoiceInput = true)
         }
     }
 
-    fun dismissPermissionCard() {
-        _showPermissionRationale.value = false
+    fun runSystemDiagnostics() {
+        val report = diagnosticsEngine.runFullDiagnostics(_uiState.value.settings, _uiState.value.ttsStatusNote, _uiState.value.voiceDiagNote)
+        runCatching { database.logAudit("DIAGNOSTICS", "Health score ${report.score}/100 (${report.issues.size} items)", "OK") }.onFailure { _uiState.update { u -> u.copy(voiceError="Diagnostics audit not saved; check encrypted storage") } }
+        _uiState.update { it.copy(healthReport = report) }
+        refreshDbState()
     }
 
-    fun onInputTextChanged(newText: String) {
-        _inputText.value = newText
+    fun startSelfUpgrade(featureRequest: String, targetFilePath: String) {
+        upgradeOrchestrator.startSelfUpgrade(featureRequest, targetFilePath)
     }
 
-    fun sendTypedMessage() {
-        val trimmed = _inputText.value.trim()
-        if (trimmed.isBlank()) return
-        _inputText.value = ""
-        sendMessageInternal(prompt = trimmed, isVoiceInput = false, saveUserTurn = true)
+    fun emergencyStopUpgrade() {
+        upgradeOrchestrator.emergencyStop()
     }
 
-    fun sendStarterPrompt(prompt: String) {
-        sendMessageInternal(prompt = prompt, isVoiceInput = false, saveUserTurn = true)
+    fun checkReleaseUpdate() {
+        val s = _uiState.value.settings
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCheckingUpdate = true, updateStatusMessage = "Checking GitHub Releases...") }
+            val res = secureUpdater.checkLatestRelease(s.githubRepoSlug, s.githubToken)
+            res.onSuccess { info ->
+                database.logAudit("SELF_UPDATE", "Discovered release ${info.tagName}", "VERIFIED_META")
+                _uiState.update {
+                    it.copy(
+                        isCheckingUpdate = false,
+                        availableRelease = info,
+                        updateStatusMessage = "Found ${info.tagName}. SHA-256 ${if (info.expectedSha256 != null) "present" else "missing"}."
+                    )
+                }
+                refreshDbState()
+            }.onFailure { err ->
+                _uiState.update { it.copy(isCheckingUpdate = false, updateStatusMessage = "Update check failed: ${err.message}") }
+            }
+        }
     }
 
-    fun retryLastFailed() {
-        val prompt = _lastFailedPrompt.value ?: return
-        sendMessageInternal(prompt = prompt, isVoiceInput = false, saveUserTurn = false)
+    fun approveAndInstallRelease() {
+        val rel = _uiState.value.availableRelease ?: return
+        viewModelScope.launch {
+            val res = secureUpdater.downloadVerifyAndPromptInstall(rel) { step ->
+                _uiState.update { it.copy(updateStatusMessage = step) }
+            }
+            res.onSuccess { msg ->
+                database.logAudit("SELF_UPDATE", "Verified & launched installer for ${rel.tagName}", "APPROVED")
+                _uiState.update { it.copy(updateStatusMessage = msg) }
+                refreshDbState()
+            }.onFailure { err ->
+                database.logAudit("SELF_UPDATE", "Blocked: ${err.message}", "REJECTED")
+                _uiState.update { it.copy(updateStatusMessage = "Blocked: ${err.message}") }
+                refreshDbState()
+            }
+        }
+    }
+
+    fun refreshVoiceCatalog() { ttsController.refreshVoices() }
+    fun previewVoice(locale: String) {
+        if (AgentHudBus.isMainMicBusy.value || _uiState.value.liveDuplexState.isConnected || _uiState.value.liveDuplexState.isConnecting) return
+        val s = preferences.settings.value
+        ttsController.configure(locale,s.ttsSpeed,s.ttsPitch,s.ttsStyle)
+        ttsController.speak(if(locale.startsWith("te")) "నమస్కారం బాస్! నేను మీ జార్విస్ ఇన్ఫినిటీ సహాయకుడిని." else "Hello Boss. I am your JARVIS INFINITY voice assistant.")
+    }
+
+    fun testSpeakerVoice() {
+        haptics.softTap()
+        ttsController.speak("Hello ${_uiState.value.settings.userName}! This is your JARVIS INFINITY voice test.")
+    }
+
+    fun unmuteMicAndListen() {
+        preferences.update { it.copy(micPrivacyMuted = false) }
+        startVoiceListening()
+    }
+
+
+    fun confirmPendingNotifReply() {
+        val pending = _uiState.value.pendingNotifReply ?: return
+        val result = NotificationInbox.sendDirectReply(appContext, pending.senderOrApp, pending.replyText)
+        database.insertMessage(ChatMessageEntity(text = result, isFromUser = false, executedTools = listOf("reply_notification")))
+        refreshDbState()
+    }
+
+    fun cancelPendingNotifReply() = NotificationInbox.clearPendingReply()
+    fun dismissTriggerBanner() = _uiState.update { it.copy(lastTriggerBanner = null) }
+    fun testSmartTrigger(type: String) { haptics.softTap(); smartTriggers.triggerManualTest(type) }
+    fun requestCameraLaunchFromWidget() = _uiState.update { it.copy(pendingWidgetCameraLaunch = true) }
+    fun consumeWidgetCameraLaunch() = _uiState.update { it.copy(pendingWidgetCameraLaunch = false) }
+
+    fun navigateTo(screen: OmegaScreen, settingsPage: Int = -1) {
+        haptics.softTap()
+        if (screen != OmegaScreen.HOME) {
+            followUpJob?.cancel(); followUpJob = null
+            liveFallbackArmed=false
+            voiceInput.stopListening()
+            btRouter.clearRouting()
+            if (_uiState.value.liveDuplexState.isConnected || _uiState.value.liveDuplexState.isConnecting) liveDuplex.disconnect()
+        }
+        if (screen == OmegaScreen.AUTONOMOUS_LAB || screen == OmegaScreen.CONTROL) runSystemDiagnostics()
+        _uiState.update {
+            it.copy(
+                currentScreen = screen, initialSettingsPage = settingsPage, voiceSession = if (screen == OmegaScreen.HOME) it.voiceSession else false,
+                voiceError = null,
+                batteryPercent = actionExecutor.getBatteryPercent(),
+                crashLogText = if (screen == OmegaScreen.SETTINGS) CrashRecoveryHandler.readLogs(appContext) else it.crashLogText
+            )
+        }
+    }
+
+    private fun sameApiConfig(a: OmegaSettings, b: OmegaSettings): Boolean =
+        a.activeProvider == b.activeProvider && a.gatewayBaseUrl == b.gatewayBaseUrl &&
+            a.geminiApiKey == b.geminiApiKey && a.openRouterApiKey == b.openRouterApiKey &&
+            a.geminiChatModel == b.geminiChatModel && a.geminiLiveVoiceModel == b.geminiLiveVoiceModel &&
+            a.openRouterModel == b.openRouterModel && a.smartMode == b.smartMode && a.providerBudgetUsd == b.providerBudgetUsd && a.manualVisionConfirmed == b.manualVisionConfirmed
+
+    fun updateSettings(transform: (OmegaSettings) -> OmegaSettings): Boolean {
+        val old = preferences.settings.value
+        try { preferences.update(transform) } catch (e: IllegalStateException) {
+            _uiState.update { it.copy(discoveryStatus = e.message ?: "Settings not saved") }; return false
+        }
+        if (!sameApiConfig(old, preferences.settings.value)) _uiState.update { it.copy(discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = null, diagnosticResult = null) }
+        return true
+    }
+
+    fun restoreWakeIfEnabled() {
+        // Online-only edition: do not restart the former offline microphone service.
+        OmegaWakeService.stop(appContext)
+    }
+
+    fun setWakeWordEnabled(enabled: Boolean) {
+        OmegaWakeService.stop(appContext)
+        if (enabled) _uiState.update { it.copy(voiceError="Background wake is disabled in Online Edition. Tap the mic to speak.") }
+    }
+
+    fun runConnectionTest(provider: AiProvider) {
+        if (_uiState.value.isTestingConnection) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isTestingConnection = true, diagnosticResult = null) }
+            val tested = preferences.settings.value
+            val result = aiRepository.runConnectionDiagnostic(provider)
+            if (!sameApiConfig(tested, preferences.settings.value)) { _uiState.update { it.copy(isTestingConnection = false) }; return@launch }
+
+            _uiState.update { it.copy(isTestingConnection = false, diagnosticResult = result) }
+        }
+    }
+
+    fun discoverRealModels() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDiscoveringModels = true, discoveredChatModels = emptyList(), discoveredLiveModels = emptyList(), discoveredTtsModels = emptyList(), discoveryStatus = "Querying live API models...") }
+            val tested = preferences.settings.value
+            val res = aiRepository.discoverModelsForActiveProvider()
+            if (!sameApiConfig(tested, preferences.settings.value)) { _uiState.update { it.copy(isDiscoveringModels = false) }; return@launch }
+            res.onSuccess { found ->
+                if (found.ttsModels.isNotEmpty()) {
+                    com.example.voice.GeminiSpeechPreferences.saveDiscoveredModels(appContext, found.ttsModels)
+                }
+                _uiState.update {
+                    it.copy(isDiscoveringModels = false, discoveredChatModels = found.chatModels, discoveredLiveModels = found.liveVoiceModels, discoveredTtsModels = found.ttsModels, discoveryStatus = found.message)
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isDiscoveringModels = false, discoveryStatus = "Discovery failed: ${err.message}") }
+            }
+        }
+    }
+
+    fun exportEncryptedBackup(): String {
+        val blob = runCatching { preferences.exportEncryptedBackupJson() }.getOrElse {
+            _uiState.update { u -> u.copy(backupStatusText = "Encrypted backup failed: ${it.message}") }; return ""
+        }
+        _uiState.update { it.copy(backupStatusText = "Encrypted backup copied (${blob.length} chars).") }
+        return blob
+    }
+
+    fun importEncryptedBackup(blob: String) {
+        val ok = preferences.importEncryptedBackupJson(blob)
+        _uiState.update { it.copy(backupStatusText = if (ok) "Settings restored!" else "Invalid backup payload.") }
+    }
+
+    fun clearCrashLogs() {
+        CrashRecoveryHandler.clearLogs(appContext)
+        _uiState.update { it.copy(crashLogText = CrashRecoveryHandler.readLogs(appContext)) }
+    }
+
+    fun scheduleDailyRoutine(routineName: String, hour24: Int, minute: Int) {
+        val msg = runCatching { TimeAutomationScheduler.scheduleDailyRoutine(appContext, routineName, hour24, minute) }.getOrElse { "Schedule not saved: ${it.message}" }
+        _uiState.update { it.copy(lastTriggerBanner = msg) }
+    }
+
+    fun cancelDailyRoutine(name: String) {
+        val msg = runCatching { TimeAutomationScheduler.cancel(appContext, name) }.getOrElse { "Cancellation failed: ${it.message}" }
+        _uiState.update { it.copy(lastTriggerBanner = msg) }
+    }
+
+    fun runDailyBriefing() {
+        val cal = actionExecutor.readCalendarSummary(1)
+        val notifs = NotificationInbox.formatForAgent(5)
+        val prompt = "Give me a crisp Daily Briefing using battery (${actionExecutor.getBatteryPercent()}%), calendar:\n$cal\nand notifications:\n$notifs"
+        sendTextPrompt(prompt, openChat = true)
+    }
+
+    fun summarizeConversation() {
+        sendTextPrompt("Summarize our recent conversation in 3 short bullet points and save key facts to memory.", openChat = false)
     }
 
     fun startVoiceListening() {
-        ttsController.stop()
-        _bannerError.value = null
-        if (_aiGenState.value is AiGenState.Error) {
-            _aiGenState.value = AiGenState.Idle
+        com.example.omega.OnlineBackgroundVoiceService.yieldToForeground(appContext)
+        emergencyStopped = false
+        wakeAckPending=false; ++wakeAckGeneration
+        val s = _uiState.value.settings
+        if (s.micPrivacyMuted) {
+            _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, voiceSession = false, voiceError = "Microphone Privacy Mute is ON. Tap the orb to unmute.") }
+            return
         }
-        voiceInputController.startListening(_speechLocale.value)
+        haptics.wakePulse()
+        liveFallbackArmed=false; voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop()
+        _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, voiceSession = true, liveTranscript = "", liveToolStatus = null, voiceError = null) }
+
+        val canUseLiveWs = s.useGeminiLiveAudio && !s.preferOfflineSpeech && !appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked && s.effectiveGeminiKey().isNotBlank()
+        if (canUseLiveWs) {
+            liveFallbackArmed=true; liveDuplex.connect()
+        } else {
+            voiceInput.startListening(s.languageTag, preferOffline = s.preferOfflineSpeech)
+        }
+    }
+
+    /** Hand the microphone back to the service when the UI leaves the screen. */
+    fun releaseForegroundVoice() {
+        followUpJob?.cancel(); followUpJob = null
+        wakeAckPending=false; ++wakeAckGeneration
+        liveFallbackArmed=false
+        _uiState.update { it.copy(voiceSession=false) }
+        voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop()
+        OmegaWakeService.requestIdleRearm()
     }
 
     fun stopVoiceListening() {
-        voiceInputController.stopListening()
+        com.example.omega.OnlineBackgroundVoiceService.stop(appContext)
+        _uiState.update { it.copy(voiceSession = false) }; followUpJob?.cancel()
+        wakeAckPending=false; ++wakeAckGeneration
+        OmegaWakeService.stopBackgroundConversation()
+        haptics.softTap()
+        btRouter.clearRouting()
+        liveFallbackArmed=false; voiceInput.stopListening(); liveDuplex.disconnect()
     }
 
-    fun cancelVoiceListening() {
-        voiceInputController.cancel()
-    }
-
-    fun toggleSpeechLocale() {
-        _speechLocale.update { current ->
-            if (current == SpeechLocaleOption.TELUGU) {
-                SpeechLocaleOption.ENGLISH_INDIA
-            } else {
-                SpeechLocaleOption.TELUGU
-            }
-        }
+    fun toggleLiveDuplexMode() {
+        val next = !_uiState.value.settings.useGeminiLiveAudio
+        stopAllActivity()
+        preferences.update { it.copy(useGeminiLiveAudio = next) }
     }
 
     fun toggleAutoSpeak() {
-        val next = !currentTtsConfig.autoSpeakEnabled
-        if (!next) {
-            ttsController.stop()
-        }
-        viewModelScope.launch {
-            ttsPrefsRepository.setAutoSpeak(next)
-        }
+        val next = !_uiState.value.settings.autoSpeak
+        if (!next) ttsController.stop()
+        preferences.update { it.copy(autoSpeak = next) }
     }
 
-    fun selectTtsPreset(preset: TtsPersonalityPreset) {
-        viewModelScope.launch {
-            ttsPrefsRepository.applyPreset(preset)
-        }
+    fun cycleVoiceLanguage() {
+        val next = when (_uiState.value.settings.languageTag) { "auto" -> "te-IN"; "te-IN" -> "en-IN"; else -> "auto" }
+        preferences.update { it.copy(languageTag = next) }
     }
 
-    fun updateTtsPitch(pitch: Float) {
-        viewModelScope.launch {
-            ttsPrefsRepository.updatePitch(pitch)
-        }
-    }
-
-    fun updateTtsSpeechRate(rate: Float) {
-        viewModelScope.launch {
-            ttsPrefsRepository.updateSpeechRate(rate)
-        }
-    }
-
-    fun selectTeluguVoice(voiceName: String?) {
-        viewModelScope.launch {
-            ttsPrefsRepository.updateSelectedVoice(voiceName)
-        }
-    }
-
-    fun testTeluguVoice() {
-        val sample = getApplication<Application>().getString(R.string.tts_sample_phrase)
-        if (!ttsController.speak(sample)) {
-            _bannerError.value = getApplication<Application>().getString(R.string.tts_status_unavailable)
-        } else {
-            _bannerError.value = null
-        }
-    }
-
-    fun refreshTtsVoices() {
-        ttsController.refreshVoices()
-    }
-
-    fun createInstallTeluguVoiceIntent(): Intent {
-        return ttsController.createInstallVoiceDataIntent()
-    }
-
-    // --- Phone Control Center Actions ---
-
-    fun refreshDeviceControls() {
-        phoneControlManager.refreshState()
-    }
-
-    fun onAppControlClicked(target: AppControlTarget) {
-        if (target.requiresConfirmation) {
-            pendingFromVoiceOrChat = false
-            _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmAppLaunch(
-                target = target,
-                title = "${target.displayName} ఓపెన్ చేయాలా బాస్?",
-                description = "కాల్ / మెసేజ్ సంబంధిత యాప్ (${target.displayName}) ఓపెన్ చేయడానికి మీ కన్ఫర్మేషన్ అవసరం."
-            )
-        } else {
-            applyControlResult(phoneControlManager.openApp(target))
-        }
-    }
-
-    fun setTorchEnabled(enabled: Boolean) {
-        applyControlResult(phoneControlManager.setTorchEnabled(enabled))
-    }
-
-    fun adjustVolume(delta: Int) {
-        applyControlResult(phoneControlManager.adjustVolume(delta))
-    }
-
-    fun setVolumeLevel(level: Int) {
-        applyControlResult(phoneControlManager.setVolumeLevel(level))
-    }
-
-    fun setSystemBrightnessPercent(percent: Int) {
-        applyControlResult(phoneControlManager.setSystemBrightnessPercent(percent))
-    }
-
-    fun adjustBrightness(deltaPercent: Int) {
-        applyControlResult(phoneControlManager.adjustBrightness(deltaPercent))
-    }
-
-    fun createWriteSettingsPermissionIntent(): Intent {
-        return phoneControlManager.createWriteSettingsPermissionIntent()
-    }
-
-    fun checkBatteryInfo() {
-        val res = phoneControlManager.readBatterySummary()
-        applyControlResult(res)
-        if (res.succeeded) {
-            if (!ttsController.speak(res.teluguResponse)) {
-                _bannerError.value = getApplication<Application>().getString(R.string.tts_status_unavailable)
-            }
-        }
-    }
-
-    fun openDeviceSetting(target: DeviceSettingTarget) {
-        applyControlResult(phoneControlManager.openDeviceSetting(target))
-    }
-
-    fun onGlobalNavClicked(action: GlobalNavigationAction) {
-        pendingFromVoiceOrChat = false
-        _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmGlobalNav(
-            action = action,
-            title = "${action.displayName} యాక్షన్ చేయాలా బాస్?",
-            description = "Accessibility Service ద్వారా సిస్టమ్ '${action.displayName}' నావిగేషన్ యాక్షన్ అమలు చేయబడుతుంది."
-        )
-    }
-
-    /**
-     * Starts a user-approved screen agent session. Each phone action is shown in
-     * the existing confirmation dialog before it can execute.
-     */
-    fun startAgentTask(goal: String) {
-        val cleanGoal = goal.trim().take(500)
-        if (cleanGoal.isBlank()) {
-            _bannerError.value = "బాస్, Agent task కోసం ఒక goal ఇవ్వండి."
-            return
-        }
-        if (!phoneControlManager.state.value.isAccessibilityConnected) {
-            _bannerError.value = "ముందుగా Apps tab లో Accessibility Service enable చేయండి."
-            return
-        }
-
-        stopAgentTask(showMessage = false)
-        PanduAccessibilityService.setAgentScreenCaptureConsent(true)
-        val session = AgentSession(cleanGoal, 0, emptyList())
-        agentSession = session
-        advanceAgentTask(session)
-    }
-
-    fun stopAgentTask() {
-        stopAgentTask(showMessage = true)
-    }
-
-    private fun stopAgentTask(showMessage: Boolean) {
-        agentSession = null
-        PanduAccessibilityService.setAgentScreenCaptureConsent(false)
-        if (_pendingSensitiveAction.value is PendingSensitiveAction.ConfirmAgentAction) {
-            _pendingSensitiveAction.value = null
-        }
-        _aiGenState.value = AiGenState.Idle
-        if (showMessage) _bannerError.value = "AI Phone Agent task ఆపేశాను బాస్."
-    }
-
-    private fun finishAgentTask(message: String) {
-        agentSession = null
-        PanduAccessibilityService.setAgentScreenCaptureConsent(false)
-        _aiGenState.value = AiGenState.Idle
-        viewModelScope.launch {
-            val finalMessage = message.ifBlank { "Agent task పూర్తయింది బాస్." }
-            val savedId = chatRepository.saveAssistantMessage(finalMessage)
-            if (currentTtsConfig.autoSpeakEnabled) ttsController.speak(finalMessage, savedId)
-        }
-    }
-
-    private fun advanceAgentTask(session: AgentSession) {
-        if (agentSession != session) return
-        if (session.step >= 12) {
-            finishAgentTask("బాస్, 12 steps పూర్తి చేశాను. మిగతా పని మీరు చెక్ చేయండి.")
-            return
-        }
-
-        _aiGenState.value = AiGenState.Thinking
-        viewModelScope.launch {
-            try {
-                val screen = PanduAccessibilityService.captureAgentScreen()
-                    ?: error("ఈ app screen చదవలేకపోయాను. Accessibility Service status చెక్ చేయండి లేదా supported app తెరవండి.")
-                val action: AgentAction = aiRepository.suggestAgentAction(
-                    goal = session.goal,
-                    screen = screen,
-                    step = session.step,
-                    history = session.history
-                )
-                if (agentSession != session) return@launch
-
-                when (action.name) {
-                    "finish" -> finishAgentTask(action.args.optString("message"))
-                    "speak" -> {
-                        val message = action.args.optString("text")
-                        val savedId = chatRepository.saveAssistantMessage(message)
-                        if (currentTtsConfig.autoSpeakEnabled) ttsController.speak(message, savedId)
-                        val next = session.copy(
-                            step = session.step + 1,
-                            history = (session.history + "speak: ${message.take(120)}").takeLast(10)
-                        )
-                        _aiGenState.value = AiGenState.Idle
-                        delay(300)
-                        advanceAgentTask(next)
-                    }
-                    "wait" -> {
-                        val next = session.copy(
-                            step = session.step + 1,
-                            history = (session.history + "wait").takeLast(10)
-                        )
-                        _aiGenState.value = AiGenState.Idle
-                        delay(900)
-                        advanceAgentTask(next)
-                    }
-                    else -> {
-                        val description = PanduAccessibilityService.describeAgentAction(action.name, action.args)
-                            ?: error("AI proposed an action for a screen item that is no longer available.")
-                        _aiGenState.value = AiGenState.Idle
-                        _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmAgentAction(
-                            actionName = action.name,
-                            argsJson = action.args.toString(),
-                            goal = session.goal,
-                            step = session.step,
-                            history = session.history,
-                            title = "AI proposes: $description",
-                            description = "ఈ ఒక్క action మాత్రమే execute అవుతుంది. Continue చేయడానికి Confirm నొక్కండి; వద్దంటే Cancel చేయండి."
-                        )
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Phone agent failed", e)
-                stopAgentTask(showMessage = false)
-                _bannerError.value = "Agent ఆగిపోయింది: ${e.localizedMessage ?: "AI లేదా screen access error"}"
-            }
-        }
-    }
-
-    fun createAccessibilitySettingsIntent(): Intent {
-        return phoneControlManager.createAccessibilitySettingsIntent()
-    }
-
-    fun confirmPendingAction() {
-        val pending = _pendingSensitiveAction.value ?: return
-        _pendingSensitiveAction.value = null
-        val fromVoice = pendingFromVoiceOrChat
-        pendingFromVoiceOrChat = false
-
-        if (pending is PendingSensitiveAction.ConfirmAgentAction) {
-            viewModelScope.launch {
-                val result = PanduAccessibilityService.executeAgentAction(
-                    pending.actionName,
-                    pending.argsJson
-                )
-                applyControlResult(result)
-                if (!result.succeeded) {
-                    stopAgentTask(showMessage = false)
-                    _bannerError.value = result.teluguResponse
-                    return@launch
-                }
-                val next = AgentSession(
-                    goal = pending.goal,
-                    step = pending.step + 1,
-                    history = (pending.history + "${pending.actionName}: ${pending.argsJson.take(160)}").takeLast(10)
-                )
-                agentSession = next
-                delay(if (pending.actionName == "open_app") 1_500L else 700L)
-                if (agentSession == next) advanceAgentTask(next)
-            }
-            return
-        }
-
-        val result = when (pending) {
-            is PendingSensitiveAction.ConfirmAppLaunch -> phoneControlManager.openApp(pending.target)
-            is PendingSensitiveAction.ConfirmGlobalNav -> phoneControlManager.performGlobalNavigation(pending.action)
-            is PendingSensitiveAction.ConfirmAgentAction -> CommandExecutionResult(
-                succeeded = false,
-                teluguResponse = "Agent action మళ్ళీ confirm చేయాలి బాస్."
-            )
-        }
-
-        applyControlResult(result)
-
-        if (fromVoice) {
-            viewModelScope.launch {
-                val savedId = chatRepository.saveAssistantMessage(result.teluguResponse)
-                if (currentTtsConfig.autoSpeakEnabled) {
-                    ttsController.speak(result.teluguResponse, savedId)
-                }
-            }
-        }
-    }
-
-    private fun applyControlResult(result: CommandExecutionResult) {
-        _bannerError.value = if (result.succeeded) null else result.teluguResponse
-    }
-
-    fun dismissPendingAction() {
-        val pending = _pendingSensitiveAction.value ?: return
-        _pendingSensitiveAction.value = null
-        if (pending is PendingSensitiveAction.ConfirmAgentAction) {
-            stopAgentTask(showMessage = true)
-            return
-        }
-        val fromVoice = pendingFromVoiceOrChat
-        pendingFromVoiceOrChat = false
-
-        if (fromVoice) {
-            val cancelMsg = "సరే బాస్, ${pending.title.substringBefore(" ")} యాక్షన్ క్యాన్సిల్ చేశాను."
-            viewModelScope.launch {
-                val savedId = chatRepository.saveAssistantMessage(cancelMsg)
-                if (currentTtsConfig.autoSpeakEnabled) {
-                    ttsController.speak(cancelMsg, savedId)
-                }
-            }
-        }
-    }
-
-    fun speakMessage(message: ChatMessageEntity) {
-        if (ttsController.isSpeaking.value && ttsController.speakingMessageId.value == message.id) {
-            ttsController.stop()
-        } else if (!ttsController.speak(message.text, message.id)) {
-            _bannerError.value = getApplication<Application>().getString(R.string.tts_status_unavailable)
-        }
-    }
-
-    fun stopSpeaking() {
+    fun handleInlineWakeCommand(command: String) {
+        haptics.wakePulse()
         ttsController.stop()
+        _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, voiceSession = true, liveTranscript = command, voiceError = null) }
+        handlePotentialAutonomousVoiceCommand(command)
     }
 
-    fun dismissError() {
-        _bannerError.value = null
-        if (_aiGenState.value is AiGenState.Error) {
-            _aiGenState.value = AiGenState.Idle
+    fun analyzeCameraBitmap(bitmap: Bitmap, prompt: String = "Describe what you see and extract any useful text.") {
+        val b64 = VisionHelper.bitmapToBase64Jpeg(bitmap)
+        _uiState.update { it.copy(currentScreen = OmegaScreen.CHAT) }
+        dispatchToAi(prompt, isVoiceInput = false, imageBase64 = b64)
+    }
+
+    fun sendTextPrompt(prompt: String, openChat: Boolean = true) {
+        val trimmed = prompt.trim()
+        if (trimmed.isEmpty()) return
+        if (com.example.voice.BackgroundVoicePolicy.classify(trimmed) == com.example.voice.BackgroundVoicePolicy.Action.STOP) { stopAllActivity(); return }
+        haptics.softTap()
+        ttsController.stop()
+        if (openChat) _uiState.update { it.copy(currentScreen = OmegaScreen.CHAT) }
+        dispatchToAi(trimmed, isVoiceInput = false)
+    }
+
+    fun runRoutineByName(name: String) { database.findRoutineByNameOrTrigger(name)?.let { runRoutineNow(it) } }
+
+    fun runRoutineNow(routine: VoiceRoutine) {
+        haptics.wakePulse()
+        emergencyStopped = false
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            _uiState.update { it.copy(isThinking = true, liveToolStatus = "Running ${routine.name}...") }
+            val summary = try {
+                actionExecutor.executeRoutineByName(routine.name) { st -> _uiState.update { it.copy(liveToolStatus = st) } }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { "Routine failed: ${e.message ?: "unknown error"}" }
+            coroutineContext.ensureActive()
+            database.insertMessage(ChatMessageEntity(text = summary, isFromUser = false, executedTools = listOf("routine:${routine.name}")))
+            refreshDbState()
+            _uiState.update { it.copy(isThinking = false, liveToolStatus = null, lastAiReply = summary) }
+            AgentHudBus.updateState(AgentHudState.Hidden)
+            if (_uiState.value.settings.autoSpeak) ttsController.speak(summary)
         }
     }
+
+    fun saveCustomRoutine(name: String, trigger: String, summary: String, stepsJson: String) {
+        if (name.isBlank() || trigger.isBlank()) return
+        database.saveRoutine(VoiceRoutine(name = name, triggerPhrase = trigger, actionsSummary = summary, stepsJson = stepsJson))
+        refreshDbState()
+    }
+
+    fun deleteRoutine(id: Long) {
+        val routine = database.getAllRoutines().firstOrNull { it.id == id } ?: return
+        val result = runCatching { TimeAutomationScheduler.cancel(appContext, routine.name); database.deleteRoutine(id) }
+        if (result.isFailure) _uiState.update { it.copy(lastTriggerBanner = "Delete failed: ${result.exceptionOrNull()?.message}") }
+        refreshDbState()
+    }
+    fun deleteMemory(key: String) { database.deleteMemory(key); refreshDbState() }
+    fun speakMessage(text: String) { ttsController.speak(text) }
 
     fun clearChatHistory() {
-        activeGenerationJob?.cancel()
-        ttsController.stop()
-        voiceInputController.cancel()
-        _aiGenState.value = AiGenState.Idle
-        _bannerError.value = null
-        _lastFailedPrompt.value = null
-        viewModelScope.launch {
-            chatRepository.clearChat()
-        }
+        aiRepository.clearHistory()
+        database.clearMessages()
+        database.insertMessage(ChatMessageEntity(text = "Chat cleared. Encrypted memories remain safe.", isFromUser = false))
+        refreshDbState()
+        _uiState.update { it.copy(lastAiReply = "") }
     }
 
-    private fun sendMessageInternal(
-        prompt: String,
-        isVoiceInput: Boolean,
-        saveUserTurn: Boolean
-    ) {
-        val trimmed = prompt.trim()
-        if (trimmed.isBlank()) return
-
-        activeGenerationJob?.cancel()
+    fun stopAllActivity() {
+        com.example.omega.OnlineBackgroundVoiceService.stop(appContext)
+        runCatching { TimeAutomationScheduler.stopRunning(appContext) }.onFailure { android.util.Log.e("InfinityQueue", "Queue stop not confirmed", it) }
+        _uiState.update { it.copy(voiceSession = false) }
+        emergencyStopped = true
+        followUpJob?.cancel(); followUpJob = null
+        activeJob?.cancel(); activeJob = null
+        wakeAckPending=false; ++wakeAckGeneration
+        OmegaWakeService.stopBackgroundConversation()
+        haptics.abortPulse()
+        liveFallbackArmed=false
+        voiceInput.stopListening()
+        btRouter.clearRouting()
+        liveDuplex.disconnect()
         ttsController.stop()
-        _bannerError.value = null
-        _lastFailedPrompt.value = null
-
-        val parsedCommand = PhoneCommandParser.parse(trimmed)
-        if (parsedCommand != null) {
-            handlePhoneControlCommand(
-                prompt = trimmed,
-                command = parsedCommand,
-                isVoiceInput = isVoiceInput,
-                saveUserTurn = saveUserTurn
-            )
-            return
-        }
-
-        activeGenerationJob = viewModelScope.launch {
-            val historySnapshot = uiState.value.messages.let { list ->
-                if (!saveUserTurn && list.lastOrNull()?.role == ChatMessageEntity.ROLE_USER) {
-                    list.dropLast(1)
-                } else {
-                    list
-                }
-            }
-
-            if (saveUserTurn) {
-                chatRepository.saveUserMessage(trimmed, isVoiceInput)
-            }
-
-            _aiGenState.value = AiGenState.Thinking
-            try {
-                aiRepository.streamReply(historySnapshot, trimmed).collect { event ->
-                    when (event) {
-                        is AiStreamEvent.Chunk -> {
-                            _aiGenState.value = AiGenState.Streaming(event.accumulatedText)
-                        }
-                        is AiStreamEvent.Completed -> {
-                            val savedId = chatRepository.saveAssistantMessage(event.fullText)
-                            _aiGenState.value = AiGenState.Idle
-                            if (currentTtsConfig.autoSpeakEnabled) {
-                                ttsController.speak(event.fullText, savedId)
-                            }
-                        }
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "AI reply failed", e)
-                val msg = e.localizedMessage
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "అయ్యో బాస్, ఏదో చిన్న సమస్య వచ్చింది. మళ్ళీ ప్రయత్నించండి!"
-                _lastFailedPrompt.value = trimmed
-                _aiGenState.value = AiGenState.Error(msg)
-                _bannerError.value = msg
-            }
-        }
+        upgradeOrchestrator.emergencyStop()
+        _uiState.update { it.copy(isThinking = false, isListening = false, liveToolStatus = null, audioAmplitude = 0f) }
+        AgentHudBus.updateState(AgentHudState.Hidden)
     }
 
-    private fun handlePhoneControlCommand(
-        prompt: String,
-        command: PhoneControlCommand,
-        isVoiceInput: Boolean,
-        saveUserTurn: Boolean
-    ) {
-        viewModelScope.launch {
-            if (saveUserTurn) {
-                chatRepository.saveUserMessage(prompt, isVoiceInput)
+    private fun dispatchToAi(prompt: String, isVoiceInput: Boolean, imageBase64: String? = null) {
+        com.example.omega.OnlineBackgroundVoiceService.yieldToForeground(appContext)
+        emergencyStopped = false
+        followUpJob?.cancel(); followUpJob = null
+        val dur = String.format("0:%02d", (prompt.split(" ").size / 2).coerceIn(2, 59))
+        database.insertMessage(
+            ChatMessageEntity(text = prompt, isFromUser = true, isVoiceInput = isVoiceInput, audioDuration = dur, hasImageAttachment = imageBase64 != null)
+        )
+        refreshDbState()
+        _uiState.update { it.copy(isThinking = true, liveToolStatus = null, voiceError = null, streamingReply = "") }
+        AgentHudBus.updateState(AgentHudState.Active(if (imageBase64 != null) "Analyzing vision..." else "JARVIS thinking...", isThinking = true, audioAmplitude = 0.45f))
+
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            val requestJob = coroutineContext[Job]
+            val res = aiRepository.sendMessage(prompt, imageBase64, onPartialReply = { partial ->
+                if (requestJob?.isActive == true) _uiState.update { it.copy(streamingReply = partial) }
+            }) { status -> _uiState.update { it.copy(liveToolStatus = status) } }
+            coroutineContext.ensureActive()
+            res.onSuccess { reply ->
+                database.insertMessage(ChatMessageEntity(text = reply.replyText, isFromUser = false, executedTools = reply.executedTools))
+                refreshDbState()
+                _uiState.update { it.copy(isThinking = false, liveToolStatus = null, streamingReply = "", lastAiReply = reply.replyText, lastLatencyMs = reply.latencyMs) }
+                if (_uiState.value.settings.autoSpeak) ttsController.speak(reply.replyText)
+            }.onFailure { err ->
+                val msg = err.message ?: "Request failed."
+                database.insertMessage(ChatMessageEntity(text = msg, isFromUser = false, isError = true))
+                refreshDbState()
+                _uiState.update { it.copy(isThinking = false, liveToolStatus = null, streamingReply = "", voiceError = msg) }
             }
-
-            when (command) {
-                is PhoneControlCommand.OpenApp -> {
-                    if (command.target.requiresConfirmation) {
-                        pendingFromVoiceOrChat = true
-                        _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmAppLaunch(
-                            target = command.target,
-                            title = "${command.target.displayName} ఓపెన్ చేయాలా బాస్?",
-                            description = "కాల్ / మెసేజ్ సంబంధిత యాప్ (${command.target.displayName}) ఓపెన్ చేయడానికి మీ కన్ఫర్మేషన్ అవసరం."
-                        )
-                        val askMsg = "${command.target.displayName} ఓపెన్ చేయాలా బాస్? స్క్రీన్ మీద కన్ఫర్మ్ చేయండి."
-                        if (currentTtsConfig.autoSpeakEnabled) {
-                            ttsController.speak(askMsg)
-                        }
-                        return@launch
-                    }
-                }
-
-                is PhoneControlCommand.PerformGlobalNav -> {
-                    if (phoneControlManager.state.value.isAccessibilityConnected) {
-                        pendingFromVoiceOrChat = true
-                        _pendingSensitiveAction.value = PendingSensitiveAction.ConfirmGlobalNav(
-                            action = command.action,
-                            title = "${command.action.displayName} యాక్షన్ చేయాలా బాస్?",
-                            description = "Accessibility Service ద్వారా '${command.action.displayName}' నావిగేషన్ యాక్షన్ అమలు చేయబడుతుంది."
-                        )
-                        return@launch
-                    }
-                }
-
-                else -> Unit
-            }
-
-            val result: CommandExecutionResult = when (command) {
-                is PhoneControlCommand.OpenApp -> phoneControlManager.openApp(command.target)
-                is PhoneControlCommand.SetTorch -> phoneControlManager.setTorchEnabled(command.enabled)
-                is PhoneControlCommand.IncreaseVolume -> phoneControlManager.adjustVolume(+1)
-                is PhoneControlCommand.DecreaseVolume -> phoneControlManager.adjustVolume(-1)
-                is PhoneControlCommand.MuteVolume -> phoneControlManager.setVolumeLevel(0)
-                is PhoneControlCommand.IncreaseBrightness -> phoneControlManager.adjustBrightness(+15)
-                is PhoneControlCommand.DecreaseBrightness -> phoneControlManager.adjustBrightness(-15)
-                is PhoneControlCommand.CheckBattery -> phoneControlManager.readBatterySummary()
-                is PhoneControlCommand.OpenDeviceSettings -> phoneControlManager.openDeviceSetting(command.target)
-                is PhoneControlCommand.PerformGlobalNav -> phoneControlManager.performGlobalNavigation(command.action)
-            }
-
-            if (!result.succeeded) {
-                _bannerError.value = result.teluguResponse
-            }
-
-            val savedId = chatRepository.saveAssistantMessage(result.teluguResponse)
-            if (currentTtsConfig.autoSpeakEnabled) {
-                ttsController.speak(result.teluguResponse, savedId)
-            }
+            AgentHudBus.updateState(AgentHudState.Hidden)
         }
     }
 
     override fun onCleared() {
+        activeJob?.cancel(); followUpJob?.cancel()
+        smartTriggers.unregister()
+        upgradeOrchestrator.emergencyStop()
+        voiceInput.release(); btRouter.clearRouting(); liveDuplex.release(); ttsController.release(); database.close()
         super.onCleared()
-        voiceInputController.release()
-        ttsController.release()
-        phoneControlManager.release()
     }
 }

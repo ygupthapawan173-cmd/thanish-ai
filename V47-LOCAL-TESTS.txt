@@ -1,0 +1,6 @@
+PASS: 73 TTS chunk invariants
+PASS: 7 source guards + 1 desktop SQLite collision example (not Android runtime tests)
+21/21 V46 voice policy and selected dependency graph checks passed
+Portable backup crypto checks: 12/12 passed
+PASS: 5 table rows preserved by actual index SQL (SQLite desktop test, not Android migration test)
+PASS: 12 XML parses; 2 workflow YAML parses

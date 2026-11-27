@@ -1,0 +1,10 @@
+Observed local results:
+221/221 V100 pure JVM policy assertions passed (not features)
+34/34 V50 pure JVM policy checks passed
+19/19 V48 JVM policy checks passed
+15/15 V100 static source guards passed
+14/14 V50 static source guards passed
+V47: 7 source guards + 1 desktop SQLite collision example passed
+Desktop SQLite index migration check: 5 rows preserved
+Android SDK / Gradle compilation: NOT RUN (unavailable in environment)
+Android 16 device, API, camera, audio, background, self-update, and production signing: NOT RUN

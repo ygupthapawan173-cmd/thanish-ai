@@ -1,70 +1,7 @@
-# Pandu Babu — Jarvis Edition
+# OMEGA Pandu v18 Supreme
 
-Telugu-first Android AI assistant built with Kotlin, Jetpack Compose, Room, Android SpeechRecognizer, Android Text-to-Speech, and Firebase AI Logic.
-
-## AI intelligence and provider slots
-
-Open the app's **Settings** tab to configure four optional AI API providers:
-
-1. Google Gemini — default model: `gemini-3.8-flash`
-2. Groq — default model: `openai/gpt-oss-20b`
-3. OpenRouter — default model: `openrouter/free`
-4. OpenAI — default model: `gpt-4.1-mini`
-
-For each provider you can enter an API key, change the model ID, choose **Save & Test**, and select **Use This** to make it the active provider. You can remove a saved key at any time.
-
-API keys are encrypted at rest with AES-GCM using a key held by Android Keystore. The encrypted provider preferences are excluded from Android cloud backup and device transfer. Keys are not hardcoded in the source code, BuildConfig, or APK. This is still a client-side application: a rooted or instrumented device may expose a key while it is in use. Use project restrictions and quota limits on provider accounts; never put server-only secrets in a mobile app.
-
-Responses stream into the chat as text arrives. If the active provider fails before producing response text, Pandu Babu tries the other configured providers. When no provider key is configured, the app falls back to its existing Firebase AI Logic Gemini connection.
-
-Provider usage and charges depend on the provider account and model. OpenRouter's `openrouter/free` model router uses currently available free models and is subject to provider rate limits. Model IDs can be changed from Settings as provider catalogs evolve.
-
-## Accessibility and phone controls
-
-Pandu Babu's optional Accessibility Service is deliberately limited to Android global navigation:
-- Back
-- Home
-- Recents
-- Notifications
-
-The user must open Android Accessibility Settings and explicitly enable the service. The Phone Controls dashboard distinguishes between **enabled in Android Settings** and **connected to the running app**, and refreshes that state when the service connects/disconnects and when the app resumes. Use **Enable** or **Open Settings** to return to Android's Accessibility page. If Android shows the service enabled but it has not connected, toggle it off and on once.
-
-Every global navigation action requested by voice or tapped in the dashboard requires an in-app confirmation. The service does not read screen content, messages, passwords, OTPs, or other window content, and does not click controls inside other apps.
-
-Other phone controls use normal Android APIs:
-- App launch, camera, gallery, dialer, and messaging app launch
-- Flashlight, media volume, and battery information
-- Screen brightness (requires the user to grant Modify System Settings)
-- Wi-Fi, Bluetooth, hotspot, and mobile-network settings screens (Android limits direct changes to several protected settings)
-
-Voice recognition depends on an installed Android speech-recognition provider and its language/network support. Telugu text-to-speech depends on Telugu voices installed on the device.
-
-## Build
-
-1. Open this repository in Android Studio.
-2. Let Gradle sync and install the Android SDK version requested by the project.
-3. Build the debug variant with `gradle assembleDebug` or Android Studio's Build APK(s) action.
-4. Run unit tests with `gradle testDebugUnitTest`.
-
-The GitHub Actions workflow runs unit tests before building the debug APK on pushes and pull requests targeting `main`.
-
-## Package
-
-- Application ID: `com.aistudio.pandubabu.kxmpzq`
-- Display name: Pandu Babu
-- Version: 1.2
-- Minimum Android SDK: 24
-
-
-## AI Phone Agent (v1.2 integration)
-
-The Apps tab includes a user-started AI Phone Agent. It uses the configured provider slots already available in Settings (Gemini, Groq, OpenRouter, or OpenAI) and asks the selected provider to propose one action at a time.
-
-Privacy and execution boundaries:
-- The user must explicitly consent before a task starts.
-- Visible on-screen controls and labels are sent to the selected AI provider while the task is active.
-- Password values and editable-field contents are not included in screen snapshots.
-- WhatsApp, WhatsApp Business, Android/Google Messages, Gmail, Google Authenticator, Google Wallet, PhonePe, Paytm, and Google Pay package IDs are blocked from screen capture.
-- App launches, taps, text entry, scrolling, and system navigation each require a separate in-app confirmation.
-- The task stops after 12 planning steps or when the user presses Stop / Cancel.
-- The optional always-listening wake-word service and the standalone backend from the supplied patch are not integrated in this first build.
+Android 16 (API 36) native Kotlin & Jetpack Compose AI Assistant with:
+- **Strictly 2 Encrypted API Key Slots:** Google Gemini & OpenRouter (Android Keystore AES-256-GCM)
+- **Zero-404 Dynamic Real Model Discovery:** Queries live Gemini `/v1beta/models` and OpenRouter `/api/v1/models`, supports separate Chat (`gemini-3.8-flash`) & Live Voice models, plus automatic 404/429 & cross-provider failover.
+- **Full UI & Color Overhaul:** NoActionBar edge-to-edge layout (black title bar eliminated), Dynamic Island floating pill (clipping fixed), auto-hiding Floating Mini-Orb inside app, Aurora Obsidian + Pearl Liquid Glass + Cyber WebGL themes, Particle AI Orb, and 6-preset Orb Color Studio.
+- **Next-Gen Voice & Automation:** Error 11 auto-recovery, Telugu+English AUTO, Bluetooth routing, hardware Echo Cancellation & Noise Suppression, Smart Triggers, Calendar, Email, Clipboard, Location Reminders, Confirmed Direct Notification Replies, Semantic Memory Search, Crash Analyzer, and GitHub Actions CI with automated unit tests.
