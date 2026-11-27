@@ -92,7 +92,7 @@ jobs:
           if-no-files-found: error
 
       - name: Build & Sign Permanent Owner Release APK (when owner keystore secrets are configured)
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' && secrets.RELEASE_KEYSTORE_PASSWORD != '' && secrets.RELEASE_KEY_ALIAS != '' && secrets.RELEASE_KEY_PASSWORD != '' && secrets.RELEASE_CERT_SHA256 != '' }}
+        id: sign_release
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
@@ -100,11 +100,17 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
-          gradle :app:assembleRelease --no-daemon --stacktrace
-          bash ci/sign-release.sh release-out
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$RELEASE_KEYSTORE_PASSWORD" && -n "$RELEASE_KEY_ALIAS" && -n "$RELEASE_KEY_PASSWORD" && -n "$RELEASE_CERT_SHA256" ]]; then
+            gradle :app:assembleRelease --no-daemon --stacktrace
+            bash ci/sign-release.sh release-out
+            echo "signed_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Owner keystore secrets not configured; skipping release signing."
+            echo "signed_release=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload Owner-Signed Release APK
-        if: ${{ hashFiles('release-out/*.apk') != '' }}
+        if: steps.sign_release.outputs.signed_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-INFINITY-V108.2-OWNER-RELEASE
