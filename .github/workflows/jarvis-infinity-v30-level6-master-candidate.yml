@@ -56,10 +56,14 @@ jobs:
           bash ci/provision-vosk.sh
           bash ci/provision-neural-vad.sh
           if [[ "${{ inputs.neural_wake }}" == "true" ]]; then bash ci/provision-neural-wake.sh; fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Test genuine neural model on CPU
         working-directory: infinity-v30-level6-master-candidate-build
         run: |
-          python3 -m venv "$RUNNER_TEMP/vad-test-env"
+          python --version
+          python -m venv "$RUNNER_TEMP/vad-test-env"
           "$RUNNER_TEMP/vad-test-env/bin/pip" install onnxruntime==1.22.0
           "$RUNNER_TEMP/vad-test-env/bin/python" ci/check-neural-model.py
           if [[ "${{ inputs.neural_wake }}" == "true" ]]; then "$RUNNER_TEMP/vad-test-env/bin/python" ci/check-neural-wake.py; fi
