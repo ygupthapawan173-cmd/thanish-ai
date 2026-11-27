@@ -26,18 +26,20 @@ jobs:
           gradle-version: '8.11.1'
       - name: Verify and extract V20.5 source
         run: |
-          echo "5a1d9a864b00cc33ec05a8120d96084c1024a174ed09f4e21a09427c602c8f62  OMEGA-PANDU-v20.5-ELITE-VOICE-MASTER.zip" | sha256sum -c -
+          echo "d5c54b4fea254d659eea2c258db79aed433ac00f9dcc47e2fb8ae916a6b15a8c  OMEGA-PANDU-v20.5-ELITE-VOICE-MASTER.zip" | sha256sum -c -
           python3 - <<'PY'
-          import zipfile,pathlib,stat
+          import zipfile,pathlib,stat,hashlib
           with zipfile.ZipFile('OMEGA-PANDU-v20.5-ELITE-VOICE-MASTER.zip') as z:
               assert z.testzip() is None
-              assert len(z.namelist()) == 96
+              assert len(z.namelist()) == 97
               for i in z.infolist():
                   p=pathlib.PurePosixPath(i.filename)
                   assert not p.is_absolute() and '..' not in p.parts
                   assert not stat.S_ISLNK(i.external_attr >> 16)
-              for name in ('final.ext.raw','mean.vec','transform.mat','mfcc.conf','README.txt'):
+              for name in ('final.ext.raw','mean.vec','transform.mat','mfcc.conf'):
                   assert z.getinfo('app/src/main/assets/model-spk/'+name).file_size>0
+              for name, digest in {"mfcc.conf":"86f4df625b950b81b68864fdefabf26aa65079f84ea20f40e7f9e7ccbb9c456c","final.ext.raw":"d30354474ac719b3cfce58186463302b988cf22ce3afee7237a2da862c4a91d1","mean.vec":"3bc5dfa9479c3aaacf4f45c155e9bd4772785449112566fac23578c09e93bcd7","transform.mat":"fab14481fb27c41df0f1825afe18530e4f6d128dbb2c239ee86d8d7096e22c33"}.items():
+                  assert hashlib.sha256(z.read('app/src/main/assets/model-spk/'+name)).hexdigest()==digest
               z.extractall('omega-v205-build')
           PY
       - name: Install Android SDK 36
@@ -60,12 +62,14 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/*.apk | grep -F "versionName='20.5-elite-voice-master'"
           python3 - <<'PY'
-          import zipfile
+          import zipfile,hashlib
           with zipfile.ZipFile('out/OMEGA-PANDU-v20.5-ELITE-VOICE-MASTER-TEST.apk') as z:
               assert z.getinfo('assets/model-en-us/am/final.mdl').file_size > 0
               assert any(n.startswith('lib/arm64-v8a/') and n.endswith('libvosk.so') for n in z.namelist())
-              for name in ('final.ext.raw','mean.vec','transform.mat','mfcc.conf','README.txt'):
+              for name in ('final.ext.raw','mean.vec','transform.mat','mfcc.conf'):
                   assert z.getinfo('assets/model-spk/'+name).file_size>0
+              for name, digest in {"mfcc.conf":"86f4df625b950b81b68864fdefabf26aa65079f84ea20f40e7f9e7ccbb9c456c","final.ext.raw":"d30354474ac719b3cfce58186463302b988cf22ce3afee7237a2da862c4a91d1","mean.vec":"3bc5dfa9479c3aaacf4f45c155e9bd4772785449112566fac23578c09e93bcd7","transform.mat":"fab14481fb27c41df0f1825afe18530e4f6d128dbb2c239ee86d8d7096e22c33"}.items():
+                  assert hashlib.sha256(z.read('assets/model-spk/'+name)).hexdigest()==digest
           PY
           sha256sum out/*.apk > out/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
