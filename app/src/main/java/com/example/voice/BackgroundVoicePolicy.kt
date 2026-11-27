@@ -3,9 +3,36 @@ package com.example.voice
 /** Strict, deterministic background actions; arbitrary model output is never executed. */
 internal object BackgroundVoicePolicy {
     enum class Action { TIME, DATE, BATTERY, TORCH_ON, TORCH_OFF, GREETING, STOP, QUESTION }
-    val inlineCommands = listOf("time", "what time is it", "date", "battery", "battery level", "battery percentage", "flashlight on", "flashlight off", "torch on", "torch off", "hello", "stop", "samayam", "torch on chey", "torch off chey")
-    fun wakeGrammar(phrases: List<String>): List<String> = phrases + phrases.flatMap { phrase -> inlineCommands.map { "$phrase $it" } } + "[unk]"
-    fun matchWake(heard: String, phrases: List<String>): String? = phrases.sortedByDescending { it.length }.firstOrNull { heard == it || heard.startsWith("$it ") }
+    val inlineCommands = listOf(
+        "time", "what time is it", "date", "battery", "battery level", "battery percentage",
+        "flashlight on", "flashlight off", "torch on", "torch off", "hello", "stop",
+        "samayam", "torch on chey", "torch off chey"
+    )
+
+    private val blockedWakePhrases = setOf("jarvis", "service", "hey service", "hi service", "ok service")
+
+    private fun isSafeWakePhrase(phrase: String): Boolean {
+        val norm = phrase.lowercase().trim().replace(Regex("\\s+"), " ")
+        if (norm.isBlank() || norm in blockedWakePhrases) return false
+        val tokens = norm.split(" ")
+        if (tokens.size < 2) return false
+        if (tokens.any { it == "service" || it == "services" }) return false
+        return true
+    }
+
+    fun wakeGrammar(phrases: List<String>): List<String> {
+        val safe = phrases.filter { isSafeWakePhrase(it) }
+        return safe + safe.flatMap { phrase -> inlineCommands.map { "$phrase $it" } } + "[unk]"
+    }
+
+    fun matchWake(heard: String, phrases: List<String>): String? {
+        val norm = heard.lowercase().trim().replace(Regex("\\s+"), " ")
+        if (norm.isBlank() || norm in blockedWakePhrases) return null
+        return phrases
+            .filter { isSafeWakePhrase(it) }
+            .sortedByDescending { it.length }
+            .firstOrNull { norm == it || norm.startsWith("$it ") }
+    }
     fun classify(raw: String): Action {
         val q = raw.lowercase().trim().trimEnd('?', '.', '!').trim().replace(Regex("\\s+"), " ")
         return when (q) {

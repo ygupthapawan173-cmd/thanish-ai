@@ -74,10 +74,14 @@ class SystemDiagnosticsEngine(private val context: Context) {
 
         // 3. API Error & Model Diagnosis
         val hasGemini = settings.effectiveGeminiKey().isNotBlank()
-        val hasOr = settings.effectiveOpenRouterKey().isNotBlank()
+        val hasOr = settings.effectiveOpenRouterKey().isNotBlank() || settings.effectiveSecondaryGatewayKey().isNotBlank()
         if (!hasGemini && !hasOr) {
             score -= 20
             issues.add(DiagnosticIssue("CRITICAL", "AI API", "No cloud API key configured", "Add Gemini or Smart Gateway key."))
+        }
+        val certSha = com.example.security.VerifiedApkUpdater.installedSigningCertSha256(context)
+        if (certSha != null) {
+            issues.add(DiagnosticIssue("INFO", "APK Signing", "Signing cert SHA-256: ${certSha.take(16)}...", "Pin this SHA-256 in RELEASE_CERT_SHA256 for conflict-free updates."))
         }
         if (settings.openRouterModel.contains(":batch", ignoreCase = true)) {
             score -= 12

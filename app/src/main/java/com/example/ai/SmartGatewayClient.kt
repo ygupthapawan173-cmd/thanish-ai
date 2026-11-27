@@ -73,11 +73,15 @@ internal class SmartGatewayClient(private val networkAllowed: () -> Boolean = { 
             if (reason != null) throw IOException(reason)
         }
     }
-    suspend fun answer(s: OmegaSettings, question: String, system: String, previous: List<Pair<String,String>> = emptyList(), image: String? = null, onPartial: ((String) -> Unit)? = null): Reply {
+    suspend fun answer(s: OmegaSettings, question: String, system: String, previous: List<Pair<String,String>> = emptyList(), image: String? = null, preferredBrain: AiBrainFamily? = null, onPartial: ((String) -> Unit)? = null): Reply {
         val task = SmartModelPolicy.task(question, !image.isNullOrBlank())
         if (s.smartMode == SmartModelPolicy.Mode.FREE && endpoint(s, "/models") != "https://openrouter.ai/api/v1/models") throw IOException("Strict Free mode is supported only on OpenRouter; no request sent")
         val available = discover(s, refresh = s.smartMode == SmartModelPolicy.Mode.FREE)
-        val ranked = SmartModelPolicy.rank(available, task, s.smartMode, s.openRouterModel, s.manualVisionConfirmed)
+        val rankedAll = SmartModelPolicy.rank(available, task, s.smartMode, s.openRouterModel, s.manualVisionConfirmed)
+        val ranked = if (preferredBrain != null) {
+            val matching = rankedAll.filter { MultiBrainPolicy.classifyModelFamily(it.id) == preferredBrain }
+            if (matching.isNotEmpty()) matching + rankedAll.filterNot { it in matching } else rankedAll
+        } else rankedAll
         val scope = cooldownScope(s)
         val checkedAt = now()
         val candidates = ranked.filter { !cooldowns.blocked(scope, it.id, checkedAt) }.take(3)
@@ -105,6 +109,9 @@ internal class SmartGatewayClient(private val networkAllowed: () -> Boolean = { 
                     val cooldown = GatewayRetryPolicy.cooldownMs(r.code, r.header("Retry-After"))
                         .let { if (it > 0L) it else if (r.code in 500..504) 90_000L else 0L }
                     if (cooldown > 0) cooldowns.mark(scope, m.id, now(), cooldown)
+                    MultiBrainPolicy.classifyModelFamily(m.id)?.let { fam ->
+                        PerBrainQuotaTracker.recordFailure(fam, if (cooldown > 0) System.currentTimeMillis() + cooldown else 0L)
+                    }
                     if (r.code == 404 || model400) cache = null
                     ApiQuotaTracker.recordFailure()
                     null
@@ -120,6 +127,9 @@ internal class SmartGatewayClient(private val networkAllowed: () -> Boolean = { 
                     val cost = if (knownUnits) usage?.optDouble("cost")?.takeIf { it.isFinite() && it >= 0 } ?: (if (actualModel == m.id && prompt != null && output != null && m.promptPrice != null && m.completionPrice != null) prompt * m.promptPrice + output * m.completionPrice else null) else null
                     if (text.isBlank() || text == "null") throw IOException("Gateway returned no text")
                     ApiQuotaTracker.recordSuccess(actualModel, prompt, output, (now() - started).coerceAtLeast(0L), cost?.takeIf { it.isFinite() && it >= 0 })
+                    MultiBrainPolicy.classifyModelFamily(actualModel)?.let { fam ->
+                        PerBrainQuotaTracker.recordSuccess(fam, actualModel, prompt, output, cost)
+                    }
                     Reply(text, actualModel)
                 }
             }

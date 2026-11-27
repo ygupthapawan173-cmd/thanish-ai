@@ -1,7 +1,6 @@
 package com.example.ai
 
 import com.example.autonomous.VoiceUpgradeIntentParser
-import java.util.Locale
 
 enum class BrainIntentCategory {
     DIRECT_MOBILE_COMMAND,
@@ -16,42 +15,71 @@ enum class BrainIntentCategory {
 
 enum class ReasoningEffort { LOW, MEDIUM, HIGH }
 
+enum class BrainPipelineStage(val label: String) {
+    UNDERSTAND("Understand"),
+    REASON("Reason"),
+    PLAN("Plan"),
+    SELECT_MODEL("Select Model"),
+    EXECUTE("Execute"),
+    VERIFY("Verify"),
+    RESPOND("Respond")
+}
+
 data class BrainTaskPlan(
     val category: BrainIntentCategory,
     val effort: ReasoningEffort,
     val responseLanguage: String,
     val steps: List<String>,
-    val verificationCheck: String
+    val verificationCheck: String,
+    val isTranslationRequest: Boolean = false,
+    val isPlanningRequest: Boolean = false,
+    val pipelineStages: List<BrainPipelineStage> = BrainPipelineStage.entries
 )
 
 /**
- * V108 Master AI Brain Orchestrator.
- * Unifies bilingual (Telugu/English) intent classification, task complexity detection,
- * multi-step planning, and privacy-safe preference routing without duplicating existing engines.
+ * V110 Master AI Brain Orchestrator.
+ * Unifies bilingual (Telugu + Tenglish + English) intent classification, reasoning depth,
+ * multi-step planning, and privacy-safe routing through:
+ * Understand -> Reason -> Plan -> Select Model -> Execute -> Verify -> Respond.
  */
 object MasterAiBrain {
 
     private val MOBILE_CMD = Regex(
-        "\\b(?:open|launch|turn\\s+(?:on|off)|toggle|flashlight|torch|wifi|bluetooth|volume|brightness|alarm|call|dial|battery)\\b",
+        "\\b(?:open|launch|turn\\s+(?:on|off)|toggle|flashlight|torch|wifi|bluetooth|volume|brightness|alarm|call|dial|battery|teruvu|pettu|teeyi)\\b",
         RegexOption.IGNORE_CASE
     )
     private val TELUGU_SCRIPT = Regex("[\\u0C00-\\u0C7F]")
-    private val MEMORY_WORDS = Regex("\\b(?:remember|memory|what did i|saved fact|my preference|గుర్తు)\\b", RegexOption.IGNORE_CASE)
+    private val TENGLISH_HINTS = Regex(
+        "\\b(?:cheppu|cheppandi|ela\\s+unnav|emiti|enti|samayam|vaatavaranam|anuvadam|gurthu|naaku|nenu|telugu\\s+lo)\\b",
+        RegexOption.IGNORE_CASE
+    )
+    private val MEMORY_WORDS = Regex("\\b(?:remember|memory|what did i|saved fact|my preference|gurthu|గుర్తు|గుర్తుంచుకో)\\b", RegexOption.IGNORE_CASE)
     private val MAJOR_DEV = Regex("\\b(?:architect|architecture|refactor|multi[-\\s]?file|master\\s+upgrade|redesign|module)\\b", RegexOption.IGNORE_CASE)
     private val ADV_CODING = Regex("\\b(?:kotlin|compose|coroutine|security|encrypt|gradle|proguard|crash|stacktrace|debug)\\b", RegexOption.IGNORE_CASE)
+    private val TRANSLATE_WORDS = Regex("\\b(?:translate|translation|anuvadam|అనువాదం|అనువదించు|in\\s+telugu|in\\s+english|in\\s+hindi)\\b", RegexOption.IGNORE_CASE)
+    private val PLAN_WORDS = Regex("\\b(?:daily\\s+briefing|daily\\s+plan|schedule\\s+my\\s+day|agenda|plan\\s+my\\s+day|ఈరోజు\\s+ప్లాన్)\\b", RegexOption.IGNORE_CASE)
 
     fun detectResponseLanguage(text: String, configuredLanguage: String): String {
         if (configuredLanguage != "auto" && configuredLanguage.isNotBlank()) return configuredLanguage
-        return if (TELUGU_SCRIPT.containsMatchIn(text)) "te-IN" else "en-IN"
+        return if (TELUGU_SCRIPT.containsMatchIn(text) || TENGLISH_HINTS.containsMatchIn(text)) "te-IN" else "en-IN"
     }
 
     fun classifyAndPlan(
         userMessage: String,
         hasImage: Boolean = false,
-        configuredLanguage: String = "auto"
+        configuredLanguage: String = "auto",
+        thinkingMode: BrainThinkingMode = BrainThinkingMode.AUTO
     ): BrainTaskPlan {
         val q = userMessage.trim()
         val lang = detectResponseLanguage(q, configuredLanguage)
+        val isTranslate = TRANSLATE_WORDS.containsMatchIn(q)
+        val isPlanning = PLAN_WORDS.containsMatchIn(q)
+
+        fun applyEffortOverride(defaultEffort: ReasoningEffort): ReasoningEffort = when (thinkingMode) {
+            BrainThinkingMode.FAST -> ReasoningEffort.LOW
+            BrainThinkingMode.REASONING, BrainThinkingMode.DEEP_THINKING -> ReasoningEffort.HIGH
+            BrainThinkingMode.AUTO -> defaultEffort
+        }
 
         VoiceUpgradeIntentParser.parse(q)?.let { upgrade ->
             val cat = if (upgrade.isCrashFix) BrainIntentCategory.CRASH_FIX else BrainIntentCategory.SELF_UPGRADE
@@ -82,7 +110,7 @@ object MasterAiBrain {
         if (MEMORY_WORDS.containsMatchIn(q)) {
             return BrainTaskPlan(
                 category = BrainIntentCategory.MEMORY_QUERY,
-                effort = ReasoningEffort.LOW,
+                effort = applyEffortOverride(ReasoningEffort.LOW),
                 responseLanguage = lang,
                 steps = listOf("Query SemanticMemoryEngine", "Synthesize grounded personal reply"),
                 verificationCheck = "Untrusted memory boundary preserved"
@@ -93,7 +121,7 @@ object MasterAiBrain {
         if (MAJOR_DEV.containsMatchIn(q)) {
             return BrainTaskPlan(
                 category = BrainIntentCategory.MAJOR_DEVELOPMENT,
-                effort = ReasoningEffort.HIGH,
+                effort = applyEffortOverride(ReasoningEffort.HIGH),
                 responseLanguage = lang,
                 steps = listOf("Decompose architecture", "Propose scoped Kotlin changes", "Recommend Antigravity CLI handoff if needed"),
                 verificationCheck = "Regression plan + minSdk 24 check"
@@ -104,24 +132,32 @@ object MasterAiBrain {
             val isAdvanced = ADV_CODING.containsMatchIn(q) || q.length > 260
             return BrainTaskPlan(
                 category = if (isAdvanced) BrainIntentCategory.ADVANCED_CODING else BrainIntentCategory.FAST_CODING,
-                effort = if (isAdvanced) ReasoningEffort.HIGH else ReasoningEffort.MEDIUM,
+                effort = applyEffortOverride(if (isAdvanced) ReasoningEffort.HIGH else ReasoningEffort.MEDIUM),
                 responseLanguage = lang,
-                steps = listOf("Select optimal coding model", "Generate verified Kotlin/explanation"),
+                steps = listOf("Select optimal coding brain & model", "Generate verified Kotlin/explanation"),
                 verificationCheck = "No embedded secrets or unsafe APIs"
             )
         }
 
-        val effort = if (task == SmartModelPolicy.Task.REASONING || task == SmartModelPolicy.Task.VISION) {
+        val defaultEffort = if (task == SmartModelPolicy.Task.REASONING || task == SmartModelPolicy.Task.VISION || isPlanning) {
             ReasoningEffort.MEDIUM
         } else {
             ReasoningEffort.LOW
         }
         return BrainTaskPlan(
             category = BrainIntentCategory.DAILY_QUESTION,
-            effort = effort,
+            effort = applyEffortOverride(defaultEffort),
             responseLanguage = lang,
-            steps = listOf("Inject live device context", "Route via free-quota-first provider"),
-            verificationCheck = "Cost protection + bounded response"
+            steps = buildList {
+                add("Inject live device context")
+                if (isPlanning) add("Aggregate calendar, reminders & routines")
+                if (isTranslate) add("Preserve faithful multilingual meaning")
+                add("Route via free-quota-first multi-brain engine")
+                add("Verify response quality & consistency")
+            },
+            verificationCheck = "Cost protection + quality verification",
+            isTranslationRequest = isTranslate,
+            isPlanningRequest = isPlanning
         )
     }
 }

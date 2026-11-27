@@ -194,7 +194,7 @@ internal fun HandsFreeWakeControls(state: PanduUiState) {
     val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted -> note = if (granted) "Tap Start again." else "Notification permission denied." }
     val theme = state.settings.visualTheme
     Text("HEY JARVIS • Hands-free", color=theme.primaryText())
-    Text("Start once while JARVIS is visible. Only the wake phrase is detected on the phone. Questions and replies use online AI. Stop in the notification or here. Screen lock stops listening; restart after unlocking.", color=theme.mutedText(), fontSize=12.sp)
+    Text("Start once while JARVIS is visible. Only the wake phrase is detected on the phone. Questions and replies use online AI. Stop in the notification or here. While locked, only the offline wake phrase is detected; unlock for questions and replies.", color=theme.mutedText(), fontSize=12.sp)
     Text(status, color=theme.primaryText(), fontSize=12.sp)
     OutlinedButton(onClick={
         when {

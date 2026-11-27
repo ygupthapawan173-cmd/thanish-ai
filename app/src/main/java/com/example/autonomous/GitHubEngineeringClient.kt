@@ -179,6 +179,7 @@ class GitHubEngineeringClient {
                 if (arr == null || arr.length() == 0) return@use null
                 val allowedWorkflows = setOf(
                     ".github/workflows/build-apk.yml",
+                    ".github/workflows/jarvis-infinity-v110-ultra.yml",
                     ".github/workflows/jarvis-infinity-v108-ultimate.yml",
                     ".github/workflows/jarvis-infinity-v107-autonomous.yml",
                     ".github/workflows/jarvis-infinity-v107-2-control-center.yml"

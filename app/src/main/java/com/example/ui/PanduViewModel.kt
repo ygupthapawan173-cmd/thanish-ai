@@ -55,6 +55,7 @@ enum class OmegaScreen { HOME, LISTENING, CHAT, ROUTINES, AUTONOMOUS_LAB, CONTRO
 
 data class PanduUiState(
     val currentScreen: OmegaScreen = OmegaScreen.HOME,
+    val navigationBackStack: List<OmegaScreen> = emptyList(),
     val voiceSession: Boolean = false,
     val initialSettingsPage: Int = -1,
     val settings: OmegaSettings = OmegaSettings(),
@@ -71,6 +72,19 @@ data class PanduUiState(
     val rollbackSnapshots: List<com.example.autonomous.RollbackSnapshot> = emptyList(),
     val controlCenterStatus: String? = null,
     val lastBrainRouteSummary: String = "Master AI Brain Ready",
+    val activeBrainLabel: String = "Gemini Direct Brain",
+    val activePipelineStage: com.example.ai.BrainPipelineStage = com.example.ai.BrainPipelineStage.RESPOND,
+    val lastVerificationBadge: String = "Verified",
+    val brainInventory: List<com.example.ai.BrainStatusSnapshot> = emptyList(),
+    val proactiveSuggestions: List<com.example.autonomous.ProactiveSuggestion> = emptyList(),
+    val routineSuggestions: List<com.example.autonomous.RoutineSuggestion> = emptyList(),
+    val conditionalRules: List<com.example.autonomous.ConditionalAutomationRule> = listOf(
+        com.example.autonomous.ConditionalAutomationRule("cond_low_bat", com.example.autonomous.AutomationConditionType.BATTERY_BELOW_15, "Lower volume & turn off flashlight", true),
+        com.example.autonomous.ConditionalAutomationRule("cond_bt", com.example.autonomous.AutomationConditionType.BLUETOOTH_CONNECTED, "Announce unread notifications", true),
+        com.example.autonomous.ConditionalAutomationRule("cond_charge", com.example.autonomous.AutomationConditionType.CHARGER_CONNECTED, "Announce live battery status", true),
+        com.example.autonomous.ConditionalAutomationRule("cond_notifs", com.example.autonomous.AutomationConditionType.UNREAD_NOTIFS_HIGH, "Offer notification digest", true)
+    ),
+    val signingCertSha256: String? = null,
     val pendingVoiceUpgrade: com.example.autonomous.VoiceUpgradeProposal? = null,
     val handoffBundle: com.example.autonomous.AntigravityHandoffBundle? = null,
     val isCheckingUpdate: Boolean = false,
@@ -148,7 +162,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         PanduUiState(
             settings = preferences.settings.value,
             batteryPercent = actionExecutor.getBatteryPercent(),
-            crashLogText = CrashRecoveryHandler.readLogs(appContext)
+            crashLogText = CrashRecoveryHandler.readLogs(appContext),
+            signingCertSha256 = com.example.security.VerifiedApkUpdater.installedSigningCertSha256(appContext)
         )
     )
     val uiState: StateFlow<PanduUiState> = _uiState.asStateFlow()
@@ -169,11 +184,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             if (emergencyStopped) return@setOnSpeechFinished
             if(wakeAckPending) {
                 wakeAckPending=false; ++wakeAckGeneration
-                followUpJob?.cancel()
-                followUpJob = viewModelScope.launch {
-                    delay(280L)
-                    if (!emergencyStopped && AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
-                }
+                if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
                 return@setOnSpeechFinished
             }
             if (_uiState.value.settings.continuousConversation &&
@@ -184,13 +195,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 followUpJob?.cancel()
                 followUpJob = viewModelScope.launch {
                     delay(380L)
-                    repeat(8) {
-                        if (!AgentHudBus.isMainMicBusy.value) return@repeat
-                        delay(100L)
-                    }
                     if (emergencyStopped) return@launch
                     if (_uiState.value.voiceSession && !_uiState.value.isThinking && !_uiState.value.settings.micPrivacyMuted && AgentHudBus.isAppInForeground.value && !AgentHudBus.isMainMicBusy.value) {
-                        voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech)
+                        voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech, bluetoothEnabled = _uiState.value.settings.bluetoothVoiceRouting)
                     }
                 }
             }
@@ -257,7 +264,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(liveDuplexState = ls) }
                 if (ls.isConnected) AgentHudBus.updateState(AgentHudState.Active(ls.statusText, audioAmplitude = ls.amplitude))
                 if(ls.error != null && liveFallbackArmed && AgentHudBus.isAppInForeground.value && _uiState.value.voiceSession && !_uiState.value.settings.micPrivacyMuted) {
-                    liveFallbackArmed=false; liveDuplex.disconnect(); _uiState.update { it.copy(voiceError="Live unavailable; switching to speech recognition") }; voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech)
+                    liveFallbackArmed=false; liveDuplex.disconnect(); _uiState.update { it.copy(voiceError="Live unavailable; switching to speech recognition") }; voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech, bluetoothEnabled = _uiState.value.settings.bluetoothVoiceRouting)
                 }
             }
         }
@@ -270,7 +277,15 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 emergencyStopped = false
                 if (cmd.isNotBlank()) handleInlineWakeCommand(cmd) else if(_uiState.value.settings.autoSpeak) {
                     wakeAckPending=true; val token=++wakeAckGeneration
-                    ttsController.speak("Yes, Boss")
+                    val s = _uiState.value.settings
+                    val ackText = s.customWakeAck.trim().ifEmpty { com.example.voice.TeluguVoiceReplies.wakeAck(s.languageTag) }
+                    ttsController.configure(
+                        com.example.voice.TeluguVoiceReplies.wakeAckLocale(s.languageTag),
+                        s.ttsSpeed,
+                        s.ttsPitch,
+                        s.ttsStyle
+                    )
+                    ttsController.speak(ackText)
                     viewModelScope.launch {
                         delay(5000)
                         if(wakeAckPending && token==wakeAckGeneration) {
@@ -284,14 +299,33 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun refreshDbState() {
+        val s = preferences.settings.value
+        val messages = database.getRecentMessages(80)
+        val memories = database.getAllMemories()
+        val routines = database.getAllRoutines()
+        val battery = actionExecutor.getBatteryPercent()
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         _uiState.update {
             it.copy(
-                messages = database.getRecentMessages(80),
-                memories = database.getAllMemories(),
-                routines = database.getAllRoutines(),
+                messages = messages,
+                memories = memories,
+                routines = routines,
                 locationReminders = database.getLocationReminders(),
                 auditLogs = database.getRecentAuditLogs(25),
-                batteryPercent = actionExecutor.getBatteryPercent(),
+                batteryPercent = battery,
+                brainInventory = aiRepository.getBrainInventory(),
+                proactiveSuggestions = com.example.autonomous.PersonalAssistantEngine.proactiveSuggestions(
+                    enabled = s.proactiveSuggestionsEnabled,
+                    batteryPercent = battery,
+                    unreadNotifCount = it.unreadNotifCount,
+                    hourOfDay = hour,
+                    memoriesCount = memories.size
+                ),
+                routineSuggestions = com.example.autonomous.PersonalAssistantEngine.suggestRoutinesFromHistory(
+                    learningEnabled = s.personalLearningEnabled,
+                    messages = messages,
+                    existingRoutines = routines
+                ),
                 voiceError = if (database.unreadableEncryptedRows) "Some encrypted records could not be read. Original data retained; restore a trusted backup." else it.voiceError
             )
         }
@@ -390,6 +424,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                         discoveredLiveModels = found.liveVoiceModels,
                         discoveredTtsModels = found.ttsModels,
                         discoveryStatus = found.message,
+                        brainInventory = aiRepository.getBrainInventory(),
                         connectionHealth = com.example.ai.ConnectionHealthSnapshot(
                             status = com.example.ai.ConnectionStatus.CONNECTED,
                             providerLabel = providerLabel,
@@ -646,29 +681,72 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
 
     fun navigateTo(screen: OmegaScreen, settingsPage: Int = -1) {
         haptics.softTap()
-        if (screen != OmegaScreen.HOME) {
+        val normalizedTarget = if (screen == OmegaScreen.LISTENING) OmegaScreen.HOME else screen
+        val current = if (_uiState.value.currentScreen == OmegaScreen.LISTENING) OmegaScreen.HOME else _uiState.value.currentScreen
+        if (normalizedTarget != OmegaScreen.HOME) {
             followUpJob?.cancel(); followUpJob = null
             liveFallbackArmed=false
             voiceInput.stopListening()
             btRouter.clearRouting()
             if (_uiState.value.liveDuplexState.isConnected || _uiState.value.liveDuplexState.isConnecting) liveDuplex.disconnect()
         }
-        if (screen == OmegaScreen.AUTONOMOUS_LAB || screen == OmegaScreen.CONTROL) runSystemDiagnostics()
-        _uiState.update {
-            it.copy(
-                currentScreen = screen, initialSettingsPage = settingsPage, voiceSession = if (screen == OmegaScreen.HOME) it.voiceSession else false,
+        if (normalizedTarget == OmegaScreen.AUTONOMOUS_LAB || normalizedTarget == OmegaScreen.CONTROL) runSystemDiagnostics()
+        _uiState.update { cur ->
+            val updatedStack = if (normalizedTarget == current) cur.navigationBackStack
+            else (cur.navigationBackStack + current).takeLast(16)
+            cur.copy(
+                currentScreen = normalizedTarget,
+                navigationBackStack = updatedStack,
+                initialSettingsPage = settingsPage,
+                voiceSession = if (normalizedTarget == OmegaScreen.HOME) cur.voiceSession else false,
                 voiceError = null,
                 batteryPercent = actionExecutor.getBatteryPercent(),
-                crashLogText = if (screen == OmegaScreen.SETTINGS) CrashRecoveryHandler.readLogs(appContext) else it.crashLogText
+                brainInventory = aiRepository.getBrainInventory(),
+                crashLogText = if (normalizedTarget == OmegaScreen.SETTINGS) CrashRecoveryHandler.readLogs(appContext) else cur.crashLogText
             )
         }
+    }
+
+    fun navigateBack(): Boolean {
+        haptics.softTap()
+        val stack = _uiState.value.navigationBackStack
+        if (stack.isNotEmpty()) {
+            val prev = stack.last()
+            val rest = stack.dropLast(1)
+            if (prev != OmegaScreen.HOME) {
+                followUpJob?.cancel(); followUpJob = null
+                liveFallbackArmed = false
+                voiceInput.stopListening()
+                btRouter.clearRouting()
+                if (_uiState.value.liveDuplexState.isConnected || _uiState.value.liveDuplexState.isConnecting) liveDuplex.disconnect()
+            }
+            _uiState.update {
+                it.copy(
+                    currentScreen = prev,
+                    navigationBackStack = rest,
+                    initialSettingsPage = -1,
+                    voiceError = null,
+                    batteryPercent = actionExecutor.getBatteryPercent()
+                )
+            }
+            return true
+        }
+        if (_uiState.value.currentScreen != OmegaScreen.HOME) {
+            _uiState.update { it.copy(currentScreen = OmegaScreen.HOME, initialSettingsPage = -1, voiceError = null) }
+            return true
+        }
+        return false
     }
 
     private fun sameApiConfig(a: OmegaSettings, b: OmegaSettings): Boolean =
         a.activeProvider == b.activeProvider && a.gatewayBaseUrl == b.gatewayBaseUrl &&
             a.geminiApiKey == b.geminiApiKey && a.openRouterApiKey == b.openRouterApiKey &&
             a.geminiChatModel == b.geminiChatModel && a.geminiLiveVoiceModel == b.geminiLiveVoiceModel &&
-            a.openRouterModel == b.openRouterModel && a.smartMode == b.smartMode && a.providerBudgetUsd == b.providerBudgetUsd && a.manualVisionConfirmed == b.manualVisionConfirmed
+            a.openRouterModel == b.openRouterModel && a.smartMode == b.smartMode &&
+            a.providerBudgetUsd == b.providerBudgetUsd && a.manualVisionConfirmed == b.manualVisionConfirmed &&
+            a.secondaryGatewayBaseUrl == b.secondaryGatewayBaseUrl && a.secondaryGatewayApiKey == b.secondaryGatewayApiKey &&
+            a.secondaryGatewayModel == b.secondaryGatewayModel && a.zeroPaidCreditsMode == b.zeroPaidCreditsMode &&
+            a.preferredBrainId == b.preferredBrainId && a.brainThinkingMode == b.brainThinkingMode
 
     fun updateSettings(transform: (OmegaSettings) -> OmegaSettings): Boolean {
         val old = preferences.settings.value
@@ -712,7 +790,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                     com.example.voice.GeminiSpeechPreferences.saveDiscoveredModels(appContext, found.ttsModels)
                 }
                 _uiState.update {
-                    it.copy(isDiscoveringModels = false, discoveredChatModels = found.chatModels, discoveredLiveModels = found.liveVoiceModels, discoveredTtsModels = found.ttsModels, discoveryStatus = found.message)
+                    it.copy(isDiscoveringModels = false, discoveredChatModels = found.chatModels, discoveredLiveModels = found.liveVoiceModels, discoveredTtsModels = found.ttsModels, discoveryStatus = found.message, brainInventory = aiRepository.getBrainInventory())
                 }
             }.onFailure { err ->
                 _uiState.update { it.copy(isDiscoveringModels = false, discoveryStatus = "Discovery failed: ${err.message}") }
@@ -749,10 +827,63 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun runDailyBriefing() {
+        val s = preferences.settings.value
         val cal = actionExecutor.readCalendarSummary(1)
         val notifs = NotificationInbox.formatForAgent(5)
-        val prompt = "Give me a crisp Daily Briefing using battery (${actionExecutor.getBatteryPercent()}%), calendar:\n$cal\nand notifications:\n$notifs"
+        val prompt = com.example.autonomous.PersonalAssistantEngine.buildDailyPlanPrompt(
+            batteryPercent = actionExecutor.getBatteryPercent(),
+            calendarSummary = cal,
+            reminders = database.getLocationReminders(),
+            routines = database.getAllRoutines(),
+            unreadNotifsSummary = notifs,
+            languageTag = s.languageTag
+        )
         sendTextPrompt(prompt, openChat = true)
+    }
+
+    fun toggleConditionalRule(ruleId: String) {
+        _uiState.update { cur ->
+            cur.copy(conditionalRules = cur.conditionalRules.map { if (it.id == ruleId) it.copy(enabled = !it.enabled) else it })
+        }
+    }
+
+    fun acceptRoutineSuggestion(s: com.example.autonomous.RoutineSuggestion) {
+        saveCustomRoutine(s.suggestedName, s.triggerPhrase, s.summary, s.stepsJson)
+    }
+
+    fun runProactiveSuggestion(s: com.example.autonomous.ProactiveSuggestion) {
+        sendTextPrompt(s.promptToRun, openChat = true)
+    }
+
+    fun analyzeDocumentUri(uri: android.net.Uri, question: String = "") {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val extracted = com.example.control.DocumentIntelligenceHelper.extractFromUri(appContext, uri)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                extracted.onSuccess { doc ->
+                    val ask = question.trim().ifEmpty {
+                        "Analyze '${doc.displayName}' (${doc.pageCount} page(s)), summarize key points, and highlight action items."
+                    }
+                    if (doc.renderedPageBase64 != null) {
+                        _uiState.update { it.copy(currentScreen = OmegaScreen.CHAT) }
+                        dispatchToAi(ask, isVoiceInput = false, imageBase64 = doc.renderedPageBase64, isDocumentTask = true)
+                    } else if (!doc.textContent.isNullOrBlank()) {
+                        val fullPrompt = "$ask\n\nDOCUMENT (${doc.displayName}):\n${doc.textContent}"
+                        _uiState.update { it.copy(currentScreen = OmegaScreen.CHAT) }
+                        dispatchToAi(fullPrompt, isVoiceInput = false, isDocumentTask = true)
+                    }
+                }.onFailure { err ->
+                    _uiState.update { it.copy(voiceError = "Document error: ${err.message}") }
+                }
+            }
+        }
+    }
+
+    fun interruptAndListen() {
+        haptics.wakePulse()
+        followUpJob?.cancel(); followUpJob = null
+        wakeAckPending = false; ++wakeAckGeneration
+        ttsController.stop()
+        startVoiceListening()
     }
 
     fun summarizeConversation() {
@@ -776,7 +907,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         if (canUseLiveWs) {
             liveFallbackArmed=true; liveDuplex.connect()
         } else {
-            voiceInput.startListening(s.languageTag, preferOffline = s.preferOfflineSpeech)
+            voiceInput.startListening(s.languageTag, preferOffline = s.preferOfflineSpeech, bluetoothEnabled = s.bluetoothVoiceRouting)
         }
     }
 
@@ -788,6 +919,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(voiceSession=false) }
         voiceInput.stopListening(); liveDuplex.disconnect(); ttsController.stop()
         OmegaWakeService.requestIdleRearm()
+        com.example.omega.OnlineBackgroundVoiceService.foregroundReleased()
     }
 
     fun stopVoiceListening() {
@@ -903,8 +1035,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         AgentHudBus.updateState(AgentHudState.Hidden)
     }
 
-    private fun dispatchToAi(prompt: String, isVoiceInput: Boolean, imageBase64: String? = null) {
-        if (imageBase64 == null) {
+    private fun dispatchToAi(prompt: String, isVoiceInput: Boolean, imageBase64: String? = null, isDocumentTask: Boolean = false) {
+        if (imageBase64 == null && !isDocumentTask) {
             com.example.autonomous.VoiceUpgradeIntentParser.parse(prompt)?.let { proposal ->
                 val resolved = if (proposal.isCrashFix) {
                     com.example.autonomous.CrashBugFixPlanner.buildFixProposal(CrashRecoveryHandler.readLogs(appContext)) ?: proposal
@@ -931,9 +1063,17 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         activeJob?.cancel()
         activeJob = viewModelScope.launch {
             val requestJob = coroutineContext[Job]
-            val res = aiRepository.sendMessage(prompt, imageBase64, onPartialReply = { partial ->
-                if (requestJob?.isActive == true) _uiState.update { it.copy(streamingReply = partial) }
-            }) { status -> _uiState.update { it.copy(liveToolStatus = status) } }
+            val res = aiRepository.sendMessage(
+                prompt,
+                imageBase64,
+                onPartialReply = { partial ->
+                    if (requestJob?.isActive == true) _uiState.update { it.copy(streamingReply = partial) }
+                },
+                onStageChange = { stage ->
+                    if (requestJob?.isActive == true) _uiState.update { it.copy(activePipelineStage = stage) }
+                },
+                isDocumentTask = isDocumentTask
+            ) { status -> _uiState.update { it.copy(liveToolStatus = status) } }
             val routeSummary = aiRepository.lastBrainPlan?.let { p ->
                 val target = aiRepository.lastRouteResult?.target?.name ?: "AUTO"
                 "${p.category.name} (${p.effort.name} • $target)"
@@ -943,7 +1083,19 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             res.onSuccess { reply ->
                 database.insertMessage(ChatMessageEntity(text = reply.replyText, isFromUser = false, executedTools = reply.executedTools))
                 refreshDbState()
-                _uiState.update { it.copy(isThinking = false, liveToolStatus = null, streamingReply = "", lastAiReply = reply.replyText, lastLatencyMs = reply.latencyMs) }
+                _uiState.update {
+                    it.copy(
+                        isThinking = false,
+                        liveToolStatus = null,
+                        streamingReply = "",
+                        lastAiReply = reply.replyText,
+                        lastLatencyMs = reply.latencyMs,
+                        activeBrainLabel = reply.activeBrain.displayName,
+                        lastVerificationBadge = reply.verificationStatus.badge,
+                        activePipelineStage = com.example.ai.BrainPipelineStage.RESPOND,
+                        brainInventory = aiRepository.getBrainInventory()
+                    )
+                }
                 if (_uiState.value.settings.autoSpeak) ttsController.speak(reply.replyText)
             }.onFailure { err ->
                 val msg = err.message ?: "Request failed."

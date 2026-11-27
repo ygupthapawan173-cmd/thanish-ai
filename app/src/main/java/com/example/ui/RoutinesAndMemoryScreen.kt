@@ -1,10 +1,13 @@
 package com.example.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -14,25 +17,29 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import com.example.omega.TimeAutomationScheduler
-import org.json.JSONArray
-import org.json.JSONObject
+import com.example.autonomous.ConditionalAutomationRule
+import com.example.autonomous.ProactiveSuggestion
+import com.example.autonomous.RoutineSuggestion
 import com.example.data.LocationReminder
 import com.example.data.MemoryFact
 import com.example.data.OmegaSettings
 import com.example.data.VoiceRoutine
-import com.example.ui.theme.OmegaColors
-import com.example.ui.theme.OmegaLiquidBackdrop
-import com.example.ui.theme.accentColor
-import com.example.ui.theme.mutedText
-import com.example.ui.theme.omegaGlassCard
+import com.example.omega.TimeAutomationScheduler
 import com.example.ui.theme.omegaSwitchColors
-import com.example.ui.theme.primaryText
+import org.json.JSONArray
+import org.json.JSONObject
+
+private val AutoNavyTop = Color(0xFF040916)
+private val AutoNavyCard = Color(0xFF0E1B36)
+private val AutoNeonCyan = Color(0xFF00F0FF)
+private val AutoTextPrimary = Color(0xFFF8FAFC)
+private val AutoTextMuted = Color(0xFF94A3B8)
 
 @Composable
 fun RoutinesAndMemoryScreen(
@@ -40,6 +47,10 @@ fun RoutinesAndMemoryScreen(
     routines: List<VoiceRoutine>,
     memories: List<MemoryFact>,
     locationReminders: List<LocationReminder>,
+    proactiveSuggestions: List<ProactiveSuggestion> = emptyList(),
+    routineSuggestions: List<RoutineSuggestion> = emptyList(),
+    conditionalRules: List<ConditionalAutomationRule> = emptyList(),
+    listState: LazyListState = rememberLazyListState(),
     onBack: () -> Unit,
     onUpdateSettings: ((OmegaSettings) -> OmegaSettings) -> Unit,
     onTestTrigger: (String) -> Unit,
@@ -49,37 +60,97 @@ fun RoutinesAndMemoryScreen(
     onRunRoutine: (VoiceRoutine) -> Unit,
     onAddRoutine: (String, String, String, String) -> Unit,
     onDeleteRoutine: (Long) -> Unit,
-    onDeleteMemory: (String) -> Unit
+    onDeleteMemory: (String) -> Unit,
+    onToggleConditionalRule: (String) -> Unit = {},
+    onAcceptRoutineSuggestion: (RoutineSuggestion) -> Unit = {},
+    onRunDailyPlan: () -> Unit = {}
 ) {
     val theme = settings.visualTheme
     val preset = settings.orbColorPreset
-    val accent = theme.accentColor(preset)
     var showCreate by remember { mutableStateOf(false) }
     var scheduleTarget by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
-    OmegaLiquidBackdrop(theme = theme, preset = preset) {
+    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AutoNavyTop, Color(0xFF071126))))) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 18.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 GlassCircleButton(Icons.AutoMirrored.Rounded.ArrowBack, theme = theme, preset = preset, onClick = onBack)
-                Text("Triggers, Routines & Memory", color = theme.primaryText(), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("Assistant, Rules & Memory", color = AutoTextPrimary, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
                 GlassCircleButton(Icons.Rounded.Add, theme = theme, preset = preset, onClick = { showCreate = true })
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Column(modifier = Modifier.fillMaxWidth().omegaGlassCard(22.dp, theme, preset).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = onRunDailyPlan,
+                        colors = ButtonDefaults.buttonColors(containerColor = AutoNeonCyan),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.Today, null, tint = AutoNavyTop, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Generate Smart Daily Plan", color = AutoNavyTop, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+
+                if (conditionalRules.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(AutoNavyCard)
+                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(20.dp)).padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Conditional IF–THEN Automation", color = AutoNeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            conditionalRules.forEach { rule ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(rule.condition.label, color = AutoTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("THEN: ${rule.thenActionSummary}", color = AutoTextMuted, fontSize = 11.5.sp)
+                                    }
+                                    Switch(checked = rule.enabled, onCheckedChange = { onToggleConditionalRule(rule.id) }, colors = omegaSwitchColors(theme, preset))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (routineSuggestions.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                .border(1.dp, Color(0xFF3B82F6).copy(alpha = 0.35f), RoundedCornerShape(18.dp)).padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Suggested Routines (From Your Habits)", color = AutoNeonCyan, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            routineSuggestions.forEach { sug ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(sug.suggestedName, color = AutoTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Trigger: \"${sug.triggerPhrase}\" • ${sug.summary}", color = AutoTextMuted, fontSize = 11.5.sp)
+                                    }
+                                    TextButton(onClick = { onAcceptRoutineSuggestion(sug) }) { Text("Add", color = AutoNeonCyan, fontWeight = FontWeight.Bold) }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(AutoNavyCard)
+                            .border(1.dp, AutoNeonCyan.copy(alpha = 0.25f), RoundedCornerShape(20.dp)).padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Rounded.Bolt, null, tint = accent, modifier = Modifier.size(20.dp))
-                            Text("Smart Auto-Triggers", color = theme.primaryText(), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Rounded.Bolt, null, tint = AutoNeonCyan, modifier = Modifier.size(20.dp))
+                            Text("Smart Auto-Triggers", color = AutoTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
                         TriggerRow(theme, preset, "Bluetooth / Earbuds Connect", "Hands-free unread notification briefing", settings.triggerBluetoothBriefing,
                             { on -> onUpdateSettings { it.copy(triggerBluetoothBriefing = on) } }, { onTestTrigger("bluetooth") })
@@ -90,68 +161,77 @@ fun RoutinesAndMemoryScreen(
                     }
                 }
 
-                item { Text("Voice Routines & Daily Schedule", color = theme.primaryText(), fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-                if (!scheduleMessage.isNullOrBlank()) item { Text(scheduleMessage, color = theme.primaryText(), fontSize = 13.sp) }
+                item { Text("Voice Routines & Daily Schedule", color = AutoTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                if (!scheduleMessage.isNullOrBlank()) item { Text(scheduleMessage, color = AutoNeonCyan, fontSize = 13.sp) }
                 items(routines, key = { it.id }) { routine ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().omegaGlassCard(20.dp, theme, preset).padding(14.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                            .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(routine.name, color = theme.primaryText(), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text("Say: \"${routine.triggerPhrase}\"", color = accent, fontSize = 12.sp)
-                            Text(routine.actionsSummary, color = theme.mutedText(), fontSize = 12.sp)
-                            TimeAutomationScheduler.status(context, routine.name)?.let { Text(it, color = accent, fontSize = 11.sp) }
+                            Text(routine.name, color = AutoTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text("Say: \"${routine.triggerPhrase}\"", color = AutoNeonCyan, fontSize = 12.sp)
+                            Text(routine.actionsSummary, color = AutoTextMuted, fontSize = 12.sp)
+                            TimeAutomationScheduler.status(context, routine.name)?.let { Text(it, color = AutoNeonCyan, fontSize = 11.sp) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { scheduleTarget = routine.name }) {
-                                Icon(Icons.Rounded.Schedule, "Configure daily schedule", tint = theme.mutedText(), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Schedule, "Configure daily schedule", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
                             }
                             Box(
-                                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(accent).clickable { onRunRoutine(routine) }.padding(horizontal = 12.dp, vertical = 7.dp)
-                            ) { Text("Run", color = Color(0xFF060A16), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(AutoNeonCyan).clickable { onRunRoutine(routine) }.padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) { Text("Run", color = AutoNavyTop, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                             IconButton(onClick = { onDeleteRoutine(routine.id) }) {
-                                Icon(Icons.Rounded.DeleteOutline, "Delete", tint = theme.mutedText(), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.DeleteOutline, "Delete", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
                 }
 
                 if (locationReminders.isNotEmpty()) {
-                    item { Text("Location Reminders", color = theme.primaryText(), fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                    item { Text("Intelligent Reminders", color = AutoTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
                     items(locationReminders, key = { it.id }) { rem ->
-                        Row(modifier = Modifier.fillMaxWidth().omegaGlassCard(18.dp, theme, preset).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.LocationOn, null, tint = accent, modifier = Modifier.size(18.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.LocationOn, null, tint = AutoNeonCyan, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
-                                Text(rem.placeLabel, color = theme.primaryText(), fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                Text(rem.reminderText, color = theme.mutedText(), fontSize = 12.sp)
+                                Text(rem.placeLabel, color = AutoTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                Text(rem.reminderText, color = AutoTextMuted, fontSize = 12.sp)
                             }
                         }
                     }
                 }
 
-                item { Text("Encrypted Personal Memory", color = theme.primaryText(), fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                item { Text("Encrypted Personal Memory", color = AutoTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
                 if (memories.isEmpty()) {
                     item {
-                        Box(modifier = Modifier.fillMaxWidth().omegaGlassCard(18.dp, theme, preset).padding(16.dp)) {
-                            Text("No encrypted memories yet. Tell JARVIS: \"Remember my favorite music is Telugu lo-fi.\"", color = theme.mutedText(), fontSize = 13.sp)
+                        Box(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(16.dp)
+                        ) {
+                            Text("No encrypted memories yet. Tell JARVIS: \"Remember my favorite music is Telugu lo-fi.\"", color = AutoTextMuted, fontSize = 13.sp)
                         }
                     }
                 } else {
                     items(memories, key = { it.id }) { fact ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().omegaGlassCard(18.dp, theme, preset).padding(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AutoNavyCard)
+                                .border(1.dp, AutoNeonCyan.copy(alpha = 0.22f), RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(fact.key, color = accent, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                Text(fact.value, color = theme.primaryText(), fontSize = 14.sp)
+                                Text(fact.key, color = AutoNeonCyan, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(fact.value, color = AutoTextPrimary, fontSize = 14.sp)
                             }
                             IconButton(onClick = { onDeleteMemory(fact.key) }) {
-                                Icon(Icons.Rounded.Close, "Forget", tint = theme.mutedText(), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Close, "Forget", tint = AutoTextMuted, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -171,7 +251,7 @@ fun RoutinesAndMemoryScreen(
                 OutlinedTextField(minute, { minute = it.filter(Char::isDigit).take(2) }, label = { Text("Minute (0–59)") }, singleLine = true)
                 TextButton(onClick = { onCancelSchedule(name); scheduleTarget = null }) { Text("Cancel existing schedule") }
             }
-        }, confirmButton = { Button(enabled = h != null && h in 0..23 && m != null && m in 0..59, onClick = { if (h != null && m != null) onScheduleRoutine(name,h,m); scheduleTarget = null }) { Text("Save schedule") } },
+        }, confirmButton = { Button(enabled = h != null && h in 0..23 && m != null && m in 0..59, onClick = { if (h != null && m != null) onScheduleRoutine(name, h, m); scheduleTarget = null }) { Text("Save schedule") } },
             dismissButton = { TextButton(onClick = { scheduleTarget = null }) { Text("Close") } })
     }
 
@@ -219,11 +299,11 @@ private fun TriggerRow(
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
-            Text(title, color = theme.primaryText(), fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
-            Text(sub, color = theme.mutedText(), fontSize = 11.5.sp)
+            Text(title, color = AutoTextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+            Text(sub, color = AutoTextMuted, fontSize = 11.5.sp)
         }
         TextButton(onClick = onTest, contentPadding = PaddingValues(horizontal = 8.dp)) {
-            Text("Test", color = theme.accentColor(preset), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("Test", color = AutoNeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         Switch(checked = checked, onCheckedChange = onChecked, colors = omegaSwitchColors(theme, preset))
     }

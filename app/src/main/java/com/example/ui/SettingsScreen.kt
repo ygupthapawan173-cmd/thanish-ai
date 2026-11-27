@@ -74,6 +74,7 @@ import kotlinx.coroutines.CancellationException
 @Composable
 fun SettingsScreen(
     uiState: PanduUiState,
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
     onBack: () -> Unit,
     onSaveSettings: ((OmegaSettings) -> OmegaSettings) -> Boolean,
     registerExitGuard: ((() -> Boolean)?) -> Unit,
@@ -105,10 +106,15 @@ fun SettingsScreen(
     var geminiLiveModelDraft by remember(settings.geminiLiveVoiceModel) { mutableStateOf(settings.geminiLiveVoiceModel) }
     var openRouterModelDraft by remember(settings.openRouterModel) { mutableStateOf(settings.openRouterModel) }
     var gatewayUrlDraft by remember(settings.gatewayBaseUrl) { mutableStateOf(settings.gatewayBaseUrl) }
+    var secondaryUrlDraft by remember(settings.secondaryGatewayBaseUrl) { mutableStateOf(settings.secondaryGatewayBaseUrl) }
+    var secondaryKeyDraft by remember(settings.secondaryGatewayApiKey) { mutableStateOf(settings.secondaryGatewayApiKey) }
+    var secondaryModelDraft by remember(settings.secondaryGatewayModel) { mutableStateOf(settings.secondaryGatewayModel) }
     var providerDraft by remember(settings.activeProvider) { mutableStateOf(settings.activeProvider) }
     var wakeWordDraft by remember(settings.wakeWord) { mutableStateOf(settings.wakeWord) }
+    var customWakeAckDraft by remember(settings.customWakeAck) { mutableStateOf(settings.customWakeAck) }
     var showGeminiKey by remember { mutableStateOf(false) }
     var showOrKey by remember { mutableStateOf(false) }
+    var showSecKey by remember { mutableStateOf(false) }
     var savedBanner by remember { mutableStateOf(false) }
     var showCrashLogs by remember { mutableStateOf(false) }
 
@@ -136,7 +142,7 @@ fun SettingsScreen(
     val hasNotif = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
     fun persistDrafts(): Boolean {
-        val unchanged = userNameDraft == settings.userName && assistantNameDraft == settings.assistantName && geminiKeyDraft == settings.geminiApiKey && openRouterKeyDraft == settings.openRouterApiKey && geminiChatModelDraft == settings.geminiChatModel && geminiLiveModelDraft == settings.geminiLiveVoiceModel && openRouterModelDraft == settings.openRouterModel && gatewayUrlDraft == settings.gatewayBaseUrl && providerDraft == settings.activeProvider && wakeWordDraft == settings.wakeWord
+        val unchanged = userNameDraft == settings.userName && assistantNameDraft == settings.assistantName && geminiKeyDraft == settings.geminiApiKey && openRouterKeyDraft == settings.openRouterApiKey && geminiChatModelDraft == settings.geminiChatModel && geminiLiveModelDraft == settings.geminiLiveVoiceModel && openRouterModelDraft == settings.openRouterModel && gatewayUrlDraft == settings.gatewayBaseUrl && secondaryUrlDraft == settings.secondaryGatewayBaseUrl && secondaryKeyDraft == settings.secondaryGatewayApiKey && secondaryModelDraft == settings.secondaryGatewayModel && providerDraft == settings.activeProvider && wakeWordDraft == settings.wakeWord && customWakeAckDraft == settings.customWakeAck
         if (unchanged) return true
         val ok = onSaveSettings {
             it.copy(
@@ -148,8 +154,12 @@ fun SettingsScreen(
                 geminiLiveVoiceModel = geminiLiveModelDraft,
                 openRouterModel = openRouterModelDraft,
                 gatewayBaseUrl = gatewayUrlDraft,
+                secondaryGatewayBaseUrl = secondaryUrlDraft,
+                secondaryGatewayApiKey = secondaryKeyDraft,
+                secondaryGatewayModel = secondaryModelDraft,
                 activeProvider = providerDraft,
-                wakeWord = wakeWordDraft
+                wakeWord = wakeWordDraft,
+                customWakeAck = customWakeAckDraft
             )
         }
         savedBanner = ok
@@ -236,11 +246,13 @@ fun SettingsScreen(
                 }
             }
 
-            // Settings index and individual submenu contents
+            // Settings index and individual submenu contents (preserving index & subpage scroll positions)
+            val pageScrolls = remember { mutableMapOf<Int, androidx.compose.foundation.ScrollState>() }
+            val activeScroll = if (page == -1) scrollState else pageScrolls.getOrPut(page) { androidx.compose.foundation.ScrollState(0) }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(key(page) { rememberScrollState() })
+                    .verticalScroll(activeScroll)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
@@ -367,6 +379,49 @@ fun SettingsScreen(
                         }
                         SettingsSwitchRow(Icons.Rounded.Mic, "Gemini Live duplex", "Separate real-time voice session (disabled in Strict Free mode)", settings.useGeminiLiveAudio, theme, preset) { v -> onSaveSettings { it.copy(useGeminiLiveAudio = v && it.smartMode != SmartModelPolicy.Mode.FREE && it.providerBudgetUsd == 0.0) } }
                         OutlinedButton(onClick = { persistDrafts() }, modifier = Modifier.fillMaxWidth()) { Text("Save API settings", color = accent) }
+
+                        SettingsHairlineDivider()
+                        Text("Slot 3 • Secondary OpenAI-Compatible Provider (Optional)", color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Optional dedicated endpoint (Groq, DeepSeek, OpenAI, etc.) for automatic cross-provider fallback & collaboration.", color = ObsidianMuted, fontSize = 11.5.sp)
+                        OutlinedTextField(value = secondaryUrlDraft, onValueChange = { secondaryUrlDraft = it; savedBanner = false }, label = { Text("Secondary HTTPS base URL") }, singleLine = true, colors = tfColors, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(
+                            value = secondaryKeyDraft,
+                            onValueChange = { secondaryKeyDraft = it; savedBanner = false },
+                            label = { Text("Secondary API key (encrypted)") },
+                            singleLine = true,
+                            visualTransformation = if (showSecKey) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = { IconButton(onClick = { showSecKey = !showSecKey }) { Icon(if (showSecKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null, tint = ObsidianMuted) } },
+                            colors = tfColors,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(value = secondaryModelDraft, onValueChange = { secondaryModelDraft = it; savedBanner = false }, label = { Text("Secondary preferred model ID (optional)") }, singleLine = true, colors = tfColors, modifier = Modifier.fillMaxWidth())
+
+                        SettingsHairlineDivider()
+                        Text("Unified 10-Brain Intelligence Dashboard", color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Thinking Depth Mode", color = ObsidianMuted, fontSize = 12.sp)
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            com.example.ai.BrainThinkingMode.entries.forEach { tm ->
+                                FilterChip(selected = settings.brainThinkingMode == tm.id, onClick = { onSaveSettings { it.copy(brainThinkingMode = tm.id) } }, label = { Text(tm.label) })
+                            }
+                        }
+                        Text("Preferred Brain (or AUTO task routing)", color = ObsidianMuted, fontSize = 12.sp)
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(selected = settings.preferredBrainId == "AUTO", onClick = { onSaveSettings { it.copy(preferredBrainId = "AUTO") } }, label = { Text("Auto") })
+                            com.example.ai.AiBrainFamily.entries.forEach { fam ->
+                                FilterChip(selected = settings.preferredBrainId == fam.id, onClick = { onSaveSettings { it.copy(preferredBrainId = fam.id) } }, label = { Text(fam.displayName.removeSuffix(" Brain")) })
+                            }
+                        }
+                        SettingsSwitchRow(Icons.Rounded.Hub, "Multi-Brain Collaboration", "Verify complex replies with a second permitted Brain", settings.multiBrainCollaboration, theme, preset) { v -> onSaveSettings { it.copy(multiBrainCollaboration = v) } }
+                        uiState.brainInventory.forEach { item ->
+                            Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF0A1428)).padding(10.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(item.brain.displayName, color = ObsidianText, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(item.availability.label, color = if (item.availability == com.example.ai.BrainAvailability.READY || item.availability == com.example.ai.BrainAvailability.FREE_READY) OmegaColors.EmeraldLive else ObsidianMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Text("${item.brain.specialty} • ${item.detail}", color = ObsidianMuted, fontSize = 11.sp)
+                                Text("Model: ${item.bestModelId ?: "None"} | Reqs: ${item.stats.requests} | Fails: ${item.stats.failures} | Cost: $${String.format(Locale.US, "%.4f", item.stats.knownCostUsd)}", color = ObsidianMuted, fontSize = 10.5.sp)
+                            }
+                        }
                     }
 
                     SettingsHairlineDivider()
@@ -375,32 +430,9 @@ fun SettingsScreen(
                     SettingsSwitchRow(Icons.Rounded.Search, "Google Search Grounding", "Use web grounding on compatible cloud models", settings.webSearchGrounding, theme, preset) { v -> onSaveSettings { it.copy(webSearchGrounding = v) } }
                     }
                     1 -> SettingsGroupSection(title = categories[1].first.uppercase()) {
-                    Text("Online system speech recognition (Internet and unlocked screen required).", color=ObsidianMuted, fontSize=12.sp, modifier=Modifier.padding(14.dp))
-                    SettingsHairlineDivider()
-Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Mic: ${uiState.voiceDiagNote} • TTS: ${uiState.ttsStatusNote}", color = ObsidianMuted, fontSize = 12.sp)
-                        OutlinedButton(onClick = onTestSpeaker, modifier = Modifier.fillMaxWidth()) { Text("Test Speaker Voice") }
-                    }
-
-                    SettingsSwitchRow(
-                        icon = Icons.Rounded.VolumeUp,
-                        title = "Auto-Speak All Replies (TTS)",
-                        subtitle = "Speak assistant replies using the selected voice engine",
-                        checked = settings.autoSpeak,
-                        theme = theme,
-                        preset = preset,
-                        onCheckedChange = { v -> onSaveSettings { it.copy(autoSpeak = v) } }
-                    )
-
-
-
-                    VoicePackPanel(uiState, onRefreshVoiceCatalog, onVoicePreview)
-
-
-
-                    // Language & TTS Speed Row
+                    // 1. Language & Auto-Detection
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Voice Language", color = ObsidianMuted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                        Text("1. Voice Language & Auto-Detection", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("auto" to "Auto (TE+EN)", "te-IN" to "తెలుగు", "en-IN" to "English").forEach { (tag, label) ->
                                 val sel = settings.languageTag == tag
@@ -417,38 +449,60 @@ Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp
                                 }
                             }
                         }
+                        Text("Status • Mic: ${uiState.voiceDiagNote} | TTS: ${uiState.ttsStatusNote}", color = ObsidianMuted, fontSize = 11.5.sp)
+                    }
+                    SettingsHairlineDivider()
+                    SettingsSwitchRow(
+                        icon = Icons.Rounded.VolumeUp,
+                        title = "Auto-Speak All Replies (TTS)",
+                        subtitle = "Speak assistant replies automatically using active voice engine",
+                        checked = settings.autoSpeak,
+                        theme = theme,
+                        preset = preset,
+                        onCheckedChange = { v -> onSaveSettings { it.copy(autoSpeak = v) } }
+                    )
+                    SettingsHairlineDivider()
+                    // 2. Speed, Pitch, Style & Previews
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("2. Voice Tuning & Preview", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            "TTS Speed: ${String.format(Locale.US, "%.2fx", settings.ttsSpeed)} • Pitch: ${String.format(Locale.US, "%.2fx", settings.ttsPitch)}",
+                            "Speed: ${String.format(Locale.US, "%.2fx", settings.ttsSpeed)} • Pitch: ${String.format(Locale.US, "%.2fx", settings.ttsPitch)}",
                             color = ObsidianMuted,
                             fontSize = 11.5.sp
                         )
-                        Slider(
-                            value = settings.ttsSpeed,
-                            onValueChange = { v -> onSaveSettings { it.copy(ttsSpeed = v) } },
-                            valueRange = 0.7f..1.5f
-                        )
-                        Text("Pitch", color = ObsidianMuted, fontSize = 11.5.sp)
+                        Slider(value = settings.ttsSpeed, onValueChange = { v -> onSaveSettings { it.copy(ttsSpeed = v) } }, valueRange = 0.7f..1.5f)
                         Slider(settings.ttsPitch, { v -> onSaveSettings { it.copy(ttsPitch = v) } }, valueRange = 0.7f..1.4f)
-                        Text("Reply voice style (pitch and speed; not a different speaker)", color = ObsidianMuted, fontSize = 11.5.sp)
                         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             TtsEmotionStyle.entries.forEach { st ->
                                 FilterChip(selected = settings.ttsStyle == st, onClick = { onSaveSettings { it.copy(ttsStyle = st) } }, label = { Text(st.label) })
                             }
                         }
-                        Text("Preview style using the installed Telugu or English voice", color = ObsidianMuted, fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val canPreview = !uiState.isListening && !uiState.liveDuplexState.isConnected && !uiState.liveDuplexState.isConnecting
                             OutlinedButton(onClick = { onVoicePreview("te-IN") }, enabled = canPreview, modifier = Modifier.weight(1f)) { Text("Telugu preview") }
                             OutlinedButton(onClick = { onVoicePreview("en-IN") }, enabled = canPreview, modifier = Modifier.weight(1f)) { Text("English preview") }
                         }
+                        OutlinedButton(onClick = onTestSpeaker, modifier = Modifier.fillMaxWidth()) { Text("Test Speaker Voice") }
                     }
+                    SettingsHairlineDivider()
+                    // 3. Cloud & Installed Voice Engines
+                    VoicePackPanel(uiState, onRefreshVoiceCatalog, onVoicePreview)
                     }
                     2 -> SettingsGroupSection(title = categories[2].first.uppercase()) {
                         Column(Modifier.padding(14.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) { HandsFreeWakeControls(uiState) }
                     }
                     3 -> SettingsGroupSection(title = categories[3].first.uppercase()) {
+                        val ownerHelper = remember { com.example.voice.OwnerSpeaker(context) }
+                        var ownerTick by remember { mutableStateOf(0) }
+                        val enrolled = remember(ownerTick) { ownerHelper.enrolled }
+                        val ownerEnabled = remember(ownerTick) { ownerHelper.enabled }
                         Column(Modifier.padding(14.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                            Text("Owner voice filtering is unavailable without the wake engine. Existing profile stays on this device.", color=ObsidianMuted)
+                            Text(if (enrolled) "Local owner voice template enrolled (${if (ownerEnabled) "Active" else "Paused"})." else "No local owner voice template enrolled. Wake phrase matching stays local on-device.", color=ObsidianMuted, fontSize=12.sp)
+                            if (enrolled) {
+                                SettingsSwitchRow(Icons.Rounded.VerifiedUser, "Owner Wake Verification", "Require enrolled owner voice for Hey JARVIS", ownerEnabled, theme, preset) { _ ->
+                                    ownerHelper.toggleFilter(); ownerTick++
+                                }
+                            }
                             OutlinedButton(onClick={confirmOwner=true}) { Text("Delete saved owner profile") }
                         }
                     }
@@ -479,7 +533,7 @@ SettingsHairlineDivider()
                     }
                     5 -> SettingsGroupSection(title = categories[5].first.uppercase()) {
 
-                    Text("Background microphone wake is disabled. Online speech is available when the app is open.", color=ObsidianMuted, modifier=Modifier.padding(14.dp))
+                    Text("Hands-free Hey JARVIS uses the battery-efficient foreground detector; while locked, only local keyword detection runs.", color=ObsidianMuted, fontSize=12.sp, modifier=Modifier.padding(14.dp))
 
 SettingsHairlineDivider()
 
@@ -494,7 +548,6 @@ SettingsHairlineDivider()
                     )
 
 SettingsActionRow(Icons.Rounded.Settings, "Battery settings", "Android controls background restrictions", theme) { runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } }
-                    Text("Background wake: disabled in Online Edition", color = ObsidianMuted, modifier = Modifier.padding(14.dp), fontSize = 12.sp)
                     }
                     6 -> SettingsGroupSection(title = categories[6].first.uppercase()) {
 
@@ -562,7 +615,18 @@ SettingsHairlineDivider()
                             colors = tfColors,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        OutlinedTextField(
+                            value = customWakeAckDraft,
+                            onValueChange = { customWakeAckDraft = it.take(120); savedBanner = false },
+                            label = { Text("Custom wake acknowledgement (blank = TE/EN default)") },
+                            singleLine = true,
+                            colors = tfColors,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
+                    SettingsHairlineDivider()
+                    SettingsSwitchRow(Icons.Rounded.Psychology, "Personal Preference Learning", "Learn repeated habits locally (AES-256 encrypted)", settings.personalLearningEnabled, theme, preset) { v -> onSaveSettings { it.copy(personalLearningEnabled = v) } }
+                    SettingsSwitchRow(Icons.Rounded.AutoAwesome, "Proactive AI Suggestions", "Show smart contextual cards on Home", settings.proactiveSuggestionsEnabled, theme, preset) { v -> onSaveSettings { it.copy(proactiveSuggestionsEnabled = v) } }
 
                     }
                     8 -> SettingsGroupSection(title = categories[8].first.uppercase()) {
@@ -622,6 +686,7 @@ SettingsActionRow(Icons.Rounded.Memory,"Saved memories & routines","${uiState.me
 
 
                     SettingsSwitchRow(Icons.Rounded.Notifications, "Confirm Notification Replies", "Require confirmation before sending", settings.confirmNotifReply, theme, preset) { v -> onSaveSettings { it.copy(confirmNotifReply = v) } }
+                    SettingsSwitchRow(Icons.Rounded.FactCheck, "Hallucination & Fact Guard", "Flag ungrounded live/action claims", settings.hallucinationGuardEnabled, theme, preset) { v -> onSaveSettings { it.copy(hallucinationGuardEnabled = v) } }
 
 SettingsHairlineDivider()
 

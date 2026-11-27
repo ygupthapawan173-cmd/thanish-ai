@@ -45,6 +45,7 @@ private val TextMuted = Color(0xFF94A3B8)
 @Composable
 fun AutonomousLabScreen(
     uiState: PanduUiState,
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
     onBack: () -> Unit,
     onSaveSettings: ((OmegaSettings) -> OmegaSettings) -> Unit,
     onRunDiagnostics: () -> Unit,
@@ -94,9 +95,8 @@ fun AutonomousLabScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Header
@@ -108,7 +108,7 @@ fun AutonomousLabScreen(
                 GlassCircleButton(Icons.AutoMirrored.Rounded.ArrowBack, theme = theme, preset = preset, onClick = onBack)
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     Text("ANTIGRAVITY CONTROL CENTER", color = TextPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text("V108 ULTIMATE MASTER AI • ${uiState.lastBrainRouteSummary}", color = NeonCyan, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("V110 ULTRA INTELLIGENCE MASTER • ${uiState.lastBrainRouteSummary}", color = NeonCyan, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 GlassCircleButton(Icons.Rounded.Refresh, theme = theme, preset = preset, onClick = onRunDiagnostics)
             }
@@ -142,7 +142,13 @@ fun AutonomousLabScreen(
                         Text("Zero Paid Credits Protection", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(com.example.ai.ZeroPaidCreditsPolicy.statusLabel(settings.zeroPaidCreditsMode), color = TextMuted, fontSize = 11.sp)
                     }
-                    Switch(checked = settings.zeroPaidCreditsMode, onCheckedChange = { enabled -> onSaveSettings { it.copy(zeroPaidCreditsMode = enabled) } })
+                    Switch(checked = settings.zeroPaidCreditsMode, onCheckedChange = { enabled ->
+                        if (!enabled && settings.biometricSafetyLock) {
+                            com.example.control.BiometricSafetyGate.authenticate(context, onSuccess = { onSaveSettings { it.copy(zeroPaidCreditsMode = false) } }, onError = {})
+                        } else {
+                            onSaveSettings { it.copy(zeroPaidCreditsMode = enabled) }
+                        }
+                    })
                 }
                 Text("Usage: ${uiState.apiTelemetry.diagnosticSummary()}", color = TextMuted, fontSize = 11.sp)
 
@@ -348,6 +354,11 @@ fun AutonomousLabScreen(
             // 5. GITHUB BUILD MONITORING & VERIFIED SELF-UPDATER
             ControlCard {
                 SectionHeader(Icons.Rounded.VerifiedUser, "GitHub Builds & Verified APK Update", "SHA-256 + CERT")
+                Text(
+                    text = "Installed Signing Cert SHA-256: ${uiState.signingCertSha256?.take(20)?.plus("...") ?: "Unavailable"} (Updates require matching owner keystore cert; debug APKs are never labeled owner-signed).",
+                    color = TextMuted,
+                    fontSize = 10.5.sp
+                )
                 if (uiState.recentBuilds.isNotEmpty()) {
                     uiState.recentBuilds.take(3).forEach { run ->
                         Text("• Run #${run.runId}: ${run.status} / ${run.conclusion.ifBlank { "running" }} (${run.headSha.take(7)})", color = TextMuted, fontSize = 11.sp)

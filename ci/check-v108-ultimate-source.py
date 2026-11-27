@@ -18,8 +18,8 @@ lab = r("ui/AutonomousLabScreen.kt")
 
 checks = [
     'applicationId = "com.aistudio.pandubabu.omega.v19ultra"' in gradle,
-    'versionCode = 117' in gradle,
-    'versionName = "V108.2"' in gradle,
+    ('versionCode = 117' in gradle or 'versionCode = 118' in gradle),
+    ('versionName = "V108.2"' in gradle or 'versionName = "V110 ULTRA INTELLIGENCE MASTER"' in gradle),
     'classifyAndPlan(' in brain and 'detectResponseLanguage(' in brain,
     'SmartAiTaskRouter' in router and 'ANDROID_DIRECT_EXECUTION' in router and 'BLOCKED_ZERO_CREDITS' in router,
     'MasterAiBrain.classifyAndPlan(' in ai_repo and 'SmartAiTaskRouter.route(' in ai_repo,

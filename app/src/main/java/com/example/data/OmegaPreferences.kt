@@ -41,6 +41,18 @@ data class OmegaSettings(
     val smartMode: SmartModelPolicy.Mode = SmartModelPolicy.Mode.SMART,
     val providerBudgetUsd: Double = 0.0,
     val zeroPaidCreditsMode: Boolean = true,
+    // Slot 3: Optional Secondary OpenAI-compatible Provider (Encrypted in Keystore)
+    val secondaryGatewayBaseUrl: String = "",
+    val secondaryGatewayApiKey: String = "",
+    val secondaryGatewayModel: String = "",
+    // V110 Multi-Brain & Personal Assistant controls
+    val preferredBrainId: String = "AUTO",
+    val brainThinkingMode: String = "AUTO",
+    val multiBrainCollaboration: Boolean = false,
+    val hallucinationGuardEnabled: Boolean = true,
+    val personalLearningEnabled: Boolean = true,
+    val proactiveSuggestionsEnabled: Boolean = true,
+    val customWakeAck: String = "",
     // Least-privilege GitHub Engineering config (NEVER embedded; stored encrypted in Keystore)
     val githubRepoSlug: String = "",
     val githubToken: String = "",
@@ -72,6 +84,7 @@ data class OmegaSettings(
 ) {
     fun effectiveGeminiKey(): String = if (providerBudgetUsd != 0.0 || !SmartModelPolicy.allowsDirectGemini(smartMode)) "" else geminiApiKey.trim().ifEmpty { BuildConfig.GEMINI_API_KEY.trim() }
     fun effectiveOpenRouterKey(): String = openRouterApiKey.trim().ifEmpty { if (gatewayBaseUrl.trim().trimEnd('/') == "https://openrouter.ai/api/v1") BuildConfig.OPENROUTER_API_KEY.trim() else "" }
+    fun effectiveSecondaryGatewayKey(): String = secondaryGatewayApiKey.trim()
 
     fun activeChatModel(): String = when {
         activeProvider == AiProvider.GEMINI -> geminiChatModel.trim().ifEmpty { AiProvider.GEMINI.defaultChatModel }
@@ -121,6 +134,16 @@ class OmegaPreferences(context: Context) {
             smartMode = runCatching { SmartModelPolicy.Mode.valueOf(prefs.getString("smart_mode", "SMART") ?: "SMART") }.getOrDefault(SmartModelPolicy.Mode.SMART),
             providerBudgetUsd = Double.fromBits(prefs.getLong("provider_budget_usd", 0L)),
             zeroPaidCreditsMode = prefs.getBoolean("zero_paid_credits_mode", true),
+            secondaryGatewayBaseUrl = prefs.getString("secondary_gateway_base_url", "") ?: "",
+            secondaryGatewayApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_SECONDARY_GATEWAY_KEY, "") ?: ""),
+            secondaryGatewayModel = prefs.getString("secondary_gateway_model", "") ?: "",
+            preferredBrainId = prefs.getString("preferred_brain_id", "AUTO") ?: "AUTO",
+            brainThinkingMode = prefs.getString("brain_thinking_mode", "AUTO") ?: "AUTO",
+            multiBrainCollaboration = prefs.getBoolean("multi_brain_collaboration", false),
+            hallucinationGuardEnabled = prefs.getBoolean("hallucination_guard_enabled", true),
+            personalLearningEnabled = prefs.getBoolean("personal_learning_enabled", true),
+            proactiveSuggestionsEnabled = prefs.getBoolean("proactive_suggestions_enabled", true),
+            customWakeAck = prefs.getString("custom_wake_ack", "") ?: "",
             githubRepoSlug = prefs.getString(KEY_GH_REPO, "") ?: "",
             githubToken = KeystoreCryptoManager.decrypt(prefs.getString(KEY_GH_TOKEN, "") ?: ""),
             githubBaseBranch = prefs.getString(KEY_GH_BRANCH, "main") ?: "main",
@@ -176,6 +199,7 @@ class OmegaPreferences(context: Context) {
         }
         val geminiEncrypted = keepOrProtect(u.geminiApiKey, old.geminiApiKey, KEY_GEMINI_KEY)
         val gatewayEncrypted = keepOrProtect(u.openRouterApiKey, old.openRouterApiKey, KEY_OPENROUTER_KEY)
+        val secondaryEncrypted = keepOrProtect(u.secondaryGatewayApiKey, old.secondaryGatewayApiKey, KEY_SECONDARY_GATEWAY_KEY)
         val githubEncrypted = keepOrProtect(u.githubToken, old.githubToken, KEY_GH_TOKEN)
         val editor = prefs.edit()
             .putString(KEY_USER_NAME, u.userName.trim().ifEmpty { "Pandu" })
@@ -193,6 +217,16 @@ class OmegaPreferences(context: Context) {
             .putString("smart_mode", u.smartMode.name)
             .putLong("provider_budget_usd", u.providerBudgetUsd.toBits())
             .putBoolean("zero_paid_credits_mode", u.zeroPaidCreditsMode)
+            .putString("secondary_gateway_base_url", u.secondaryGatewayBaseUrl.trim().trimEnd('/'))
+            .putString(KEY_SECONDARY_GATEWAY_KEY, secondaryEncrypted)
+            .putString("secondary_gateway_model", u.secondaryGatewayModel.trim())
+            .putString("preferred_brain_id", u.preferredBrainId.trim().ifEmpty { "AUTO" })
+            .putString("brain_thinking_mode", u.brainThinkingMode.trim().ifEmpty { "AUTO" })
+            .putBoolean("multi_brain_collaboration", u.multiBrainCollaboration)
+            .putBoolean("hallucination_guard_enabled", u.hallucinationGuardEnabled)
+            .putBoolean("personal_learning_enabled", u.personalLearningEnabled)
+            .putBoolean("proactive_suggestions_enabled", u.proactiveSuggestionsEnabled)
+            .putString("custom_wake_ack", u.customWakeAck.trim().take(120))
             .putBoolean("manual_vision_confirmed", u.manualVisionConfirmed)
             .remove("local_brain_mode")
             .remove("local_llm_url")
@@ -250,6 +284,14 @@ class OmegaPreferences(context: Context) {
             put("visualTheme", s.visualTheme.name)
             put("orbColorPreset", s.orbColorPreset.name)
             put("renderQuality", s.renderQuality.name)
+            put("secondaryGatewayBaseUrl", s.secondaryGatewayBaseUrl)
+            put("secondaryGatewayModel", s.secondaryGatewayModel)
+            put("preferredBrainId", s.preferredBrainId)
+            put("brainThinkingMode", s.brainThinkingMode)
+            put("hallucinationGuardEnabled", s.hallucinationGuardEnabled)
+            put("personalLearningEnabled", s.personalLearningEnabled)
+            put("proactiveSuggestionsEnabled", s.proactiveSuggestionsEnabled)
+            put("customWakeAck", s.customWakeAck)
         }
         return KeystoreCryptoManager.encrypt(obj.toString())
     }
@@ -263,9 +305,20 @@ class OmegaPreferences(context: Context) {
             update { cur ->
                 val restoredUrl = obj.optString("gatewayBaseUrl", cur.gatewayBaseUrl).trim().trimEnd('/')
                 val safeUrl = restoredUrl.takeIf { url -> runCatching { java.net.URI(url).let { it.scheme == "https" && it.host != null && it.userInfo == null && it.query == null && it.fragment == null } }.getOrDefault(false) } ?: cur.gatewayBaseUrl
+                val restoredSecondaryUrl = obj.optString("secondaryGatewayBaseUrl", cur.secondaryGatewayBaseUrl).trim().trimEnd('/')
+                val safeSecondaryUrl = restoredSecondaryUrl.takeIf { url -> url.isBlank() || runCatching { java.net.URI(url).let { it.scheme == "https" && it.host != null && it.userInfo == null && it.query == null && it.fragment == null } }.getOrDefault(false) } ?: cur.secondaryGatewayBaseUrl
                 cur.copy(
                     gatewayBaseUrl = safeUrl,
                     openRouterApiKey = if (safeUrl == cur.gatewayBaseUrl.trim().trimEnd('/')) cur.openRouterApiKey else "",
+                    secondaryGatewayBaseUrl = safeSecondaryUrl,
+                    secondaryGatewayApiKey = if (safeSecondaryUrl == cur.secondaryGatewayBaseUrl.trim().trimEnd('/')) cur.secondaryGatewayApiKey else "",
+                    secondaryGatewayModel = obj.optString("secondaryGatewayModel", cur.secondaryGatewayModel),
+                    preferredBrainId = obj.optString("preferredBrainId", cur.preferredBrainId),
+                    brainThinkingMode = obj.optString("brainThinkingMode", cur.brainThinkingMode),
+                    hallucinationGuardEnabled = obj.optBoolean("hallucinationGuardEnabled", cur.hallucinationGuardEnabled),
+                    personalLearningEnabled = obj.optBoolean("personalLearningEnabled", cur.personalLearningEnabled),
+                    proactiveSuggestionsEnabled = obj.optBoolean("proactiveSuggestionsEnabled", cur.proactiveSuggestionsEnabled),
+                    customWakeAck = obj.optString("customWakeAck", cur.customWakeAck).take(120),
                     smartMode = runCatching { SmartModelPolicy.Mode.valueOf(obj.optString("smartMode", cur.smartMode.name)) }.getOrDefault(cur.smartMode),
                     activeProvider = runCatching { AiProvider.valueOf(obj.optString("activeProvider", cur.activeProvider.name)) }.getOrDefault(cur.activeProvider),
                     manualVisionConfirmed = false,
@@ -301,6 +354,7 @@ class OmegaPreferences(context: Context) {
         private const val KEY_OPENROUTER_MODEL = "openrouter_model"
         private const val KEY_GH_REPO = "gh_repo_slug"
         private const val KEY_GH_TOKEN = "enc_gh_token"
+        private const val KEY_SECONDARY_GATEWAY_KEY = "enc_secondary_gateway_key"
         private const val KEY_GH_BRANCH = "gh_base_branch"
         private const val KEY_WAKE_WORD = "wake_word"
         private const val KEY_WAKE_SENS = "wake_sens"
