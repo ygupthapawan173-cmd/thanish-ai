@@ -137,6 +137,16 @@ class GitHubEngineeringClient {
         }.onFailure { if (it is CancellationException) throw it }
     }
 
+    suspend fun verifyConnection(repoSlug: String, baseBranch: String, token: String): Result<String> = withContext(Dispatchers.IO) {
+        if (!EngineeringPolicy.validRepo(repoSlug.trim())) return@withContext Result.failure(IllegalArgumentException("Invalid repo (owner/repo)."))
+        if (!EngineeringPolicy.validBase(baseBranch.trim())) return@withContext Result.failure(IllegalArgumentException("Invalid base branch."))
+        if (token.isBlank()) return@withContext Result.failure(IllegalArgumentException("Enter GitHub token first."))
+        runCatching {
+            val sha = getBranchHeadSha(repoSlug.trim(), baseBranch.trim(), token.trim()).getOrThrow()
+            "Verified ${repoSlug.trim()} (${baseBranch.trim()} @ ${sha.take(7)})"
+        }
+    }
+
     suspend fun listRecentWorkflowRuns(repoSlug: String, token: String, limit: Int = 5): Result<List<WorkflowRunStatus>> = withContext(Dispatchers.IO) {
         if (!EngineeringPolicy.validRepo(repoSlug.trim())) return@withContext Result.failure(IllegalArgumentException("Configure GitHub Repo (owner/repo) first."))
         runCatching {
@@ -167,7 +177,13 @@ class GitHubEngineeringClient {
                 if (!resp.isSuccessful) throw IOException("Actions poll HTTP ${resp.code}: ${extractErr(raw)}")
                 val arr = JSONObject(raw).optJSONArray("workflow_runs")
                 if (arr == null || arr.length() == 0) return@use null
-                val r = (0 until arr.length()).map { arr.getJSONObject(it) }.firstOrNull { EngineeringPolicy.matchingCommit(expectedSha, it.optString("head_sha")) && it.optString("path").substringBefore('@') == ".github/workflows/build-apk.yml" } ?: return@use null
+                val allowedWorkflows = setOf(
+                    ".github/workflows/build-apk.yml",
+                    ".github/workflows/jarvis-infinity-v108-ultimate.yml",
+                    ".github/workflows/jarvis-infinity-v107-autonomous.yml",
+                    ".github/workflows/jarvis-infinity-v107-2-control-center.yml"
+                )
+                val r = (0 until arr.length()).map { arr.getJSONObject(it) }.firstOrNull { EngineeringPolicy.matchingCommit(expectedSha, it.optString("head_sha")) && it.optString("path").substringBefore('@') in allowedWorkflows } ?: return@use null
                 WorkflowRunStatus(
                     runId = r.getLong("id"),
                     status = r.optString("status", ""),

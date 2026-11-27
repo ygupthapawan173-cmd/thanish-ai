@@ -169,7 +169,11 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             if (emergencyStopped) return@setOnSpeechFinished
             if(wakeAckPending) {
                 wakeAckPending=false; ++wakeAckGeneration
-                if(AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
+                followUpJob?.cancel()
+                followUpJob = viewModelScope.launch {
+                    delay(280L)
+                    if (!emergencyStopped && AgentHudBus.isAppInForeground.value && !_uiState.value.settings.micPrivacyMuted) startVoiceListening()
+                }
                 return@setOnSpeechFinished
             }
             if (_uiState.value.settings.continuousConversation &&
@@ -180,6 +184,10 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 followUpJob?.cancel()
                 followUpJob = viewModelScope.launch {
                     delay(380L)
+                    repeat(8) {
+                        if (!AgentHudBus.isMainMicBusy.value) return@repeat
+                        delay(100L)
+                    }
                     if (emergencyStopped) return@launch
                     if (_uiState.value.voiceSession && !_uiState.value.isThinking && !_uiState.value.settings.micPrivacyMuted && AgentHudBus.isAppInForeground.value && !AgentHudBus.isMainMicBusy.value) {
                         voiceInput.startListening(_uiState.value.settings.languageTag, preferOffline = _uiState.value.settings.preferOfflineSpeech)
@@ -411,6 +419,17 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+        }
+    }
+
+    fun verifyGitHubConnection(repoSlug: String, baseBranch: String, token: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(controlCenterStatus = "Verifying GitHub repo & branch...") }
+            val res = githubClient.verifyConnection(repoSlug, baseBranch, token)
+            _uiState.update {
+                it.copy(controlCenterStatus = res.getOrElse { e -> "GitHub verification failed: ${e.message}" })
+            }
+            if (res.isSuccess) refreshGitHubBuilds()
         }
     }
 
@@ -890,6 +909,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 val resolved = if (proposal.isCrashFix) {
                     com.example.autonomous.CrashBugFixPlanner.buildFixProposal(CrashRecoveryHandler.readLogs(appContext)) ?: proposal
                 } else proposal
+                database.insertMessage(ChatMessageEntity(text = prompt, isFromUser = true, isVoiceInput = isVoiceInput))
+                database.insertMessage(ChatMessageEntity(text = "Routing to Autonomous Self-Upgrade (${resolved.suggestedTargetPath}). Monitoring build & tests in Control Center.", isFromUser = false, executedTools = listOf("self_upgrade")))
+                refreshDbState()
                 _uiState.update { it.copy(currentScreen = OmegaScreen.AUTONOMOUS_LAB) }
                 upgradeOrchestrator.startSelfUpgrade(resolved.featureRequest, resolved.suggestedTargetPath)
                 return

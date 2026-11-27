@@ -2,7 +2,7 @@ name: JARVIS INFINITY V108 ULTIMATE MASTER AI
 
 on:
   push:
-    branches: [ v108-ultimate-master-test ]
+    branches: [ v108-ultimate-master-test, 'omega-auto/**' ]
   workflow_dispatch:
 
 permissions:
@@ -80,7 +80,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "versionName='V108 ULTIMATE MASTER AI'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "versionName='V108.1'"
           (cd out && sha256sum JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk > JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk.sha256)
           cat out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk.sha256
 

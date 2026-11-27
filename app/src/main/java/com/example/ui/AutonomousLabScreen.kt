@@ -54,6 +54,7 @@ fun AutonomousLabScreen(
     onCheckReleaseUpdate: () -> Unit,
     onApproveAndInstallUpdate: () -> Unit,
     onAnalyzeLastCrash: () -> Unit = {},
+    onVerifyGitHub: (String, String, String) -> Unit = { _, _, _ -> },
     onGenerateHandoff: (String, String, String, String) -> Unit = { _, _, _, _ -> },
     onAutoUpdateCheckAndDownload: () -> Unit = {},
     onRefreshControlCenter: () -> Unit = {},
@@ -72,6 +73,7 @@ fun AutonomousLabScreen(
     val tfColors = omegaTextFieldColors(theme, preset)
 
     var repoDraft by remember(settings.githubRepoSlug) { mutableStateOf(settings.githubRepoSlug) }
+    var baseBranchDraft by remember(settings.githubBaseBranch) { mutableStateOf(settings.githubBaseBranch) }
     var tokenDraft by remember(settings.githubToken) { mutableStateOf(settings.githubToken) }
     var featurePrompt by remember { mutableStateOf("") }
     var targetFile by remember { mutableStateOf("app/src/main/java/com/example/ui/OmegaDashboardApp.kt") }
@@ -235,14 +237,29 @@ fun AutonomousLabScreen(
             ControlCard {
                 SectionHeader(Icons.Rounded.Code, "Autonomous Self-Upgrade & CLI Handoff", "PR GATE")
                 OutlinedTextField(repoDraft, { repoDraft = it; ghSaved = false }, label = { Text("GitHub Repo (owner/repo)") }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = tfColors, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(baseBranchDraft, { baseBranchDraft = it; ghSaved = false }, label = { Text("GitHub Base Branch (e.g. v108-ultimate-master-test)") }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = tfColors, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(tokenDraft, { tokenDraft = it; ghSaved = false }, label = { Text("Least-Privilege GitHub Token (Encrypted)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(12.dp), colors = tfColors, modifier = Modifier.fillMaxWidth())
 
-                Button(
-                    onClick = { onSaveSettings { it.copy(githubRepoSlug = repoDraft, githubToken = tokenDraft) }; ghSaved = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = OmegaColors.RoyalIndigo),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (ghSaved) "Encrypted GitHub Config Saved" else "Save Encrypted GitHub Config", color = Color.White, fontSize = 12.sp) }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            onSaveSettings { it.copy(githubRepoSlug = repoDraft, githubBaseBranch = baseBranchDraft.trim().ifBlank { "main" }, githubToken = tokenDraft) }
+                            ghSaved = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = OmegaColors.RoyalIndigo),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (ghSaved) "Saved" else "Save Config", color = Color.White, fontSize = 12.sp) }
+                    OutlinedButton(
+                        onClick = {
+                            val cleanBranch = baseBranchDraft.trim().ifBlank { "main" }
+                            onSaveSettings { it.copy(githubRepoSlug = repoDraft, githubBaseBranch = cleanBranch, githubToken = tokenDraft) }
+                            onVerifyGitHub(repoDraft, cleanBranch, tokenDraft)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Verify Connection", color = NeonCyan, fontSize = 12.sp) }
+                }
 
                 OutlinedTextField(targetFile, { targetFile = it }, label = { Text("1–4 Kotlin paths (app/src/*.kt)") }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = tfColors, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(featurePrompt, { featurePrompt = it }, label = { Text("Self-Upgrade / Bug-Fix Request...") }, shape = RoundedCornerShape(12.dp), colors = tfColors, modifier = Modifier.fillMaxWidth())

@@ -138,6 +138,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                 onCheckReleaseUpdate = { viewModel.checkReleaseUpdate() },
                 onApproveAndInstallUpdate = { viewModel.approveAndInstallRelease() },
                 onAnalyzeLastCrash = { viewModel.analyzeLastCrashForFix() },
+                onVerifyGitHub = { r, b, t -> viewModel.verifyGitHubConnection(r, b, t) },
                 onGenerateHandoff = { req, path, model, effort -> viewModel.generateAntigravityHandoff(req, path, model, effort) },
                 onAutoUpdateCheckAndDownload = { viewModel.autoDownloadAndVerifyUpdate() },
                 onRefreshControlCenter = { viewModel.refreshControlCenter() },

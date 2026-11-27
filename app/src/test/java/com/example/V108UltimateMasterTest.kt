@@ -64,6 +64,13 @@ class V108UltimateMasterTest {
         }
         val voiceFix = VoiceUpgradeIntentParser.parse("Hey JARVIS, fix your voice problem")!!
         assertTrue(voiceFix.suggestedTargetPath.endsWith("TeluguTtsController.kt"))
+
+        val multiline = VoiceUpgradeIntentParser.parse("Hey JARVIS, upgrade yourself:\nLine 1: improve chat\nLine 2: keep UI")
+        assertNotNull(multiline)
+        assertTrue(multiline!!.featureRequest.contains("Line 2"))
+
+        assertTrue(com.example.autonomous.ReleaseVersionPolicy.newer("V108.1", "V108 ULTIMATE MASTER AI"))
+        assertTrue(com.example.autonomous.ReleaseVersionPolicy.newer("V108.2", "V108.1"))
     }
 
     @Test

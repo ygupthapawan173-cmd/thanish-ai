@@ -153,8 +153,8 @@ class OnlineBackgroundVoiceService : Service() {
         input = VoiceInputController(this, owner = "background-capture") { text -> accept(text) }
         tts = TeluguTtsController(this, backgroundOwned = true, cloudSettings = { prefs.settings.value }, backgroundCloudAllowed = { phase == "Speaking" && allowed() || phase == "Acknowledging" && allowed() })
         tts.setOnSpeechFinished {
-            if (phase == "Acknowledging" && allowed()) { ackDeadline = 0L; listen() }
-            else if (phase == "Speaking" && allowed() && tts.lastSpeechSucceeded && BackgroundVoicePolicy.followUp(prefs.settings.value.continuousConversation, turns)) listen()
+            if (phase == "Acknowledging" && allowed()) { ackDeadline = 0L; main.postDelayed({ if (started && !closed && allowed()) listen() }, 280L) }
+            else if (phase == "Speaking" && allowed() && tts.lastSpeechSucceeded && BackgroundVoicePolicy.followUp(prefs.settings.value.continuousConversation, turns)) main.postDelayed({ if (started && !closed && allowed()) listen() }, 350L)
             else if (phase == "Speaking") endTurnSession("Session complete")
         }
         scope.launch { input.state.collect { if (started && phase == "Listening" && it.errorMessage != null) endTurnSession("Voice ended: ${it.errorMessage}") } }

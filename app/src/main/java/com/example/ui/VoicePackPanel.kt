@@ -102,9 +102,9 @@ private fun openVoiceGuide(context: android.content.Context, url:String):String 
 @Composable
 private fun GeminiSpeechOptions(state: PanduUiState, preview: (String) -> Unit, enabled: Boolean, onEnabled: (Boolean) -> Unit) {
     val context = LocalContext.current
-    val ready = state.settings.geminiApiKey.isNotBlank() && state.settings.activeProvider == com.example.data.AiProvider.OPENROUTER && !state.settings.useGeminiLiveAudio
+    val ready = state.settings.effectiveGeminiKey().isNotBlank() && (state.settings.activeProvider == com.example.data.AiProvider.GEMINI || state.settings.activeProvider == com.example.data.AiProvider.OPENROUTER) && !state.settings.useGeminiLiveAudio
     Text("DUAL API • GEMINI NATURAL VOICE", style=MaterialTheme.typography.titleSmall)
-    Text("Save Google Gemini key in AI & API Engine, keep Smart Gateway selected and Gemini Live duplex OFF. Gemini speaks AI replies; AICredits remains the brain. Text is sent to Google for speech. Free quota depends on your Google project; billing may apply. Failure falls back to installed voices, not paid AICredits speech.",fontSize=12.sp)
+    Text("Save Google Gemini key in AI & API Engine (works with Gemini Direct or Smart Gateway when Gemini Live duplex is OFF). Gemini speaks AI replies. Free quota depends on your Google project. Failure falls back to installed voices, not paid AICredits speech.",fontSize=12.sp)
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
         Text("Use Gemini TTS",modifier=Modifier.weight(1f))
         Switch(checked=enabled,onCheckedChange={GeminiSpeechPreferences.enabled(context,it);onEnabled(it)},enabled=ready || enabled)

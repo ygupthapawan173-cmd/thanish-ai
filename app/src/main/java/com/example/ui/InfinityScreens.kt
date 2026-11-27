@@ -52,14 +52,14 @@ internal fun InfinityHome(s: PanduUiState,onTap:()->Unit) {
     val accent = MaterialTheme.colorScheme.primary
     val reduced = LocalReducedRendering.current
     val parallax by rememberParallaxOffset(s.settings.gyroscopeParallax && !reduced, maxDpShift=8f)
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal=20.dp,vertical=16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally) {
         Text("JARVIS INFINITY",fontSize=24.sp,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.onBackground)
-        Text("V${BuildConfig.VERSION_CODE}  •  ONLINE EDITION",fontSize=11.sp,color=accent,letterSpacing=2.sp)
+        Text("${BuildConfig.VERSION_NAME} (v${BuildConfig.VERSION_CODE})",fontSize=11.sp,color=accent,letterSpacing=1.5.sp)
         Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center) {
             Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                InfinityOrb(Modifier.fillMaxWidth(.84f).aspectRatio(1f).clickable(role=Role.Button,onClickLabel="Start or stop voice",onClick=onTap),accent, label in setOf("Listening…","Speaking…","Thinking…","Connecting…"), maxOf(s.audioAmplitude,s.liveDuplexState.amplitude,active?.audioAmplitude ?: 0f), parallax)
-                Text(label,fontSize=22.sp,fontWeight=FontWeight.Medium,textAlign=TextAlign.Center)
-                Text(s.voiceError ?: if(s.settings.micPrivacyMuted) "Microphone privacy is on. Change it in Settings." else if(label=="Ready, Boss") "Tap the orb or say Hey JARVIS" else "Tap the orb to stop",fontSize=13.sp,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(top=8.dp),maxLines=3)
+                InfinityOrb(Modifier.fillMaxWidth(.72f).aspectRatio(1f).clickable(role=Role.Button,onClickLabel="Start or stop voice",onClick=onTap),accent, label in setOf("Listening…","Speaking…","Thinking…","Connecting…"), maxOf(s.audioAmplitude,s.liveDuplexState.amplitude,active?.audioAmplitude ?: 0f), parallax)
+                Text(label,fontSize=22.sp,fontWeight=FontWeight.Medium,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onBackground)
+                Text(s.voiceError ?: if(s.settings.micPrivacyMuted) "Microphone privacy is on. Change it in Settings." else if(label=="Ready, Boss") "Tap the orb or say Hey JARVIS" else "Tap the orb to stop",fontSize=13.sp,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(top=6.dp),maxLines=3)
             }
         }
     }

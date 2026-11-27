@@ -197,10 +197,13 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
         ((!backgroundOwned && AgentHudBus.isAppInForeground.value) || (backgroundOwned && backgroundCloudAllowed())) && !AgentHudBus.isMainMicBusy.value,
         s.effectiveOpenRouterKey().isNotBlank(), length)
     private fun geminiAllowed(s: OmegaSettings, length: Int): Boolean = GeminiSpeechPolicy.allowed(
-        GeminiSpeechPreferences.enabled(appContext), s.activeProvider == AiProvider.OPENROUTER, s.useGeminiLiveAudio,
+        GeminiSpeechPreferences.enabled(appContext),
+        s.activeProvider == AiProvider.GEMINI || s.activeProvider == AiProvider.OPENROUTER,
+        s.useGeminiLiveAudio,
         localOnly || s.micPrivacyMuted || appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked,
         ((!backgroundOwned && AgentHudBus.isAppInForeground.value) || (backgroundOwned && backgroundCloudAllowed())) && !AgentHudBus.isMainMicBusy.value,
-        s.geminiApiKey.isNotBlank(), length)
+        s.effectiveGeminiKey().isNotBlank(),
+        length)
     private fun stopCloud() {
         ++cloudGeneration
         cloudPrivacyCheck?.let { main.removeCallbacks(it) }; cloudPrivacyCheck = null
@@ -318,7 +321,7 @@ class TeluguTtsController(context: Context, private val backgroundOwned: Boolean
             return
         }
         val locked = appContext.getSystemService(android.app.KeyguardManager::class.java).isDeviceLocked
-        val allowNetwork=InstalledSpeechPolicy.networkVoiceAllowed(CloudVoicePreferences.enabled(appContext),localOnly,locked)
+        val allowNetwork = InstalledSpeechPolicy.networkVoiceAllowed(CloudVoicePreferences.enabled(appContext) || language == "te", localOnly, locked)
         val engine=tts ?: run { onSpeechFinishedCallback?.invoke(); return }
         val preferred=VoicePackCatalog.selected(appContext,language)
         val candidates=runCatching { engine.voices.orEmpty().filter { it.name!=excludedVoice && InstalledSpeechPolicy.voiceEligible(language,it.locale.language,VoicePackCatalog.needsData(it),it.isNetworkConnectionRequired,allowNetwork) } }.getOrDefault(emptyList())

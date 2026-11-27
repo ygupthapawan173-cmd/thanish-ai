@@ -21,8 +21,8 @@ data class VoiceUpgradeProposal(
 object VoiceUpgradeIntentParser {
 
     private val UPGRADE_PREFIX = Regex(
-        "^(?:hey\\s+jarvis[,:\\s]+)?(?:self[-\\s]?upgrade|auto[-\\s]?upgrade|upgrade\\s+yourself|code\\s+upgrade|self[-\\s]?code|fix\\s+your\\s+.+|improve\\s+your\\s+.+|add\\s+a\\s+new\\s+feature.*|build\\s+the\\s+latest\\s+version.*)\\b[,:\\s]*(.*)$",
-        RegexOption.IGNORE_CASE
+        "^(?:hey\\s+jarvis[,:\\s]+)?(?:self[-\\s]?upgrade|auto[-\\s]?upgrade|upgrade\\s+(?:yourself|app|jarvis)|code\\s+upgrade|self[-\\s]?code|fix\\s+your\\s+.+|improve\\s+your\\s+.+|add\\s+a\\s+new\\s+feature.*|build\\s+the\\s+latest\\s+version.*)\\b[,:\\s]*(.*)$",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     )
     private val CRASH_FIX_PATTERN = Regex(
         "\\b(?:fix\\s+(?:the\\s+)?(?:last\\s+)?crash|analyze\\s+(?:your\\s+)?(?:last\\s+)?crash|self[-\\s]?heal|bug\\s*fix)\\b",
