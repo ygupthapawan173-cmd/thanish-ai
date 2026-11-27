@@ -294,7 +294,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                 uiState.isListening || uiState.isThinking || uiState.isSpeaking ||
                     uiState.liveDuplexState.isConnected || uiState.showVoiceOverlay
             )
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = showFloatingVoiceHud,
                 enter = fadeIn(tween(150)) + slideInVertically(tween(180)) { -it / 2 },
                 exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it / 2 },
@@ -337,7 +337,7 @@ private fun JarvisFloatingVoiceOverlay(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ParticleAiOrb(size = 34.dp, preset = uiState.settings.orbColorPreset, amplitude = uiState.audioAmplitude)
+        ParticleAiOrb(size = 34.dp, preset = uiState.settings.orbColorPreset, audioAmplitude = uiState.audioAmplitude)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("HEY JARVIS", color = NeonCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)

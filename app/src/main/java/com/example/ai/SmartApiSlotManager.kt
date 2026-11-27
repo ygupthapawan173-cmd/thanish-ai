@@ -1069,22 +1069,21 @@ object SmartApiSlotManager {
                             eng.recordSuccess(slotId, SlotRoutePurpose.CHAT, latency)
                             chatOk = true
                             chatDetail = "Connected (${latency}ms) • ${discoveredChat.size} models"
-
-                            // Separate TTS validation probe only when slot claims audio speech support & enabled for voice
-                            if (slot.useForVoiceTts && (slot.providerKind.supportsOpenAiAudioSpeech || discoveredTts.isNotEmpty())) {
-                                val probeTts = probeAudioSpeechCapability(slot, base)
-                                ttsOk = probeTts.first
-                                ttsDetail = probeTts.second
-                                if (probeTts.first) {
-                                    eng.recordSuccess(slotId, SlotRoutePurpose.VOICE_TTS, latency)
-                                } else {
-                                    eng.recordHttpFailure(slotId, 0, probeTts.second, SlotRoutePurpose.VOICE_TTS)
-                                }
-                            } else {
-                                ttsOk = null
-                                ttsDetail = "Chat-only endpoint (TTS disabled)"
-                            }
                         }
+                    }
+                    // Separate TTS validation probe only when chat connected & slot claims audio speech support
+                    if (chatOk && slot.useForVoiceTts && (slot.providerKind.supportsOpenAiAudioSpeech || discoveredTts.isNotEmpty())) {
+                        val probeTts = probeAudioSpeechCapability(slot, base)
+                        ttsOk = probeTts.first
+                        ttsDetail = probeTts.second
+                        if (probeTts.first) {
+                            eng.recordSuccess(slotId, SlotRoutePurpose.VOICE_TTS, (System.currentTimeMillis() - start).coerceAtLeast(1L))
+                        } else {
+                            eng.recordHttpFailure(slotId, 0, probeTts.second, SlotRoutePurpose.VOICE_TTS)
+                        }
+                    } else if (chatOk) {
+                        ttsOk = null
+                        ttsDetail = "Chat-only endpoint (TTS disabled)"
                     }
                 }
             }
