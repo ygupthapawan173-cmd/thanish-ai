@@ -103,8 +103,9 @@ internal fun InfinityControl(s:PanduUiState,onSettings:(Int)->Unit,onChat:()->Un
         modules.chunked(2).forEach { pair -> Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) { pair.forEach { (title,detail,action) -> Card(onClick=action,modifier=Modifier.weight(1f).heightIn(min=124.dp),shape=RoundedCornerShape(18.dp)) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) { Icon(icons[modules.indexOfFirst { it.first==title }],null,tint=MaterialTheme.colorScheme.primary); Text(title,fontWeight=FontWeight.SemiBold); Text(detail,fontSize=12.sp,lineHeight=16.sp,maxLines=3) } } } } }
         Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text("Live System Monitor",fontWeight=FontWeight.Bold)
+            Text("Brain: ${s.lastBrainRouteSummary}", fontSize=12.sp)
             Text("Connection: ${s.connectionHealth.status.name} • ${s.connectionHealth.providerLabel}", fontSize=12.sp)
-            Text("Last API model: ${s.apiTelemetry.lastUsedModel.ifBlank { "Not tested" }} | Quota: ${s.connectionHealth.quotaState}")
+            Text("Last API model: ${s.apiTelemetry.lastUsedModel.ifBlank { "Not tested" }} | Latency: ${s.lastLatencyMs}ms | Quota: ${s.connectionHealth.quotaState}")
             Text("Usage: ${s.apiTelemetry.diagnosticSummary()}", fontSize=12.sp)
             Text("Voice: ${s.voiceDiagNote}")
             Text("TTS: ${s.ttsStatusNote}")

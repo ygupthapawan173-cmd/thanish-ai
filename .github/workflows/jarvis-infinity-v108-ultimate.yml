@@ -1,0 +1,92 @@
+name: JARVIS INFINITY V108 ULTIMATE MASTER AI
+
+on:
+  push:
+    branches: [ v108-ultimate-master-test ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+
+      - name: Provision voice models
+        run: |
+          bash ci/provision-vosk.sh
+          bash ci/provision-neural-vad.sh
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify V108 and all regression source guards
+        run: |
+          python3 ci/check-v108-ultimate-source.py
+          python3 ci/check-v1072-control-center-source.py
+          python3 ci/check-v107-autonomous-source.py
+          python3 ci/check-v106-upgrade-source.py
+          python3 ci/check-level6-sql.py
+          python3 ci/check-v47-source.py
+          python3 ci/check-v50-source.py
+          python3 ci/check-v100-source.py
+          python3 ci/check-v101-wake-source.py
+          python3 ci/check-v102-voice-source.py
+          python3 ci/check-v103-online-source.py
+          python3 ci/check-v104-cloud-source.py
+          python3 ci/check-v105-actions-source.py
+          python3 ci/check-v106-power-source.py
+          python3 ci/check-v107-online-source.py
+          python3 ci/check-v108-wake-source.py
+          python3 ci/check-v109-neural-source.py
+          python3 ci/check-v110-dual-source.py
+
+      - name: Run Mandatory Unit Tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build V108 Debug Candidate APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK Signing, Package, Version and SHA-256
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk | grep -F "versionName='V108 ULTIMATE MASTER AI'"
+          (cd out && sha256sum JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk > JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk.sha256)
+          cat out/JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI.apk.sha256
+
+      - name: Upload V108 Debug APK & Checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V108-ULTIMATE-MASTER-AI
+          path: out/
+          if-no-files-found: error

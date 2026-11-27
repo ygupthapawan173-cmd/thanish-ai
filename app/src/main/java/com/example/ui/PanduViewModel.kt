@@ -70,6 +70,7 @@ data class PanduUiState(
     val recentBuilds: List<com.example.autonomous.WorkflowRunStatus> = emptyList(),
     val rollbackSnapshots: List<com.example.autonomous.RollbackSnapshot> = emptyList(),
     val controlCenterStatus: String? = null,
+    val lastBrainRouteSummary: String = "Master AI Brain Ready",
     val pendingVoiceUpgrade: com.example.autonomous.VoiceUpgradeProposal? = null,
     val handoffBundle: com.example.autonomous.AntigravityHandoffBundle? = null,
     val isCheckingUpdate: Boolean = false,
@@ -438,12 +439,49 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun generateAntigravityHandoff(featureRequest: String, targetFilePath: String) {
-        val res = com.example.autonomous.AntigravityTaskHandoff.buildHandoff(featureRequest, targetFilePath)
+    fun generateAntigravityHandoff(
+        featureRequest: String,
+        targetFilePath: String,
+        preferredModel: String = "gemini-4-hydrogen-medium",
+        thinkingEffort: String = "medium"
+    ) {
+        val res = com.example.autonomous.AntigravityTaskHandoff.buildHandoff(
+            featureRequest,
+            targetFilePath,
+            preferredModel = preferredModel,
+            thinkingEffort = thinkingEffort
+        )
         res.onSuccess { bundle ->
-            _uiState.update { it.copy(handoffBundle = bundle, updateStatusMessage = "Manual Antigravity CLI Handoff ready (useG1Credits:false).") }
+            _uiState.update { it.copy(handoffBundle = bundle, updateStatusMessage = "Manual Antigravity CLI Handoff ready ($preferredModel • $thinkingEffort • useG1Credits:false).") }
         }.onFailure { err ->
             _uiState.update { it.copy(updateStatusMessage = err.message ?: "Unable to build Antigravity CLI Handoff.") }
+        }
+    }
+
+    fun autoDownloadAndVerifyUpdate() {
+        val s = preferences.settings.value
+        if (s.githubRepoSlug.isBlank()) {
+            _uiState.update { it.copy(updateStatusMessage = "Configure GitHub Repo (owner/repo) first.") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCheckingUpdate = true, updateStatusMessage = "Checking latest verified release...") }
+            val check = selfUpdater.checkLatestRelease(s.githubRepoSlug, s.githubToken)
+            check.onSuccess { rel ->
+                _uiState.update { it.copy(isCheckingUpdate = false, availableRelease = rel) }
+                if (!rel.isNewerThanInstalled) {
+                    _uiState.update { it.copy(updateStatusMessage = "Already on latest version (${rel.tagName}).") }
+                    return@onSuccess
+                }
+                if (!com.example.autonomous.UpdateTransferPolicy.validHash(rel.expectedSha256)) {
+                    _uiState.update { it.copy(updateStatusMessage = "Update blocked: release ${rel.tagName} missing mandatory SHA-256.") }
+                    return@onSuccess
+                }
+                prepareRollbackSnapshot()
+                approveAndInstallRelease()
+            }.onFailure { err ->
+                _uiState.update { it.copy(isCheckingUpdate = false, updateStatusMessage = "Update check failed: ${err.message}") }
+            }
         }
     }
 
@@ -874,6 +912,11 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             val res = aiRepository.sendMessage(prompt, imageBase64, onPartialReply = { partial ->
                 if (requestJob?.isActive == true) _uiState.update { it.copy(streamingReply = partial) }
             }) { status -> _uiState.update { it.copy(liveToolStatus = status) } }
+            val routeSummary = aiRepository.lastBrainPlan?.let { p ->
+                val target = aiRepository.lastRouteResult?.target?.name ?: "AUTO"
+                "${p.category.name} (${p.effort.name} • $target)"
+            }
+            if (routeSummary != null) _uiState.update { it.copy(lastBrainRouteSummary = routeSummary) }
             coroutineContext.ensureActive()
             res.onSuccess { reply ->
                 database.insertMessage(ChatMessageEntity(text = reply.replyText, isFromUser = false, executedTools = reply.executedTools))

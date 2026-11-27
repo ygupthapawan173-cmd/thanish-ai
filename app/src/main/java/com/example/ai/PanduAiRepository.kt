@@ -72,6 +72,10 @@ class PanduAiRepository(
     fun clearHistory() { synchronized(conversationHistory) { conversationHistory.clear() } }
 
     private val codingModelPolicy = com.example.autonomous.CodingModelSwitchPolicy()
+    @Volatile var lastBrainPlan: BrainTaskPlan? = null
+        private set
+    @Volatile var lastRouteResult: SmartRouteResult? = null
+        private set
 
     /**
      * Dedicated raw engineering call for SelfCodingEngine.
@@ -237,6 +241,16 @@ class PanduAiRepository(
     ): Result<AgentReplyResult> = withContext(Dispatchers.IO) {
         val settings = settingsProvider()
         val startMs = System.currentTimeMillis()
+        val plan = MasterAiBrain.classifyAndPlan(userMessage, attachedImageBase64 != null, settings.languageTag)
+        lastBrainPlan = plan
+        lastRouteResult = SmartAiTaskRouter.route(
+            plan = plan,
+            hasGeminiKey = settings.effectiveGeminiKey().isNotBlank(),
+            hasGatewayKey = settings.effectiveOpenRouterKey().isNotBlank(),
+            zeroPaidCreditsMode = settings.zeroPaidCreditsMode,
+            isFreeGatewayMode = settings.smartMode == SmartModelPolicy.Mode.FREE,
+            preferredGeminiModel = settings.geminiChatModel
+        )
         if (attachedImageBase64.isNullOrBlank()) CreatorIdentity.reply(userMessage)?.let { reply ->
             rememberTurn(userMessage, reply)
             return@withContext Result.success(AgentReplyResult(reply, emptyList(), 1L, "local-identity"))

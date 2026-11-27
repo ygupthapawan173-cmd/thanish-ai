@@ -43,6 +43,9 @@ internal object GeminiSpeechClient {
         candidateModels: List<String>
     ): GeminiSpeechResult {
         require(key.isNotBlank() && text.length in 1..CloudVoicePolicy.MAX_TEXT && speaker in GeminiSpeechPolicy.speakers)
+        VoiceResponseCache.get(speaker, text)?.let { cached ->
+            return GeminiSpeechResult(wavBytes = cached, usedModel = "voice-cache")
+        }
         val candidates = GeminiSpeechPolicy.candidateModels(candidateModels)
         val scope = "gemini_tts_${key.trim().takeLast(6)}"
         val now = SystemClock.elapsedRealtime()
@@ -53,6 +56,7 @@ internal object GeminiSpeechClient {
         for (model in toTry) {
             try {
                 val wav = synthesizeForModel(key.trim(), text, speaker, model)
+                VoiceResponseCache.put(speaker, text, wav)
                 return GeminiSpeechResult(wavBytes = wav, usedModel = model)
             } catch (e: GeminiSpeechHttpException) {
                 lastError = e

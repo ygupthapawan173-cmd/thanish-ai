@@ -9,17 +9,23 @@ data class VoiceUpgradeProposal(
 )
 
 /**
- * V107 Voice-Based Self-Upgrade & Crash-Fix Intent Parser.
- * Always produces a confirmation proposal — never triggers edits without user approval.
+ * V108 Voice-Based Self-Upgrade & Crash-Fix Intent Parser.
+ * Recognizes voice commands such as:
+ * - "Hey JARVIS, upgrade yourself"
+ * - "Hey JARVIS, fix your voice problem"
+ * - "Hey JARVIS, improve your performance"
+ * - "Hey JARVIS, analyze your last crash"
+ * - "Hey JARVIS, add a new feature"
+ * - "Hey JARVIS, build the latest version"
  */
 object VoiceUpgradeIntentParser {
 
     private val UPGRADE_PREFIX = Regex(
-        "^(?:hey\\s+jarvis[,:\\s]+)?(?:self[-\\s]?upgrade|auto[-\\s]?upgrade|upgrade\\s+yourself|code\\s+upgrade|self[-\\s]?code)\\b[,:\\s]*(.*)$",
+        "^(?:hey\\s+jarvis[,:\\s]+)?(?:self[-\\s]?upgrade|auto[-\\s]?upgrade|upgrade\\s+yourself|code\\s+upgrade|self[-\\s]?code|fix\\s+your\\s+.+|improve\\s+your\\s+.+|add\\s+a\\s+new\\s+feature.*|build\\s+the\\s+latest\\s+version.*)\\b[,:\\s]*(.*)$",
         RegexOption.IGNORE_CASE
     )
     private val CRASH_FIX_PATTERN = Regex(
-        "\\b(?:fix\\s+(?:the\\s+)?(?:last\\s+)?crash|analyze\\s+crash|self[-\\s]?heal|bug\\s*fix)\\b",
+        "\\b(?:fix\\s+(?:the\\s+)?(?:last\\s+)?crash|analyze\\s+(?:your\\s+)?(?:last\\s+)?crash|self[-\\s]?heal|bug\\s*fix)\\b",
         RegexOption.IGNORE_CASE
     )
 
@@ -36,10 +42,18 @@ object VoiceUpgradeIntentParser {
         }
 
         val match = UPGRADE_PREFIX.matchEntire(clean) ?: return null
-        val body = match.groupValues[1].trim().ifBlank { clean }
+        val trailing = match.groupValues.getOrNull(1)?.trim().orEmpty()
+        val request = if (trailing.isNotBlank()) trailing else clean
+        val target = when {
+            "voice" in clean.lowercase() || "tts" in clean.lowercase() ->
+                "app/src/main/java/com/example/voice/TeluguTtsController.kt"
+            "performance" in clean.lowercase() || "latency" in clean.lowercase() ->
+                "app/src/main/java/com/example/ui/PanduViewModel.kt"
+            else -> defaultTargetPath
+        }
         return VoiceUpgradeProposal(
-            featureRequest = body,
-            suggestedTargetPath = defaultTargetPath,
+            featureRequest = request,
+            suggestedTargetPath = target,
             isCrashFix = false
         )
     }

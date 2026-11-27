@@ -13,5 +13,5 @@ assert 'currentSigners == signers(incoming)' in (p/'security/VerifiedApkUpdater.
 assert 'version(incoming) > version(installed)' in (p/'security/VerifiedApkUpdater.kt').read_text()
 assert 'Generated patch makes no change' in (p/'autonomous/SelfCodingEngine.kt').read_text()
 assert 'MAX_APK_BYTES' in (p/'autonomous/SecureSelfUpdater.kt').read_text()
-assert any(v in Path('app/build.gradle.kts').read_text() for v in ('versionCode = 50','versionCode = 100','versionCode = 101','versionCode = 102','versionCode = 103','versionCode = 104','versionCode = 105','versionCode = 106','versionCode = 107','versionCode = 108','versionCode = 110','versionCode = 111','versionCode = 112','versionCode = 113','versionCode = 114'))
+assert any(v in Path('app/build.gradle.kts').read_text() for v in ('versionCode = 50','versionCode = 100','versionCode = 101','versionCode = 102','versionCode = 103','versionCode = 104','versionCode = 105','versionCode = 106','versionCode = 107','versionCode = 108','versionCode = 110','versionCode = 111','versionCode = 112','versionCode = 113','versionCode = 114','versionCode = 115'))
 print('14/14 V50 static source guards passed')

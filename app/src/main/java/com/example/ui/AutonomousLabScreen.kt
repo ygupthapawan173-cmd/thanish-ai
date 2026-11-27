@@ -54,7 +54,8 @@ fun AutonomousLabScreen(
     onCheckReleaseUpdate: () -> Unit,
     onApproveAndInstallUpdate: () -> Unit,
     onAnalyzeLastCrash: () -> Unit = {},
-    onGenerateHandoff: (String, String) -> Unit = { _, _ -> },
+    onGenerateHandoff: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    onAutoUpdateCheckAndDownload: () -> Unit = {},
     onRefreshControlCenter: () -> Unit = {},
     onLaunchTermux: () -> Unit = {},
     onLaunchTermuxHandoff: () -> Unit = {},
@@ -75,6 +76,7 @@ fun AutonomousLabScreen(
     var featurePrompt by remember { mutableStateOf("") }
     var targetFile by remember { mutableStateOf("app/src/main/java/com/example/ui/OmegaDashboardApp.kt") }
     var selectedCliModel by remember { mutableStateOf(AntigravityTaskHandoff.PERMITTED_CLI_MODELS.first()) }
+    var selectedEffort by remember { mutableStateOf("medium") }
     var ghSaved by remember { mutableStateOf(false) }
 
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
@@ -104,7 +106,7 @@ fun AutonomousLabScreen(
                 GlassCircleButton(Icons.AutoMirrored.Rounded.ArrowBack, theme = theme, preset = preset, onClick = onBack)
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     Text("ANTIGRAVITY CONTROL CENTER", color = TextPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text("V107.2 • NEON NAVY COMMAND", color = NeonCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                    Text("V108 ULTIMATE MASTER AI • ${uiState.lastBrainRouteSummary}", color = NeonCyan, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 GlassCircleButton(Icons.Rounded.Refresh, theme = theme, preset = preset, onClick = onRunDiagnostics)
             }
@@ -279,14 +281,25 @@ fun AutonomousLabScreen(
                     }
                 }
 
-                Text("Manual Antigravity CLI Model (useG1Credits:false):", color = TextMuted, fontSize = 11.sp)
+                Text("Antigravity CLI Models (Real Account Availability, useG1Credits:false):", color = TextMuted, fontSize = 11.sp)
                 Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AntigravityTaskHandoff.PERMITTED_CLI_MODELS.forEach { m ->
-                        FilterChip(selected = selectedCliModel == m, onClick = { selectedCliModel = m }, label = { Text(m, fontSize = 11.sp, maxLines = 1) })
+                    AntigravityTaskHandoff.MODEL_CATALOG.forEach { opt ->
+                        FilterChip(
+                            selected = selectedCliModel == opt.id,
+                            onClick = { if (opt.verifiedAvailable) selectedCliModel = opt.id },
+                            enabled = opt.verifiedAvailable,
+                            label = { Text(opt.label, fontSize = 10.5.sp, maxLines = 1) }
+                        )
+                    }
+                }
+                Text("Thinking Effort:", color = TextMuted, fontSize = 11.sp)
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AntigravityTaskHandoff.THINKING_EFFORTS.forEach { eff ->
+                        FilterChip(selected = selectedEffort == eff, onClick = { selectedEffort = eff }, label = { Text(eff.uppercase(), fontSize = 10.5.sp, maxLines = 1) })
                     }
                 }
                 OutlinedButton(
-                    onClick = { if (featurePrompt.isNotBlank()) onGenerateHandoff(featurePrompt, targetFile) },
+                    onClick = { if (featurePrompt.isNotBlank()) onGenerateHandoff(featurePrompt, targetFile, selectedCliModel, selectedEffort) },
                     enabled = featurePrompt.isNotBlank(),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -330,6 +343,13 @@ fun AutonomousLabScreen(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) { Text(if (uiState.isCheckingUpdate) "Checking Releases..." else "Check Verified Release & Builds", color = Color.White, fontWeight = FontWeight.Bold) }
+
+                OutlinedButton(
+                    onClick = { onSaveSettings { it.copy(githubRepoSlug = repoDraft, githubToken = tokenDraft) }; onAutoUpdateCheckAndDownload() },
+                    enabled = !uiState.isCheckingUpdate,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Auto-Detect, Backup & Stage Verified APK", color = NeonCyan, fontSize = 12.sp) }
 
                 if (uiState.updateStatusMessage != null) Text(uiState.updateStatusMessage, color = NeonCyan, fontSize = 12.sp)
                 val rel = uiState.availableRelease
