@@ -179,8 +179,9 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(OmegaColors.SurfaceNavy)
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .omegaGlassCard(cornerRadius = 24.dp, highlighted = true)
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -198,7 +199,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) OmegaColors.NeonBlue.copy(alpha = 0.22f) else OmegaColors.SurfaceNavy)
+                            .background(if (selected) OmegaColors.NeonBlue.copy(alpha = 0.22f) else androidx.compose.ui.graphics.Color.Transparent)
                             .clickable { viewModel.navigateTo(tab) }
                             .padding(vertical = 6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
