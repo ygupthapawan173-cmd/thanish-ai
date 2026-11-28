@@ -18,20 +18,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/**
- * JARVIS INFINITY V110 Unified Futuristic Color System (Section 12):
- * Dark Navy background (#060D1F / #0D1B38) paired with Neon Blue (#2563FF) & Cyan (#00E5FF) accents.
- */
+/** V111 Liquid Sapphire palette. Frosted gradient surfaces, no expensive live blur. */
 object OmegaColors {
-    val DeepNavy = Color(0xFF315B9D)
-    val SurfaceNavy = Color(0xFF294F88)
-    val ElevatedNavy = Color(0xFF386AA7)
+    val DeepNavy = Color(0xFF254E88)
+    val SurfaceNavy = Color(0xFF285181)
+    val ElevatedNavy = Color(0xFF34659A)
     val BorderBlue = Color(0xFF9EC9EF)
 
-    val NeonBlue = Color(0xFF2563FF)
+    val NeonBlue = Color(0xFF174FBD)
     val NeonCyan = Color(0xFFDDF8FF)
     val IceWhite = Color(0xFFE8F4FF)
-    val MutedSlate = Color(0xFFE2F0FF)
+    val MutedSlate = Color(0xFFDFEFFF)
 
     val EmeraldLive = Color(0xFF10B981)
     val AmberWarn = Color(0xFFF59E0B)
@@ -71,7 +68,7 @@ fun OmegaNavyBackdrop(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(OmegaColors.DeepNavy, Color(0xFF497DB8), Color(0xFF87BCE3))
+                    colors = listOf(OmegaColors.DeepNavy, Color(0xFF3C6FA9), Color(0xFF6CA5D4))
                 )
             )
     ) {
@@ -84,9 +81,12 @@ fun Modifier.omegaGlassCard(
     highlighted: Boolean = false
 ): Modifier = this
     .clip(RoundedCornerShape(cornerRadius))
-    .background(if (highlighted) OmegaColors.ElevatedNavy.copy(alpha = 0.95f) else OmegaColors.SurfaceNavy.copy(alpha = 0.92f))
+    .background(Brush.linearGradient(
+        if (highlighted) listOf(Color(0xFF3B6CA2), Color(0xFF285281))
+        else listOf(Color(0xFF325F92), Color(0xFF244C7C))
+    ))
     .border(
         width = 1.dp,
-        color = if (highlighted) OmegaColors.NeonCyan.copy(alpha = 0.55f) else OmegaColors.BorderBlue.copy(alpha = 0.65f),
+        color = if (highlighted) OmegaColors.NeonCyan.copy(alpha = 0.55f) else OmegaColors.BorderBlue.copy(alpha = 0.48f),
         shape = RoundedCornerShape(cornerRadius)
     )

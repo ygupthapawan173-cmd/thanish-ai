@@ -15,6 +15,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -62,7 +76,7 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSectionMeta(4, "Permissions Manager", "Microphone, Notifications, Camera, Contacts, Accessibility", "permissions mic notification camera accessibility"),
     SettingsSectionMeta(5, "Privacy & Security", "Confirm actions, biometric gate, keystore & lock-screen guard", "privacy security biometric keystore"),
     SettingsSectionMeta(6, "Self-Upgrade Center", "Verify signed GitHub releases, SHA-256 & install", "update upgrade release sha256 apk"),
-    SettingsSectionMeta(7, "About JARVIS INFINITY", "Developer Guptha, Version V110 & legal attributions", "about guptha version developer license")
+    SettingsSectionMeta(7, "About JARVIS INFINITY", "Developer Guptha, Version & legal attributions", "about guptha version developer license")
 )
 
 @Composable
@@ -71,7 +85,7 @@ fun SettingsTabScreen(
     viewModel: PanduViewModel
 ) {
     val page = uiState.settingsCategoryPage
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     val multiPermLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -97,10 +111,13 @@ fun SettingsTabScreen(
                         color = OmegaColors.NeonCyan,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { viewModel.openSettingsPage(-1) }
+                        modifier = Modifier.clickable { viewModel.openSettingsPage(-1) }.padding(vertical = 12.dp, horizontal = 4.dp)
                     )
                     Text(
                         text = SETTINGS_SECTIONS[page].title,
+                        modifier = Modifier.weight(1f).padding(start = 10.dp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         color = OmegaColors.IceWhite,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
@@ -110,12 +127,14 @@ fun SettingsTabScreen(
         } else {
             item {
                 Column {
-                    Text("Settings & System Setup", color = OmegaColors.IceWhite, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text("Settings", color = OmegaColors.IceWhite, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text("Personalize your JARVIS", color = OmegaColors.MutedSlate, fontSize = 12.sp)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search settings...", color = OmegaColors.MutedSlate) },
+                        label = { Text("Search settings") },
+                        placeholder = { Text("Voice, API, permissions…", color = OmegaColors.MutedSlate) },
                         colors = omegaTextFieldColors(),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -125,22 +144,37 @@ fun SettingsTabScreen(
             val visible = SETTINGS_SECTIONS.filter { sec ->
                 SettingsSearchPolicy.matches(searchQuery, sec.title, sec.subtitle, sec.aliases)
             }
+            if (visible.isEmpty()) item { Text("No matching settings. Try another search.", color = OmegaColors.IceWhite, modifier = Modifier.fillMaxWidth().omegaGlassCard().padding(16.dp)) }
             items(visible.size) { idx ->
                 val sec = visible[idx]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .omegaGlassCard(16.dp)
+                        .omegaGlassCard(18.dp)
+                        .heightIn(min = 72.dp)
                         .clickable { viewModel.openSettingsPage(sec.index) }
                         .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val sectionIcon = when (sec.index) {
+                        0 -> Icons.Rounded.Memory
+                        1 -> Icons.Rounded.GraphicEq
+                        2 -> Icons.Rounded.AutoAwesome
+                        3 -> Icons.Rounded.Dashboard
+                        4 -> Icons.Rounded.Notifications
+                        5 -> Icons.Rounded.Tune
+                        6 -> Icons.Rounded.Settings
+                        else -> Icons.Rounded.Home
+                    }
+                    Icon(sectionIcon, contentDescription = null, tint = OmegaColors.NeonCyan,
+                        modifier = Modifier.size(42.dp).omegaGlassCard(12.dp, highlighted = true).padding(10.dp))
+                    Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(sec.title, color = OmegaColors.IceWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text(sec.subtitle, color = OmegaColors.MutedSlate, fontSize = 12.sp)
                     }
-                    Text("→", color = OmegaColors.NeonCyan, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("›", color = OmegaColors.NeonCyan, fontSize = 23.sp, modifier = Modifier.padding(start = 10.dp))
                 }
             }
             item { Spacer(Modifier.height(10.dp)) }

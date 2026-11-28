@@ -49,6 +49,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +79,7 @@ import com.example.ui.theme.omegaTextFieldColors
 import com.example.voice.SarvamVoiceClient
 
 // ---------------------------------------------------------------------------
-// 1. HOME SCREEN (2D AI Face + Live Voice Waveform + Live Answer & Sources)
+// 1. HOME SCREEN (Particle Globe + real FFT + answers and sources)
 // ---------------------------------------------------------------------------
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -85,7 +89,7 @@ fun HomeTabScreen(
     onOpenCamera: () -> Unit
 ) {
     val context = LocalContext.current
-    var promptDraft by remember { mutableStateOf("") }
+    var promptDraft by rememberSaveable { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier
@@ -101,13 +105,19 @@ fun HomeTabScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("VOICE ASSISTANT", color = OmegaColors.NeonCyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+                    Text(if (uiState.settings.micPrivacyMuted) "MIC MUTED" else if (uiState.micPermGranted) "MIC ALLOWED" else "MIC REQUIRED", color = OmegaColors.IceWhite, fontSize = 10.sp,
+                        modifier = Modifier.omegaGlassCard(10.dp).padding(horizontal = 8.dp, vertical = 5.dp))
+                }
                 AiFaceVisualizer(
                     activityState = uiState.aiActivityState,
                     audioAmplitude = uiState.audioAmplitude,
-                    size = 186.dp,
+                    size = 208.dp,
                     onTap = { viewModel.toggleVoiceListening() }
                 )
 
+                Text(uiState.aiActivityState.label.uppercase(), color = OmegaColors.NeonCyan, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = when {
@@ -116,11 +126,12 @@ fun HomeTabScreen(
                         uiState.isSpeaking -> uiState.ttsStatusNote
                         uiState.liveDuplexState.isConnected -> "Gemini Live Connected (${uiState.liveDuplexState.activeModel})"
                         uiState.openAiLiveState.isConnected -> "GPT-Live Connected (${uiState.openAiLiveState.activeModel})"
-                        else -> "Tap AI Face or say \"Hey JARVIS\""
+                        else -> "Tap the orb or say \"Hey JARVIS\""
                     },
                     color = OmegaColors.IceWhite,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -132,6 +143,7 @@ fun HomeTabScreen(
                     height = 68.dp
                 )
 
+                Text("LIVE AUDIO SPECTRUM", color = OmegaColors.MutedSlate, fontSize = 9.sp, letterSpacing = 0.8.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -150,11 +162,11 @@ fun HomeTabScreen(
                     }
 
                     OutlinedButton(
-                        onClick = { viewModel.toggleLiveSession(useOpenAi = uiState.settings.activeProvider == AiProvider.OPENAI && uiState.settings.effectiveOpenAiKey().isNotBlank() && uiState.settings.effectiveGeminiKey().isBlank()) },
+                        onClick = { viewModel.toggleLiveSession(useOpenAi = uiState.openAiLiveState.isConnected || uiState.openAiLiveState.isConnecting || (!(uiState.liveDuplexState.isConnected || uiState.liveDuplexState.isConnecting) && uiState.settings.activeProvider == AiProvider.OPENAI)) },
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            if (uiState.liveDuplexState.isConnected || uiState.openAiLiveState.isConnected) "End Live" else "Live Voice",
+                            if (uiState.liveDuplexState.isConnected || uiState.openAiLiveState.isConnected || uiState.liveDuplexState.isConnecting || uiState.openAiLiveState.isConnecting) "End Live" else "Live Voice",
                             color = OmegaColors.NeonCyan,
                             maxLines = 1
                         )
@@ -167,11 +179,10 @@ fun HomeTabScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Hey JARVIS Background Wake",
-                        color = OmegaColors.MutedSlate,
-                        fontSize = 12.sp
-                    )
+                    Column(Modifier.weight(1f)) {
+                        Text("Hey JARVIS", color = OmegaColors.IceWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(uiState.bgServiceStatus, color = OmegaColors.MutedSlate, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                     Switch(
                         checked = uiState.settings.wakeWordEnabled,
                         onCheckedChange = { viewModel.toggleBackgroundWake(it) },
@@ -222,7 +233,8 @@ fun HomeTabScreen(
                 OutlinedTextField(
                     value = promptDraft,
                     onValueChange = { promptDraft = it },
-                    placeholder = { Text("Ask in Telugu or English...", color = OmegaColors.MutedSlate) },
+                    label = { Text("Ask JARVIS") },
+                    placeholder = { Text("Telugu or English", color = OmegaColors.MutedSlate) },
                     colors = omegaTextFieldColors(),
                     modifier = Modifier.weight(1f),
                     singleLine = true
@@ -236,6 +248,7 @@ fun HomeTabScreen(
                     Icon(Icons.Rounded.CameraAlt, contentDescription = "Camera Vision", tint = OmegaColors.NeonCyan)
                 }
                 IconButton(
+                    enabled = promptDraft.isNotBlank() && !uiState.isThinking,
                     onClick = {
                         if (promptDraft.isNotBlank()) {
                             val send = promptDraft
@@ -348,7 +361,7 @@ fun DashboardTabScreen(
             ) {
                 Column {
                     Text("Live Telemetry Dashboard", color = OmegaColors.IceWhite, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text("20 measured indicators • Tap any tile to configure", color = OmegaColors.MutedSlate, fontSize = 12.sp)
+                    Text("${uiState.indicators.size} indicators • Tap a tile to configure", color = OmegaColors.MutedSlate, fontSize = 12.sp)
                 }
                 OutlinedButton(onClick = { viewModel.refreshSystemMetrics() }) {
                     Text("Refresh", color = OmegaColors.NeonCyan, fontSize = 12.sp)

@@ -33,7 +33,7 @@ fun ParticleRibbonWaveform(
     val count = if (LocalReducedRendering.current) 15 else 31
     val levels = (0 until count).map { i ->
         val band = (abs(i - count / 2) * 15 / (count / 2)).coerceIn(0,15)
-        val target = if (!stale && isActive) frame.bands[band] else 0f
+        val target = if (!stale && isActive) frame.bands.getOrElse(band) { 0f } else 0f
         val value by animateFloatAsState(target, tween(if (target > 0.1f) 65 else 220), label = "band" + i)
         value
     }
@@ -43,7 +43,7 @@ fun ParticleRibbonWaveform(
         val color = if (frame.playback) Color(0xFFB9DEFF) else Color(0xFFDDF8FF)
         for (i in 0 until count) {
             val d = abs(i - (count - 1) / 2f) / ((count - 1) / 2f)
-            val h = size.height * 0.43f * levels[i] * (1f-d).pow(1.2f)
+            val h = size.height * 0.43f * levels[i] * (1f - 0.25f*d)
             val x = (i+1)*step
             drawLine(color.copy(alpha = 0.18f), Offset(x,middle-h), Offset(x,middle+h), 5.dp.toPx(), StrokeCap.Round)
             drawLine(color, Offset(x,middle-h-1f), Offset(x,middle+h+1f), 1.8.dp.toPx(), StrokeCap.Round)

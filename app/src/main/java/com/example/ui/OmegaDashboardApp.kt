@@ -3,6 +3,14 @@ package com.example.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.semantics.Role
+import com.example.ui.components.LocalReducedRendering
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,6 +68,8 @@ import com.example.ui.theme.omegaGlassCard
 fun OmegaDashboardApp(viewModel: PanduViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val reduced = LocalReducedRendering.current
+    val tabState = rememberSaveableStateHolder()
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
@@ -90,6 +100,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .imePadding()
         ) {
             // Compact Top Identity Header
             Row(
@@ -108,7 +119,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                         letterSpacing = 0.8.sp
                     )
                     Text(
-                        text = "${BuildConfig.VERSION_NAME} • ${uiState.aiActivityState.label}",
+                        text = "V111 · LIQUID SAPPHIRE",
                         color = OmegaColors.NeonCyan,
                         fontSize = 11.sp,
                         maxLines = 1,
@@ -118,6 +129,10 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
 
                 val activeNow = uiState.isListening || uiState.isThinking || uiState.isSpeaking ||
                     uiState.liveDuplexState.isConnected || uiState.openAiLiveState.isConnected
+                if (!activeNow) {
+                    Text(if (uiState.internetValidated) "ONLINE" else "OFFLINE", color = OmegaColors.IceWhite, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.omegaGlassCard(12.dp).padding(horizontal = 10.dp, vertical = 7.dp))
+                }
                 if (activeNow) {
                     IconButton(
                         onClick = { viewModel.stopAllActivity() },
@@ -167,7 +182,8 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                Crossfade(targetState = uiState.currentTab, animationSpec = tween(160), label = "Sapphire navigation") { tab ->
+                Crossfade(targetState = uiState.currentTab, animationSpec = tween(if (reduced) 0 else 160), label = "Sapphire navigation") { tab ->
+                    tabState.SaveableStateProvider(tab.name) {
                     when (tab) {
                     JarvisTab.HOME -> HomeTabScreen(uiState = uiState, viewModel = viewModel, onOpenCamera = openCameraSafely)
                     JarvisTab.DASHBOARD -> DashboardTabScreen(uiState = uiState, viewModel = viewModel)
@@ -175,6 +191,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                     JarvisTab.VOICE -> VoiceTabScreen(uiState = uiState, viewModel = viewModel)
                     JarvisTab.CONTROL -> ControlTabScreen(uiState = uiState, viewModel = viewModel, onOpenCamera = openCameraSafely)
                     JarvisTab.SETTINGS -> SettingsTabScreen(uiState = uiState, viewModel = viewModel)
+                    }
                     }
                 }
             }
@@ -185,6 +202,7 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 8.dp)
                     .omegaGlassCard(cornerRadius = 24.dp, highlighted = true)
+                    .selectableGroup()
                     .padding(horizontal = 4.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
@@ -199,14 +217,19 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                         JarvisTab.CONTROL -> Icons.Rounded.Tune
                         JarvisTab.SETTINGS -> Icons.Rounded.Settings
                     }
+                    val selectedFill by animateColorAsState(
+                        if (selected) OmegaColors.NeonCyan.copy(alpha = 0.19f) else androidx.compose.ui.graphics.Color.Transparent,
+                        animationSpec = tween(if (reduced) 0 else 150), label = "navFill")
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) OmegaColors.NeonBlue.copy(alpha = 0.22f) else androidx.compose.ui.graphics.Color.Transparent)
-                            .clickable { viewModel.navigateTo(tab) }
+                            .heightIn(min = 52.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(selectedFill)
+                            .selectable(selected = selected, role = Role.Tab, onClick = { viewModel.navigateTo(tab) })
                             .padding(vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = icon,
@@ -216,9 +239,14 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = tab.label,
+                            text = when(tab) {
+                                JarvisTab.AI_BRAIN -> "Brain"
+                                JarvisTab.DASHBOARD -> "Dash"
+                                else -> tab.label
+                            },
                             color = if (selected) OmegaColors.IceWhite else OmegaColors.MutedSlate,
                             fontSize = 10.sp,
+                            overflow = TextOverflow.Ellipsis,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1
                         )
