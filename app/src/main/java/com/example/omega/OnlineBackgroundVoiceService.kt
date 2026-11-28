@@ -1,5 +1,7 @@
 package com.example.omega
 
+import ai.picovoice.porcupine.PorcupineManager
+import com.example.voice.PorcupineWakeConfig
 import android.Manifest
 import android.app.KeyguardManager
 import android.app.Notification
@@ -81,6 +83,7 @@ class OnlineBackgroundVoiceService : Service() {
 
     private var onlineWakeClient: SarvamRealtimeSttClient? = null
     private var onlineWakeJob: Job? = null
+    private var porcupine: PorcupineManager? = null
     private var wakeModel: Model? = null
     private var wakeRecognizer: Recognizer? = null
     private var wakeSpeech: SpeechService? = null
@@ -147,8 +150,12 @@ class OnlineBackgroundVoiceService : Service() {
         ++wakeGeneration
         onlineWakeJob?.cancel()
         onlineWakeJob = null
-        onlineWakeClient?.stop()
+        onlineWakeClient?.release()
         onlineWakeClient = null
+        val local = porcupine
+        porcupine = null
+        runCatching { local?.stop() }
+        runCatching { local?.delete() }
 
         val old = wakeSpeech
         wakeSpeech = null
@@ -225,6 +232,50 @@ class OnlineBackgroundVoiceService : Service() {
         if (benchmark.selectedEngine == StreamingVoiceEngineKind.SARVAM_SAARAS_V4 && screenReady()) {
             armOnlineSarvamWake()
         } else {
+            armLocalWake()
+        }
+    }
+
+    private fun armLocalWake() {
+        if (!PorcupineWakeConfig.configured(this)) {
+            armOfflineVoskWake()
+            return
+        }
+        if (!VoiceMic.lease.acquire(wakeLease)) {
+            retryAt = SystemClock.elapsedRealtime() + 250L
+            return
+        }
+        val token = ++wakeGeneration
+        fun current() = started && !closed && wakeMode && token == wakeGeneration && phase == "Wake idle"
+        try {
+            val manager = PorcupineManager.Builder()
+                .setAccessKey(PorcupineWakeConfig.accessKey(this))
+                .setKeywordPath(PorcupineWakeConfig.modelFile(this).absolutePath)
+                .setSensitivity(0.55f)
+                .setErrorCallback { _ -> main.post {
+                    if (current()) {
+                        releaseWake()
+                        wakeFailures++
+                        retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
+                        publish("Porcupine failed — local wake retry")
+                    }
+                } }
+                .build(this) { index -> main.post {
+                    if (index == 0 && current() && wakeAllowed() && !foregroundBusy()) {
+                        val detected = SystemClock.elapsedRealtime()
+                        releaseWake()
+                        wakeFailures = 0
+                        handleWakeTriggered(detected, "")
+                    }
+                } }
+            porcupine = manager
+            manager.start()
+            publish("Listening • Porcupine local wake")
+        } catch (_: Exception) {
+            releaseWake()
+            armOfflineVoskWake()
+        } catch (_: LinkageError) {
+            releaseWake()
             armOfflineVoskWake()
         }
     }
@@ -255,7 +306,7 @@ class OnlineBackgroundVoiceService : Service() {
                     Log.w("OmegaWake", "Online wake error (${st.error}), falling back to Vosk offline wake")
                     releaseWake()
                     wakeFailures++
-                    if (wakeModel != null) armOfflineVoskWake()
+                    if (wakeModel != null || PorcupineWakeConfig.configured(this@OnlineBackgroundVoiceService)) armLocalWake()
                     else retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
                 }
             }
@@ -466,7 +517,11 @@ class OnlineBackgroundVoiceService : Service() {
                         listen()
                     }
                     if (phase == "Wake idle") {
-                        val hasActiveWake = wakeSpeech != null || onlineWakeClient != null
+                        if (onlineWakeClient != null && (!screenReady() || !prefs.settings.value.cloudAudioConsentGranted || !prefs.settings.value.onlineWakePriority || !hasValidatedInternet())) {
+                            releaseWake()
+                            retryAt = now
+                        }
+                        val hasActiveWake = wakeSpeech != null || onlineWakeClient != null || porcupine != null
                         if (foregroundBusy() && hasActiveWake) {
                             releaseWake()
                             retryAt = now + 800L
