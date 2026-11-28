@@ -47,6 +47,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Provision Sherpa INT8 keyword engine
+        run: bash ci/provision-sherpa-kws.sh
+
       - name: Verify V111 Source Audit and SQL Schema Guards
         run: |
           python3 ci/check-v110-master-source.py
