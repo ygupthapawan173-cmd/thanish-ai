@@ -7,9 +7,8 @@ version=2.0.3
 aar="sherpa-onnx-static-link-onnxruntime-${version}.aar"
 base="https://github.com/k2-fsa/sherpa-onnx/releases/download/v${version}"
 curl --fail --location --retry 3 "$base/$aar" -o "$tmp/$aar"
-curl --fail --location --retry 3 "$base/checksum.txt" -o "$tmp/checksum.txt"
-# Refuse to build if the upstream release's published checksum is unavailable or mismatches.
-(cd "$tmp"; awk -v file="$aar" '$2 == file || $2 == "*"file {print}' checksum.txt > selected.sha256; test -s selected.sha256; sha256sum -c selected.sha256)
+# SHA-256 from official v2.0.3 GitHub release asset metadata.
+(cd "$tmp"; printf '%s  %s\n' '7744a3a8f08f017d59c2d8ed8d9b700345561f5abe9f4e06dc6eaef3a0b977b4' "$aar" | sha256sum -c -)
 mkdir -p "$root/app/libs"
 cp "$tmp/$aar" "$root/app/libs/$aar"
 model=sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
