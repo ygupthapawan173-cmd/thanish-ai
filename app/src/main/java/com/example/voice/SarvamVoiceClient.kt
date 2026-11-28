@@ -34,6 +34,7 @@ object SarvamVoiceClient {
     const val MAX_CHARS = 2400
 
     val MALE_SPEAKERS: List<SarvamSpeakerProfile> = listOf(
+        SarvamSpeakerProfile("shubh_enhi_ads", "Shubh (Premium Male • Bulbul v4 Flash)", "bulbul:v4-flash"),
         SarvamSpeakerProfile("shubh", "Shubh (Natural Male • Bulbul v3)", "bulbul:v3"),
         SarvamSpeakerProfile("ratan", "Ratan (Crisp Assistant Male • Bulbul v3)", "bulbul:v3"),
         SarvamSpeakerProfile("mohan_te_conversational", "Mohan (Telugu Conversational • Bulbul v4-Flash)", "bulbul:v4-flash")
@@ -85,8 +86,10 @@ object SarvamVoiceClient {
             return@withContext Result.failure(IllegalArgumentException("Empty speech text"))
         }
 
-        val profile = MALE_SPEAKERS.firstOrNull { it.id == speakerId } ?: MALE_SPEAKERS.first()
-        val effectiveModel = if (speakerId.contains("_te_")) "bulbul:v4-flash" else modelOverride.ifBlank { profile.model }
+        val requestedProfile = MALE_SPEAKERS.firstOrNull { it.id == speakerId }
+        val effectiveModel = if (modelOverride == "bulbul:v4-flash" || requestedProfile?.model == "bulbul:v4-flash") "bulbul:v4-flash" else "bulbul:v3"
+        val profile = requestedProfile?.takeIf { it.model == effectiveModel }
+            ?: MALE_SPEAKERS.first { it.model == effectiveModel }
         val cacheKey = "$effectiveModel:${profile.id}:$langCode"
         VoiceResponseCache.get(cacheKey, clean)?.let { return@withContext Result.success(it) }
 
