@@ -117,12 +117,27 @@ class V109WakeSpeedRegressionTest {
         assertFalse(fromDiscovered.contains("gemini-2.5-flash-preview-tts"))
         assertEquals("gemini-2.5-flash", fromDiscovered.first())
         assertTrue(fromDiscovered.contains("gemini-2.5-pro"))
+        assertEquals(listOf("gemini-2.5-flash", "gemini-2.5-pro"), fromDiscovered)
 
         val emptyDiscovery = GeminiModelSelectionPolicy.buildCandidates(
             primary = "gemini-3.8-flash",
             discoveredModels = emptyList()
         )
-        assertEquals(listOf("gemini-2.5-flash", "gemini-2.5-flash-lite"), emptyDiscovery)
+        assertEquals(listOf("gemini-3.8-flash", "gemini-3.5-flash-lite"), emptyDiscovery)
+    }
+
+    @Test
+    fun currentGeminiDefaultsExcludeStaleAndUnverifiedIds() {
+        assertEquals(listOf("gemini-3.5-flash-lite", "gemini-3.8-flash"),
+            GeminiModelSelectionPolicy.buildCandidates("gemini-4-hydrogen", emptyList()))
+        assertEquals(listOf("gemini-3.5-flash-lite", "gemini-3.8-flash"),
+            GeminiModelSelectionPolicy.buildCandidates("gemini-2.5-flash-lite", emptyList()))
+        assertEquals(listOf("gemini-3.5-flash-lite"),
+            GeminiModelSelectionPolicy.buildCandidates("gemini-3.8-flash",
+                listOf("models/gemini-3.5-flash-lite", "models/gemini-3.8-flash-lite-tts")))
+        assertEquals(listOf("gemini-3.8-flash"),
+            GeminiModelSelectionPolicy.buildCandidates("gemini-3.8-flash",
+                listOf("gemini-3.5-flash-lite", "gemini-3.8-flash"), maxDiscovered = 1))
     }
 
     @Test
