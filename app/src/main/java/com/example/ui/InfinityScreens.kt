@@ -127,7 +127,7 @@ fun HomeTabScreen(
 
                 Spacer(Modifier.height(8.dp))
                 ParticleRibbonWaveform(
-                    isActive = uiState.isListening || uiState.isSpeaking || uiState.liveDuplexState.isConnected,
+                    isActive = uiState.isListening || uiState.isSpeaking || uiState.liveDuplexState.isConnected || uiState.openAiLiveState.isConnected,
                     audioAmplitude = uiState.audioAmplitude,
                     height = 68.dp
                 )
@@ -685,14 +685,15 @@ fun VoiceTabScreen(
             Column(modifier = Modifier.fillMaxWidth().omegaGlassCard(18.dp).padding(14.dp)) {
                 Text("Live Voice Conversation Engines", color = OmegaColors.IceWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
-                ModelCatalogPolicy.REQUESTED_VOICE_MODELS.forEach { vm ->
+                ModelCatalogPolicy.REQUESTED_VOICE_MODELS.filter { it.officialId !in setOf("saaras:v4", "gemini-3.5-transcribe-live", "gpt-live-transcribe") }.forEach { vm ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (s.geminiLiveVoiceModel == vm.officialId) OmegaColors.NeonBlue.copy(alpha = 0.2f) else OmegaColors.ElevatedNavy)
+                            .background(if (s.geminiLiveVoiceModel == vm.officialId || s.openAiLiveVoiceModel == vm.officialId) OmegaColors.NeonBlue.copy(alpha = 0.2f) else OmegaColors.ElevatedNavy)
                             .clickable {
                                 if (vm.provider == "GEMINI") viewModel.updateSettings { it.copy(geminiLiveVoiceModel = vm.officialId) }
+                                else if (vm.provider == "OPENAI") viewModel.updateSettings { it.copy(openAiLiveVoiceModel = vm.officialId) }
                             }
                             .padding(10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -718,7 +719,7 @@ fun VoiceTabScreen(
                         onClick = { viewModel.toggleLiveSession(useOpenAi = true) },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(if (uiState.openAiLiveState.isConnected) "Stop GPT-Live" else "GPT-Live 1.1", color = OmegaColors.NeonCyan, fontSize = 12.sp)
+                        Text(if (uiState.openAiLiveState.isConnected) "Stop OpenAI Live" else "Start OpenAI Live", color = OmegaColors.NeonCyan, fontSize = 12.sp)
                     }
                 }
             }

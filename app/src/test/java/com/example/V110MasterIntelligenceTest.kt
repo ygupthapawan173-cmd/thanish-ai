@@ -37,7 +37,7 @@ class V110MasterIntelligenceTest {
     @Test
     fun requestedEightBrainAndFiveVoiceModelsMapCleanlyAndExcludeThirdParty() {
         assertEquals(8, ModelCatalogPolicy.REQUESTED_BRAIN_MODELS.size)
-        assertEquals(5, ModelCatalogPolicy.REQUESTED_VOICE_MODELS.size)
+        assertEquals(8, ModelCatalogPolicy.REQUESTED_VOICE_MODELS.size)
         assertEquals(20, KnowledgeDomain.entries.size)
         assertEquals(6, AiActivityState.entries.size)
 

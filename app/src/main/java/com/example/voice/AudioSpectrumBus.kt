@@ -16,6 +16,19 @@ object AudioSpectrumBus {
         val bands = analyze(pcm, size, rate)
         _frame.value = Frame(bands, playback, now)
     }
+    @Synchronized fun feedVisualizer(fft: ByteArray) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (fft.size < 32 || now - _frame.value.time < 40L) return
+        val bins = fft.size / 2
+        val values = List(16) { b ->
+            val lo = (1 + b * (bins - 1) / 16).coerceAtMost(bins-1)
+            val hi = (1 + (b+1) * (bins-1) / 16).coerceIn(lo+1,bins)
+            var sum = 0.0
+            for (k in lo until hi) { val re = fft[2*k].toDouble(); val im = fft[2*k+1].toDouble(); sum += re*re+im*im }
+            (sqrt(sum / (hi-lo)) / 64.0).toFloat().coerceIn(0f,1f)
+        }
+        _frame.value = Frame(values, true, now)
+    }
     fun analyze(pcm: ByteArray, size: Int, rate: Int): List<Float> {
         val n = 256
         val available = minOf(size, pcm.size) / 2

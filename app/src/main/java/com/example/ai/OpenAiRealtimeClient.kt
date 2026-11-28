@@ -12,6 +12,7 @@ import android.media.audiofx.AutomaticGainControl
 import android.util.Base64
 import com.example.control.AgentHudBus
 import com.example.voice.VoiceMic
+import com.example.voice.AudioSpectrumBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,7 +40,8 @@ import kotlin.math.sqrt
  */
 class OpenAiRealtimeClient(
     private val apiKeyProvider: () -> String,
-    private val modelProvider: () -> String = { "gpt-live-1.1" }
+    private val modelProvider: () -> String = { "gpt-live-1.1" },
+    private val allowedProvider: () -> Boolean = { false }
 ) {
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -68,6 +70,7 @@ class OpenAiRealtimeClient(
 
     @Synchronized
     private fun openSocket(modelId: String) {
+        if (!allowedProvider()) { _state.value = LiveDuplexState(error = "Cloud audio consent and foreground required"); return }
         val key = apiKeyProvider().trim()
         if (key.isBlank()) {
             _state.value = LiveDuplexState(error = "Configure OpenAI API key for GPT-Live")
@@ -111,6 +114,7 @@ class OpenAiRealtimeClient(
                 val type = j.optString("type")
                 if (type == "session.updated" && !_state.value.isConnected) {
                 runCatching {
+                    check(allowedProvider()) { "Cloud audio consent changed" }
                     initPlayback()
                     startCapture(webSocket)
                     _state.value = LiveDuplexState(isConnected = true, activeModel = modelId, statusText = "OpenAI Live Active")
@@ -123,7 +127,7 @@ class OpenAiRealtimeClient(
                     if (delta.isNotBlank()) {
                         val pcm = Base64.decode(delta, Base64.DEFAULT)
                         _state.value = _state.value.copy(isAiSpeaking = true, statusText = "Speaking...")
-                        runCatching { audioTrack?.write(pcm, 0, pcm.size) }
+                        runCatching { val written = audioTrack?.write(pcm, 0, pcm.size) ?: 0; if (written > 0) AudioSpectrumBus.feed(pcm, written, 24000, true) }
                     }
                 } else if (type == "response.output_audio.done" || type == "response.audio.done" || type == "response.done") {
                     _state.value = _state.value.copy(isAiSpeaking = false, statusText = "Listening...")
@@ -188,6 +192,7 @@ class OpenAiRealtimeClient(
         captureJob = scope.launch {
             val buf = ByteArray(1024)
             while (isActive && webSocket === ws) {
+                if (!allowedProvider()) { closeResources(); _state.value = LiveDuplexState(error = "Live session stopped for privacy"); break }
                 val n = rec.read(buf, 0, buf.size)
                 if (n > 0 && n % 2 == 0) {
                     var sum = 0.0
@@ -199,13 +204,14 @@ class OpenAiRealtimeClient(
                     }
                     val rms = sqrt(sum / (n / 2.0)).toFloat()
                     _state.value = _state.value.copy(amplitude = (rms / 3000f).coerceIn(0f, 1f))
+                    AudioSpectrumBus.feed(buf, n, rate, false)
                     val payload = JSONObject()
                         .put("type", "input_audio_buffer.append")
                         .put("audio", Base64.encodeToString(buf.copyOf(n), Base64.NO_WRAP))
-                    if (!ws.send(payload.toString())) break
-                } else {
-                    delay(15L)
-                }
+                    if (!allowedProvider() || ws.queueSize() > 256 * 1024L || !ws.send(payload.toString())) { closeResources(); _state.value = LiveDuplexState(error = "Live audio stopped"); break }
+                } else if (n < 0) {
+                    closeResources(); _state.value = LiveDuplexState(error = "Microphone read failed"); break
+                } else { delay(15L) }
             }
         }
     }

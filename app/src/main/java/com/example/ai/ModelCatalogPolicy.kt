@@ -153,7 +153,10 @@ object ModelCatalogPolicy {
             endpoint = "wss://api.openai.com/v1/realtime",
             fallbackIds = listOf("gpt-realtime-2.1", "gpt-realtime"),
             verifiedRole = "Full-duplex OpenAI voice conversation"
-        )
+        ),
+        RequestedVoiceModelSpec(displayName = "GPT-Realtime 2.1", officialId = "gpt-realtime-2.1", provider = "OPENAI", endpoint = "wss://api.openai.com/v1/realtime", fallbackIds = listOf("gpt-realtime-2.1-mini"), verifiedRole = "Realtime voice conversation"),
+        RequestedVoiceModelSpec(displayName = "GPT-Realtime 2.1 Mini", officialId = "gpt-realtime-2.1-mini", provider = "OPENAI", endpoint = "wss://api.openai.com/v1/realtime", fallbackIds = emptyList(), verifiedRole = "Lower-cost realtime conversation"),
+        RequestedVoiceModelSpec(displayName = "GPT-Live-Transcribe", officialId = "gpt-live-transcribe", provider = "OPENAI", endpoint = "wss://api.openai.com/v1/realtime?intent=transcription", fallbackIds = emptyList(), verifiedRole = "Streaming speech-to-text")
     )
 
     fun isSupportedProviderModel(id: String): Boolean {

@@ -7,6 +7,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaDataSource
 import android.media.MediaPlayer
+import android.media.audiofx.Visualizer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -49,6 +50,7 @@ class TeluguTtsController(
 
     private var focus: AudioFocusRequest? = null
     private var mediaPlayer: MediaPlayer? = null
+    private var spectrumTap: Visualizer? = null
     private var activeJob: Job? = null
     private var playbackWatchdog: Runnable? = null
     private var privacyMonitor: Runnable? = null
@@ -217,6 +219,21 @@ class TeluguTtsController(
                     if (token != generation) return@setOnPreparedListener
                     runCatching {
                         player.start()
+                        spectrumTap = runCatching {
+                            val effect = Visualizer(player.audioSessionId)
+                            try {
+                                effect.captureSize = Visualizer.getCaptureSizeRange()[0].coerceAtLeast(128).coerceAtMost(1024)
+                                val status = effect.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                                    override fun onWaveFormDataCapture(v: Visualizer?, waveform: ByteArray?, samplingRate: Int) = Unit
+                                    override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, samplingRate: Int) {
+                                        if (fft != null && token == generation) AudioSpectrumBus.feedVisualizer(fft)
+                                    }
+                                }, minOf(Visualizer.getMaxCaptureRate(), 20000), false, true)
+                                check(status == Visualizer.SUCCESS)
+                                effect.enabled = true
+                                effect
+                            } catch (e: Exception) { effect.release(); throw e }
+                        }.getOrNull()
                         _ttsStatus.value = "Sarvam ($speaker • $langCode) playing"
                     }.onFailure {
                         complete(token, success = false, status = "Sarvam playback start failed")
@@ -277,6 +294,8 @@ class TeluguTtsController(
         privacyMonitor = null
         activeJob?.cancel()
         activeJob = null
+        runCatching { spectrumTap?.enabled = false; spectrumTap?.release() }
+        spectrumTap = null
         mediaPlayer?.let {
             runCatching { it.stop() }
             runCatching { it.release() }

@@ -18,6 +18,7 @@ import android.util.Log
 import com.example.control.AgentHudBus
 import com.example.voice.AudioCapturePolicy
 import com.example.voice.VoiceMic
+import com.example.voice.AudioSpectrumBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -92,7 +93,7 @@ class GeminiLiveDuplexEngine(
     @Volatile private var wanted = false
     private var retryCount = 0
 
-    private val fallbackModel = "gemini-2.5-flash-native-audio-preview-12-2025"
+    private val fallbackModel = "gemini-3.8-live"
     private val _state = MutableStateFlow(LiveDuplexState())
     val state: StateFlow<LiveDuplexState> = _state.asStateFlow()
 
@@ -127,7 +128,7 @@ class GeminiLiveDuplexEngine(
             return
         }
         val token = ++session
-        val rawModel = if (retryCount == 0) liveModelProvider().trim().ifEmpty { "gemini-3.8-live" } else fallbackModel
+        val rawModel = if (retryCount == 0) liveModelProvider().trim().takeIf { it in setOf("gemini-3.8-live", "gemini-3.8-live-extended-thinking") } ?: "gemini-3.8-live" else fallbackModel
         val modelPath = if (rawModel.startsWith("models/")) rawModel else "models/$rawModel"
         _state.value = LiveDuplexState(isConnecting = true, activeModel = rawModel, statusText = "Connecting $rawModel...")
 
@@ -283,7 +284,7 @@ class GeminiLiveDuplexEngine(
                 while (isActive && epoch == playbackEpoch && offset < pcm.size) {
                     val n = runCatching { track.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_NON_BLOCKING) }.getOrDefault(-1)
                     if (n < 0) break
-                    if (n == 0) delay(10) else offset += n
+                    if (n == 0) delay(10) else { if (offset == 0) AudioSpectrumBus.feed(pcm, pcm.size, 24000, true); offset += n }
                 }
             }
         }
@@ -358,6 +359,7 @@ class GeminiLiveDuplexEngine(
                     val amp = (rms / 3000f).coerceIn(0f, 1f)
                     _state.value = _state.value.copy(amplitude = amp)
 
+                    AudioSpectrumBus.feed(buf, read, rate, false)
                     val b64 = Base64.encodeToString(buf.copyOf(read), Base64.NO_WRAP)
                     val frame = JSONObject().put(
                         "realtimeInput",
@@ -368,7 +370,7 @@ class GeminiLiveDuplexEngine(
                             )
                         )
                     )
-                    if (!ws.send(frame.toString())) break
+                    if (!isAllowed() || ws.queueSize() > 256 * 1024L || !ws.send(frame.toString())) { fail(token, "Live audio stopped"); break }
                 } else if (read == 0) {
                     if (AudioCapturePolicy.emptyReadLimit(++emptyReads)) {
                         Log.w("GeminiLive", "Empty reads exceeded")

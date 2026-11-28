@@ -194,12 +194,14 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         context = appContext,
         apiKeyProvider = { effectiveGeminiKey() },
         liveModelProvider = { preferences.settings.value.geminiLiveVoiceModel },
-        backgroundOwned = false
+        backgroundOwned = false,
+        allowedProvider = { preferences.settings.value.cloudAudioConsentGranted && !preferences.settings.value.micPrivacyMuted && AgentHudBus.isAppInForeground.value }
     )
 
     private val openAiRealtime = OpenAiRealtimeClient(
         apiKeyProvider = { effectiveOpenAiKey() },
-        modelProvider = { "gpt-live-1.1" }
+        modelProvider = { preferences.settings.value.openAiLiveVoiceModel },
+        allowedProvider = { preferences.settings.value.cloudAudioConsentGranted && !preferences.settings.value.micPrivacyMuted && AgentHudBus.isAppInForeground.value }
     )
 
     private val _uiState = MutableStateFlow(PanduUiState())
@@ -283,14 +285,15 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                         live.isConnected -> AiActivityState.LISTENING
                         else -> cur.aiActivityState
                     }
-                    cur.copy(liveDuplexState = live, aiActivityState = nextState)
+                    cur.copy(liveDuplexState = live, aiActivityState = nextState, audioAmplitude = if (live.isConnected) live.amplitude else 0f)
                 }
                 refreshDerivedMetrics()
             }
         }
         viewModelScope.launch {
             openAiRealtime.state.collect { oai ->
-                _uiState.update { it.copy(openAiLiveState = oai) }
+                _uiState.update { cur -> cur.copy(openAiLiveState = oai, audioAmplitude = if (oai.isConnected) oai.amplitude else cur.audioAmplitude,
+                    aiActivityState = when { oai.isAiSpeaking -> AiActivityState.SPEAKING; oai.isConnected -> AiActivityState.LISTENING; else -> cur.aiActivityState }) }
                 refreshDerivedMetrics()
             }
         }
@@ -595,6 +598,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 geminiLiveEngine.disconnect()
                 voiceInputController.stopListening()
                 ttsController.stop()
+                OnlineBackgroundVoiceService.yieldToForeground(appContext)
                 openAiRealtime.connect()
             }
         } else {
@@ -604,6 +608,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 openAiRealtime.disconnect()
                 voiceInputController.stopListening()
                 ttsController.stop()
+                OnlineBackgroundVoiceService.yieldToForeground(appContext)
                 geminiLiveEngine.connect()
             }
         }

@@ -36,6 +36,7 @@ data class OmegaSettings(
     val sarvamModel: String = "bulbul:v4-flash",
     val geminiChatModel: String = "gemini-4-hydrogen",
     val geminiLiveVoiceModel: String = "gemini-3.8-live",
+    val openAiLiveVoiceModel: String = "gpt-live-1.1",
     val openAiModel: String = "gpt-6.2-sol",
     val openAiBaseUrl: String = "https://api.openai.com/v1",
     val intelligenceMode: IntelligenceMode = IntelligenceMode.SMART,
@@ -112,6 +113,7 @@ class OmegaPreferences(context: Context) {
             sarvamModel = prefs.getString(KEY_SARVAM_MODEL, "bulbul:v4-flash")?.ifBlank { "bulbul:v4-flash" } ?: "bulbul:v4-flash",
             geminiChatModel = prefs.getString(KEY_GEMINI_CHAT_MODEL, "gemini-4-hydrogen")?.ifBlank { "gemini-4-hydrogen" } ?: "gemini-4-hydrogen",
             geminiLiveVoiceModel = prefs.getString(KEY_GEMINI_LIVE_MODEL, "gemini-3.8-live")?.ifBlank { "gemini-3.8-live" } ?: "gemini-3.8-live",
+            openAiLiveVoiceModel = prefs.getString("openai_live_model", "gpt-live-1.1").orEmpty().takeIf { it in setOf("gpt-live-1.1", "gpt-realtime-2.1", "gpt-realtime-2.1-mini") } ?: "gpt-live-1.1",
             openAiModel = prefs.getString(KEY_OPENAI_MODEL, "gpt-6.2-sol")?.ifBlank { "gpt-6.2-sol" } ?: "gpt-6.2-sol",
             openAiBaseUrl = storedOpenAiUrl,
             intelligenceMode = IntelligenceMode.fromStored(prefs.getString(KEY_INTEL_MODE, null)),
@@ -167,6 +169,7 @@ class OmegaPreferences(context: Context) {
             .putString(KEY_SARVAM_MODEL, u.sarvamModel.trim().ifEmpty { "bulbul:v4-flash" })
             .putString(KEY_GEMINI_CHAT_MODEL, u.geminiChatModel.trim().ifEmpty { "gemini-4-hydrogen" })
             .putString(KEY_GEMINI_LIVE_MODEL, u.geminiLiveVoiceModel.trim().ifEmpty { "gemini-3.8-live" })
+            .putString("openai_live_model", u.openAiLiveVoiceModel)
             .putString(KEY_OPENAI_MODEL, u.openAiModel.trim().ifEmpty { "gpt-6.2-sol" })
             .putString(KEY_OPENAI_BASE_URL, u.openAiBaseUrl.trim().trimEnd('/').ifEmpty { "https://api.openai.com/v1" })
             .putString(KEY_INTEL_MODE, u.intelligenceMode.name)
@@ -214,6 +217,7 @@ class OmegaPreferences(context: Context) {
             put("activeProvider", s.activeProvider.name)
             put("geminiChatModel", s.geminiChatModel)
             put("geminiLiveVoiceModel", s.geminiLiveVoiceModel)
+            put("openAiLiveVoiceModel", s.openAiLiveVoiceModel)
             put("openAiModel", s.openAiModel)
             put("sarvamSpeaker", s.sarvamSpeaker)
             put("sarvamModel", s.sarvamModel)
