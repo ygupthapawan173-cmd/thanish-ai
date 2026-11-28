@@ -2,6 +2,8 @@ package com.example.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -165,13 +167,15 @@ fun OmegaDashboardApp(viewModel: PanduViewModel) {
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                when (uiState.currentTab) {
+                Crossfade(targetState = uiState.currentTab, animationSpec = tween(160), label = "Sapphire navigation") { tab ->
+                    when (tab) {
                     JarvisTab.HOME -> HomeTabScreen(uiState = uiState, viewModel = viewModel, onOpenCamera = openCameraSafely)
                     JarvisTab.DASHBOARD -> DashboardTabScreen(uiState = uiState, viewModel = viewModel)
                     JarvisTab.AI_BRAIN -> AiBrainTabScreen(uiState = uiState, viewModel = viewModel)
                     JarvisTab.VOICE -> VoiceTabScreen(uiState = uiState, viewModel = viewModel)
                     JarvisTab.CONTROL -> ControlTabScreen(uiState = uiState, viewModel = viewModel, onOpenCamera = openCameraSafely)
                     JarvisTab.SETTINGS -> SettingsTabScreen(uiState = uiState, viewModel = viewModel)
+                    }
                 }
             }
 

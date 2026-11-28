@@ -175,7 +175,7 @@ class OnlineBackgroundVoiceService : Service() {
             isLocked = !screenReady(),
             cloudConsentGranted = s.cloudAudioConsentGranted && s.onlineWakePriority,
             hasSarvamKey = effectiveSarvamKey().isNotBlank(),
-            hasGeminiKey = s.effectiveGeminiKey().isNotBlank()
+            hasGeminiKey = false // Only Saaras implements continuous online keyword capture; transcription clients are one-shot.
         )
         if (benchmark.selectedEngine == StreamingVoiceEngineKind.SARVAM_SAARAS_V4 && screenReady()) {
             armOnlineSarvamWake()
@@ -287,10 +287,11 @@ class OnlineBackgroundVoiceService : Service() {
         onlineWakeJob = scope.launch {
             client.state.collect { st ->
                 if (token != wakeGeneration || !started || !wakeMode) return@collect
-                if (st.measuredConnectLatencyMs > 0L) {
-                    VoiceEngineSelector.recordLatency(StreamingVoiceEngineKind.SARVAM_SAARAS_V4, st.measuredConnectLatencyMs)
+                // Wake connection latency is not mixed with one-shot command STT latency.
+                if (st.measuredConnectLatencyMs > 0L && st.error == null && st.isListening && phase == "Wake idle") {
+                    val message = "Listening • Online Wake (Saaras V4)"
+                    if (_status.value != message) publish(message)
                 }
-                if (st.measuredConnectLatencyMs > 0L && st.error == null && st.isListening) publish("Listening • Online Wake (Saaras V4)")
                 if (st.error != null) {
                     Log.w("OmegaWake", "Online wake error (${st.error}), falling back to local keyword wake")
                     releaseWake()
