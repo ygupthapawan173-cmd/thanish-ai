@@ -469,7 +469,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
                 coroutineContext.ensureActive()
 
                 res.onSuccess { reply ->
-                    val routeSummary = repository.lastRouteResult?.routeReason ?: reply.providerUsed
+                    val routeSummary = repository.lastRouteResult?.reason ?: reply.providerUsed
                     _uiState.update {
                         it.copy(
                             isThinking = false,
@@ -924,7 +924,8 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         val enabledSlots = cur.slots.filter { it.enabled && it.apiKey.isNotBlank() }
-        val healthySlots = enabledSlots.count { it.status == SlotStatus.VERIFIED || ApiSlotSelectionPolicy.isSlotAvailable(it, System.currentTimeMillis()) }
+        val nowMs = System.currentTimeMillis()
+        val healthySlots = enabledSlots.count { it.status == SlotStatus.VERIFIED || (it.status != SlotStatus.INVALID_AUTH && !it.isCoolingDown(nowMs)) }
         val armedSchedules = cur.routines.count { TimeAutomationScheduler.status(appContext, it.name) != null }
         val permsReadyCount = listOf(cur.micPermGranted, cur.notifPermGranted, cur.cameraPermGranted, cur.contactsPermGranted, cur.accessibilityConnected).count { it }
         val liveConnected = cur.liveDuplexState.isConnected || cur.openAiLiveState.isConnected

@@ -472,13 +472,13 @@ private fun SelfUpgradeSection(uiState: PanduUiState, viewModel: PanduViewModel)
 @Composable
 private fun AboutSection() {
     Column(modifier = Modifier.fillMaxWidth().omegaGlassCard(16.dp).padding(14.dp)) {
-        Text(CreatorIdentity.ASSISTANT_NAME, color = OmegaColors.IceWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(CreatorIdentity.APP_NAME, color = OmegaColors.IceWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Text("Version: ${BuildConfig.VERSION_NAME} (Code ${BuildConfig.VERSION_CODE})", color = OmegaColors.NeonCyan, fontSize = 12.sp)
-        Text("Developer: ${CreatorIdentity.DEVELOPER_NAME}", color = OmegaColors.IceWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("Developer: ${CreatorIdentity.CREATOR}", color = OmegaColors.IceWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text("Package: ${BuildConfig.APPLICATION_ID}", color = OmegaColors.MutedSlate, fontSize = 11.sp)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Creator Attribution: Developed by ${CreatorIdentity.DEVELOPER_NAME}. Underlying AI & voice models are provided by Google (Gemini), OpenAI (GPT), and Sarvam AI.",
+            "Creator Attribution: Developed by ${CreatorIdentity.CREATOR}. Underlying AI & voice models are provided by Google (Gemini), OpenAI (GPT), and Sarvam AI.",
             color = OmegaColors.IceWhite.copy(alpha = 0.9f),
             fontSize = 12.sp
         )

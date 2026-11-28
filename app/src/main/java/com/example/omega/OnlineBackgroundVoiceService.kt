@@ -19,6 +19,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
@@ -281,9 +282,9 @@ class OnlineBackgroundVoiceService : Service() {
             val speech = SpeechService(recognizer, 16000f)
             wakeSpeech = speech
             fastWake.bindSession(object : FastWakeDetector.Session {
-                override fun cancel() = speech.cancel()
-                override fun shutdown() = speech.shutdown()
-                override fun closeRecognizer() = recognizer.close()
+                override fun cancel() { speech.cancel() }
+                override fun shutdown() { speech.shutdown() }
+                override fun closeRecognizer() { recognizer.close() }
             })
 
             val token = ++wakeGeneration

@@ -3,7 +3,7 @@ package com.example.ai
 import java.util.Locale
 
 /** A small, fail-closed action protocol. Provider output is never executable code. */
-internal object SmartActionPolicy {
+object SmartActionPolicy {
     const val PREFIX = "ACTION_V1|"
     const val MAX_STEPS = 3
     data class Action(val tool: String, val arg: String)

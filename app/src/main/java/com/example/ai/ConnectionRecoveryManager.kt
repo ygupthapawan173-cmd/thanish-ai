@@ -58,10 +58,10 @@ object ConnectionRecoveryManager {
         return lastResult
     }
 
-    fun initialProviderLabel(provider: AiProvider, hasGemini: Boolean, hasGateway: Boolean): String = when {
-        provider == AiProvider.GEMINI && hasGemini -> "Google Gemini (Official API)"
-        provider == AiProvider.OPENROUTER && hasGateway -> "Smart Gateway (AICredits)"
-        hasGemini -> "Google Gemini (Official API)"
+    fun initialProviderLabel(provider: AiProvider, hasGemini: Boolean, hasOpenAi: Boolean): String = when {
+        provider == AiProvider.GEMINI && hasGemini -> "Google Gemini Direct"
+        provider == AiProvider.OPENAI && hasOpenAi -> "OpenAI GPT"
+        hasGemini -> "Google Gemini Direct"
         else -> "No Key Configured"
     }
 }
