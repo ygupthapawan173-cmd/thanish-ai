@@ -7,8 +7,8 @@ manifest = (root / 'AndroidManifest.xml').read_text()
 
 # 1. Verify Package, Version & APK Naming
 assert 'applicationId = "com.aistudio.pandubabu.omega.v19ultra"' in gradle
-assert 'versionCode = 118' in gradle
-assert 'versionName = "V110 MASTER INTELLIGENCE"' in gradle
+assert 'versionCode = 119' in gradle
+assert 'versionName = "V111 ULTRA VOICE LIQUID SAPPHIRE"' in gradle
 
 # 2. Verify Removed Section 16 Components & Legacy Voice Stacks Are Absent
 removed_files = [
@@ -83,6 +83,9 @@ assert 'deep-research-preview' in (root / 'java/com/example/ai/WebResearchClient
 assert 'web_search' in (root / 'java/com/example/ai/WebResearchClient.kt').read_text()
 assert 'Guptha' in (root / 'java/com/example/ai/CreatorIdentity.kt').read_text()
 assert '.omega.OnlineBackgroundVoiceService' in manifest
-assert 'JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk' in Path('ci/sign-release.sh').read_text()
+assert 'JARVIS-INFINITY-V111-ULTRA-VOICE-LIQUID-SAPPHIRE.apk' in Path('ci/sign-release.sh').read_text()
 
-print('PASS: JARVIS INFINITY V110 MASTER INTELLIGENCE source audit & dependency verification passed')
+assert 'ai.picovoice:porcupine-android:4.0.2' in gradle
+assert 'PorcupineManager.Builder()' in (root / 'java/com/example/omega/OnlineBackgroundVoiceService.kt').read_text()
+assert 'PorcupineWakeConfig' in (root / 'java/com/example/ui/SettingsScreen.kt').read_text()
+print('PASS: JARVIS INFINITY V111 ULTRA VOICE LIQUID SAPPHIRE source audit & dependency verification passed')
