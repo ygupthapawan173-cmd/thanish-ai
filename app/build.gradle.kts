@@ -16,8 +16,8 @@ android {
         applicationId = "com.aistudio.pandubabu.omega.v19ultra"
         minSdk = 24
         targetSdk = 36
-        versionCode = 118
-        versionName = "V110 MASTER INTELLIGENCE"
+        versionCode = 119
+        versionName = "V111 ULTRA VOICE LIQUID SAPPHIRE"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
