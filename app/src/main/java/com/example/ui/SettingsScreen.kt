@@ -31,6 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.example.voice.PorcupineWakeConfig
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -325,6 +331,7 @@ private fun VoicePreferencesSection(uiState: PanduUiState, viewModel: PanduViewM
         BrainToggleRow("Screen-Lock Local Wake ONLY", s.screenLockWakeEnabled) { checked -> viewModel.updateSettings { it.copy(screenLockWakeEnabled = checked) } }
         BrainToggleRow("Auto-Speak Replies via Sarvam", s.autoSpeak) { checked -> viewModel.updateSettings { it.copy(autoSpeak = checked) } }
         BrainToggleRow("Live Audio Session Mode", s.useLiveSessionAudio) { checked -> viewModel.updateSettings { it.copy(useLiveSessionAudio = checked) } }
+        PorcupineSetupPanel()
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = { viewModel.navigateTo(JarvisTab.VOICE) }, modifier = Modifier.fillMaxWidth()) {
             Text("Open Full Voice Tab", color = OmegaColors.NeonCyan)
@@ -489,4 +496,30 @@ private fun AboutSection() {
             fontSize = 11.sp
         )
     }
+}
+
+@Composable
+private fun PorcupineSetupPanel() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var key by remember { mutableStateOf(runCatching { PorcupineWakeConfig.accessKey(context) }.getOrDefault("")) }
+    var note by remember { mutableStateOf(if (PorcupineWakeConfig.configured(context)) "Configured — device test required" else "Access key and Android Hey JARVIS model required") }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            note = withContext(Dispatchers.IO) {
+                runCatching { PorcupineWakeConfig.importModel(context, uri) }
+                    .fold({ "Model imported — restart wake service to test" }, { "Model import failed" })
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Text("Porcupine 4.0.2 • Local Wake", color = OmegaColors.IceWhite, fontWeight = FontWeight.Bold)
+    OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Picovoice Access Key") },
+        singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), colors = omegaTextFieldColors())
+    OutlinedButton(onClick = {
+        note = runCatching { PorcupineWakeConfig.saveKey(context, key) }
+            .fold({ "Key saved — restart wake service to test" }, { "Could not save key" })
+    }) { Text("Save access key") }
+    OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Import Android Hey JARVIS .ppn") }
+    Text(note, color = OmegaColors.MutedSlate, fontSize = 12.sp)
 }
