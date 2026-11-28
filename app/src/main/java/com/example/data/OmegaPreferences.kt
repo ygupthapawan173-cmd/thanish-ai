@@ -32,8 +32,8 @@ data class OmegaSettings(
     val geminiApiKey: String = "",
     val openAiApiKey: String = "",
     val sarvamApiKey: String = "",
-    val sarvamSpeaker: String = "shubh",
-    val sarvamModel: String = "bulbul:v3",
+    val sarvamSpeaker: String = "shubh_enhi_ads",
+    val sarvamModel: String = "bulbul:v4-flash",
     val geminiChatModel: String = "gemini-4-hydrogen",
     val geminiLiveVoiceModel: String = "gemini-3.8-live",
     val openAiModel: String = "gpt-6.2-sol",
@@ -108,8 +108,8 @@ class OmegaPreferences(context: Context) {
             geminiApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_GEMINI_KEY, "").orEmpty()),
             openAiApiKey = KeystoreCryptoManager.decrypt(storedOpenAiKey),
             sarvamApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_SARVAM_KEY, "").orEmpty()),
-            sarvamSpeaker = prefs.getString(KEY_SARVAM_SPEAKER, "shubh")?.ifBlank { "shubh" } ?: "shubh",
-            sarvamModel = prefs.getString(KEY_SARVAM_MODEL, "bulbul:v3")?.ifBlank { "bulbul:v3" } ?: "bulbul:v3",
+            sarvamSpeaker = prefs.getString(KEY_SARVAM_SPEAKER, "shubh_enhi_ads")?.ifBlank { "shubh_enhi_ads" } ?: "shubh_enhi_ads",
+            sarvamModel = prefs.getString(KEY_SARVAM_MODEL, "bulbul:v4-flash")?.ifBlank { "bulbul:v4-flash" } ?: "bulbul:v4-flash",
             geminiChatModel = prefs.getString(KEY_GEMINI_CHAT_MODEL, "gemini-4-hydrogen")?.ifBlank { "gemini-4-hydrogen" } ?: "gemini-4-hydrogen",
             geminiLiveVoiceModel = prefs.getString(KEY_GEMINI_LIVE_MODEL, "gemini-3.8-live")?.ifBlank { "gemini-3.8-live" } ?: "gemini-3.8-live",
             openAiModel = prefs.getString(KEY_OPENAI_MODEL, "gpt-6.2-sol")?.ifBlank { "gpt-6.2-sol" } ?: "gpt-6.2-sol",
@@ -163,8 +163,8 @@ class OmegaPreferences(context: Context) {
             .putString(KEY_GEMINI_KEY, geminiEnc)
             .putString(KEY_OPENAI_KEY, openAiEnc)
             .putString(KEY_SARVAM_KEY, sarvamEnc)
-            .putString(KEY_SARVAM_SPEAKER, u.sarvamSpeaker.trim().ifEmpty { "shubh" })
-            .putString(KEY_SARVAM_MODEL, u.sarvamModel.trim().ifEmpty { "bulbul:v3" })
+            .putString(KEY_SARVAM_SPEAKER, u.sarvamSpeaker.trim().ifEmpty { "shubh_enhi_ads" })
+            .putString(KEY_SARVAM_MODEL, u.sarvamModel.trim().ifEmpty { "bulbul:v4-flash" })
             .putString(KEY_GEMINI_CHAT_MODEL, u.geminiChatModel.trim().ifEmpty { "gemini-4-hydrogen" })
             .putString(KEY_GEMINI_LIVE_MODEL, u.geminiLiveVoiceModel.trim().ifEmpty { "gemini-3.8-live" })
             .putString(KEY_OPENAI_MODEL, u.openAiModel.trim().ifEmpty { "gpt-6.2-sol" })
