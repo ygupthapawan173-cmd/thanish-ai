@@ -87,12 +87,20 @@ object SmartModelPolicy {
                 m.promptPrice + m.completionPrice
             } else Double.POSITIVE_INFINITY
 
-        return valid.sortedWith(
-            compareByDescending<Model> { if (freePriority && isVerifiedFree(it)) 1 else 0 }
-                .thenByDescending { score(it, task, mode, preferredId) }
-                .thenBy { cost(it) }
-                .thenBy { it.id }
-        )
+        return valid.sortedWith(Comparator { a, b ->
+            if (freePriority) {
+                val fa = if (isVerifiedFree(a)) 1 else 0
+                val fb = if (isVerifiedFree(b)) 1 else 0
+                if (fa != fb) return@Comparator fb.compareTo(fa)
+            }
+            val sa = score(a, task, mode, preferredId)
+            val sb = score(b, task, mode, preferredId)
+            if (sa != sb) return@Comparator sb.compareTo(sa)
+            val ca = cost(a)
+            val cb = cost(b)
+            if (ca != cb) return@Comparator ca.compareTo(cb)
+            a.id.compareTo(b.id)
+        })
     }
 
     fun mayTryAnother(status: Int): Boolean = status in listOf(404, 429, 500, 502, 503, 504)

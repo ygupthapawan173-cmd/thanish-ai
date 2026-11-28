@@ -31,7 +31,7 @@ class V108UltimateMasterTest {
 
     @Test
     fun smartAiTaskRouterEnforcesPriorityAndPaidGuard() {
-        val dailyPlan = MasterAiBrain.classifyAndPlan("Explain quantum entanglement", IntelligenceMode.SMART)
+        val dailyPlan = MasterAiBrain.classifyAndPlan("What is the capital of Telangana?", IntelligenceMode.SMART)
         val geminiFreeRoute = SmartAiTaskRouter.route(
             plan = dailyPlan,
             activeProvider = AiProvider.GEMINI,
@@ -44,6 +44,20 @@ class V108UltimateMasterTest {
             isDirectCommand = false
         )
         assertEquals(RouteTarget.OFFICIAL_GEMINI_FREE_TIER, geminiFreeRoute.target)
+
+        val deepSciencePlan = MasterAiBrain.classifyAndPlan("Explain quantum entanglement", IntelligenceMode.SMART)
+        val deepRoute = SmartAiTaskRouter.route(
+            plan = deepSciencePlan,
+            activeProvider = AiProvider.GEMINI,
+            hasGeminiKey = true,
+            hasOpenAiKey = true,
+            freePriority = true,
+            allowPaidModels = false,
+            preferredGeminiModel = "gemini-4-carbon",
+            preferredOpenAiModel = "gpt-6.2-sol",
+            isDirectCommand = false
+        )
+        assertEquals(RouteTarget.DEEP_THINKING_ENGINE, deepRoute.target)
 
         val blockedPaid = SmartAiTaskRouter.route(
             plan = dailyPlan,
