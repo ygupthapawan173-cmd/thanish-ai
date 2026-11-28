@@ -116,7 +116,6 @@ dependencies {
     implementation("ai.picovoice:porcupine-android:4.0.2")
     implementation(files("libs/sherpa-onnx-static-link-onnxruntime-2.0.3.aar"))
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
