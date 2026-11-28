@@ -173,7 +173,9 @@ class V110MasterIntelligenceTest {
 
     @Test
     fun sarvamVoiceVoiceEngineSelectorWakeAndSelfUpgradePoliciesWork() {
-        assertEquals(3, SarvamVoiceClient.MALE_SPEAKERS.size)
+        assertEquals(4, SarvamVoiceClient.MALE_SPEAKERS.size)
+        assertEquals(4, SarvamVoiceClient.MALE_SPEAKERS.map { it.id }.distinct().size)
+        assertEquals(2, SarvamVoiceClient.MALE_SPEAKERS.count { it.model == "bulbul:v4-flash" })
         assertEquals("te-IN", SarvamVoiceClient.detectLanguageCode("ఈరోజు వార్తలు", "auto"))
         assertEquals("en-IN", SarvamVoiceClient.detectLanguageCode("Hello Boss", "auto"))
         val normTe = SarvamVoiceClient.normalizeForSarvamSpeech("32°C & 50%```val x=1```", true)
