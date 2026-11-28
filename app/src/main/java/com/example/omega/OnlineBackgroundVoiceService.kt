@@ -43,6 +43,7 @@ import com.example.voice.TeluguVoiceReplies
 import com.example.voice.VoiceEngineSelector
 import com.example.voice.VoiceInputController
 import com.example.voice.VoiceMic
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -65,7 +66,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class OnlineBackgroundVoiceService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val exceptionHandler = CoroutineExceptionHandler { _, error ->
+        Log.e("OmegaWake", "Background service coroutine failed", error)
+        main.post { if (!closed) finish("Wake service failed — see Android log") }
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + exceptionHandler)
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var prefs: OmegaPreferences
@@ -137,9 +142,9 @@ class OnlineBackgroundVoiceService : Service() {
         ++wakeGeneration
         onlineWakeJob?.cancel()
         onlineWakeJob = null
-        onlineWakeClient?.release()
+        runCatching { onlineWakeClient?.release() }.onFailure { Log.w("OmegaWake", "Online wake release failed", it) }
         onlineWakeClient = null
-        sherpaWake?.stop()
+        runCatching { sherpaWake?.stop() }.onFailure { Log.w("OmegaWake", "Local wake release failed", it) }
         sherpaWake = null
         val local = porcupine
         porcupine = null
@@ -263,8 +268,16 @@ class OnlineBackgroundVoiceService : Service() {
                 }
             } })
         sherpaWake = session
-        session.start()
-        publish("Preparing Sherpa INT8 wake")
+        try {
+            session.start()
+            publish("Preparing Sherpa INT8 wake")
+        } catch (error: Exception) {
+            Log.e("OmegaWake", "Sherpa start failed", error)
+            releaseWake()
+            sherpaRetryAt = SystemClock.elapsedRealtime() + 60_000L
+            retryAt = sherpaRetryAt
+            publish("Local wake unavailable — retry scheduled")
+        }
     }
 
     private fun armOnlineSarvamWake() {
@@ -339,6 +352,12 @@ class OnlineBackgroundVoiceService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL, "JARVIS Voice Background Service", NotificationManager.IMPORTANCE_LOW)
+        )
+    }
+
+    private fun initializeVoice() {
         prefs = OmegaPreferences(this)
         slotManager = ApiSlotManager(this, prefs)
         db = AppDatabase(this)
@@ -385,9 +404,6 @@ class OnlineBackgroundVoiceService : Service() {
             }
         }
 
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL, "JARVIS Voice Background Service", NotificationManager.IMPORTANCE_LOW)
-        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -399,16 +415,21 @@ class OnlineBackgroundVoiceService : Service() {
 
         wakeMode = intent.action == START_WAKE
         started = true
-        if (!wakeAllowed()) {
-            finish("Grant Microphone & Notification permissions first")
-            return START_NOT_STICKY
-        }
-
         try {
             val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
             ServiceCompat.startForeground(this, ID, notification("Starting JARVIS Voice Engine"), fgsType)
-        } catch (_: Exception) {
-            finish("Android foreground microphone start blocked")
+            initializeVoice()
+            if (!wakeAllowed()) {
+                finish("Grant Microphone & Notification permissions first")
+                return START_NOT_STICKY
+            }
+        } catch (error: Exception) {
+            Log.e("OmegaWake", "Foreground voice initialization failed", error)
+            finish("Wake start failed — check permissions or Android log")
+            return START_NOT_STICKY
+        } catch (error: LinkageError) {
+            Log.e("OmegaWake", "Voice library initialization failed", error)
+            finish("Wake library unavailable")
             return START_NOT_STICKY
         }
 
@@ -537,9 +558,9 @@ class OnlineBackgroundVoiceService : Service() {
         _status.value = message
         releaseWake()
         responseJob?.cancel()
-        input.stopListening()
-        tts.stop()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        if (::input.isInitialized) runCatching { input.stopListening() }
+        if (::tts.isInitialized) runCatching { tts.stop() }
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
 
@@ -549,11 +570,11 @@ class OnlineBackgroundVoiceService : Service() {
         releaseWake()
         if (instance === this) instance = null
         scope.cancel()
-        input.release()
-        tts.release()
-        prefs.close()
-        db.close()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        if (::input.isInitialized) runCatching { input.release() }
+        if (::tts.isInitialized) runCatching { tts.release() }
+        if (::prefs.isInitialized) runCatching { prefs.close() }
+        if (::db.isInitialized) runCatching { db.close() }
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         if (phase != "Idle") _status.value = "Stopped"
         super.onDestroy()
     }
@@ -577,7 +598,10 @@ class OnlineBackgroundVoiceService : Service() {
         }
 
         fun startWake(context: Context): Boolean {
-            if (!AgentHudBus.isAppInForeground.value || instance?.started == true) return false
+            if (instance?.started == true) return true
+            if (!AgentHudBus.isAppInForeground.value) return false
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
+            if (context.getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() != true) return false
             return runCatching {
                 ContextCompat.startForegroundService(context, Intent(context, OnlineBackgroundVoiceService::class.java).setAction(START_WAKE))
                 true
@@ -594,7 +618,7 @@ class OnlineBackgroundVoiceService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, OnlineBackgroundVoiceService::class.java))
+            runCatching { context.stopService(Intent(context, OnlineBackgroundVoiceService::class.java)) }
         }
     }
 }

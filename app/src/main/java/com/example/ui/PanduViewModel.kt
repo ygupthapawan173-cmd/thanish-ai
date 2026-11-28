@@ -274,6 +274,9 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             OnlineBackgroundVoiceService.status.collect { st ->
                 _uiState.update { it.copy(bgServiceStatus = st) }
+                if (st.startsWith("Wake start failed") || st.startsWith("Wake library unavailable") || st.startsWith("Wake service failed") || st.startsWith("Stopped by privacy") || st.startsWith("Android foreground") || st.startsWith("Grant Microphone")) {
+                    if (preferences.settings.value.wakeWordEnabled) preferences.update { it.copy(wakeWordEnabled = false) }
+                }
                 refreshDerivedMetrics()
             }
         }
@@ -615,14 +618,20 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleBackgroundWake(enable: Boolean) {
-        updateSettings { it.copy(wakeWordEnabled = enable) }
-        if (enable) startBackgroundWakeService() else stopBackgroundVoiceService()
+        if (enable) {
+            // Persist only after requesting service startup; do not auto-restart a crashing native engine.
+            startBackgroundWakeService()
+        } else {
+            preferences.update { it.copy(wakeWordEnabled = false) }
+            stopBackgroundVoiceService()
+        }
     }
 
     fun startBackgroundWakeService() {
         val ok = OnlineBackgroundVoiceService.startWake(appContext)
+        preferences.update { it.copy(wakeWordEnabled = ok) }
         _uiState.update {
-            it.copy(statusBanner = if (ok) "Hey JARVIS wake service started" else "Allow Microphone & Notifications first")
+            it.copy(statusBanner = if (ok) "Starting Hey JARVIS — check live service status" else "Allow Microphone & Notifications first")
         }
     }
 
@@ -632,8 +641,11 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restoreWakeIfEnabled() {
-        if (preferences.settings.value.wakeWordEnabled) {
-            OnlineBackgroundVoiceService.startWake(appContext)
+        // Android can kill a microphone process after a native fault. Require a fresh user tap
+        // after a cold process start rather than entering a crash/restart loop.
+        if (preferences.settings.value.wakeWordEnabled && OnlineBackgroundVoiceService.status.value == "Idle") {
+            preferences.update { it.copy(wakeWordEnabled = false) }
+            _uiState.update { it.copy(statusBanner = "Tap Hey JARVIS to restart wake listening") }
         }
     }
 

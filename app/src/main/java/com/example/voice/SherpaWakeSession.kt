@@ -5,6 +5,7 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import com.k2fsa.sherpa.onnx.KeywordSpotter
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
@@ -32,6 +33,10 @@ class SherpaWakeSession(
             var stream: com.k2fsa.sherpa.onnx.OnlineStream? = null
             try {
                 val dir = "sherpa-kws"
+                for (file in listOf("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt", "keywords.txt")) {
+                    context.assets.open("$dir/$file").use { check(it.read() != -1) { "Empty wake asset: $file" } }
+                }
+                check(context.assets.open("$dir/keywords.txt").bufferedReader().use { it.readText().contains("@HEY_JARVIS") })
                 val kws = KeywordSpotter(context.assets, KeywordSpotterConfig(
                     featConfig = getFeatureConfig(sampleRate = 16000, featureDim = 80),
                     modelConfig = OnlineModelConfig(
@@ -84,9 +89,11 @@ class SherpaWakeSession(
                         }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                Log.e("JarvisSherpa", "Wake initialization/capture failed", error)
                 if (running) onFailure()
-            } catch (_: LinkageError) {
+            } catch (error: LinkageError) {
+                Log.e("JarvisSherpa", "Native wake library unavailable", error)
                 if (running) onFailure()
             } finally {
                 synchronized(lock) {
