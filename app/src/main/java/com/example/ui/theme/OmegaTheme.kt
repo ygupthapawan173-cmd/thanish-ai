@@ -23,15 +23,15 @@ import androidx.compose.ui.unit.dp
  * Dark Navy background (#060D1F / #0D1B38) paired with Neon Blue (#2563FF) & Cyan (#00E5FF) accents.
  */
 object OmegaColors {
-    val DeepNavy = Color(0xFF060D1F)
-    val SurfaceNavy = Color(0xFF0D1B38)
-    val ElevatedNavy = Color(0xFF12244A)
-    val BorderBlue = Color(0xFF1E3A70)
+    val DeepNavy = Color(0xFF315B9D)
+    val SurfaceNavy = Color(0xFF294F88)
+    val ElevatedNavy = Color(0xFF386AA7)
+    val BorderBlue = Color(0xFF9EC9EF)
 
     val NeonBlue = Color(0xFF2563FF)
-    val NeonCyan = Color(0xFF00E5FF)
+    val NeonCyan = Color(0xFFDDF8FF)
     val IceWhite = Color(0xFFE8F4FF)
-    val MutedSlate = Color(0xFF8DA2CE)
+    val MutedSlate = Color(0xFFE2F0FF)
 
     val EmeraldLive = Color(0xFF10B981)
     val AmberWarn = Color(0xFFF59E0B)
@@ -71,7 +71,7 @@ fun OmegaNavyBackdrop(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(OmegaColors.DeepNavy, Color(0xFF08142E), OmegaColors.DeepNavy)
+                    colors = listOf(OmegaColors.DeepNavy, Color(0xFF497DB8), Color(0xFF87BCE3))
                 )
             )
     ) {
@@ -84,7 +84,7 @@ fun Modifier.omegaGlassCard(
     highlighted: Boolean = false
 ): Modifier = this
     .clip(RoundedCornerShape(cornerRadius))
-    .background(if (highlighted) OmegaColors.ElevatedNavy else OmegaColors.SurfaceNavy)
+    .background(if (highlighted) OmegaColors.ElevatedNavy.copy(alpha = 0.95f) else OmegaColors.SurfaceNavy.copy(alpha = 0.92f))
     .border(
         width = 1.dp,
         color = if (highlighted) OmegaColors.NeonCyan.copy(alpha = 0.55f) else OmegaColors.BorderBlue.copy(alpha = 0.65f),
