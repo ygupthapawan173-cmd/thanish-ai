@@ -61,7 +61,11 @@ object SmartModelPolicy {
             IntelligenceMode.SMART -> listOf("argon", "neon", "sol", "terra", "flash", "4o")
             IntelligenceMode.DEEP -> listOf("carbon", "astra", "pro", "o3", "o4", "gpt-5", "gpt-6.2")
         }
-        return if (markers.any { marker -> id.contains(marker) }) 1 else 0
+        // Match model-name tokens, not substrings: "gemini" contains "mini",
+        // which previously misclassified every Gemini model as FAST.
+        return if (markers.any { marker ->
+            Regex("(?:^|[-_/.])" + Regex.escape(marker) + "(?:$|[-_/.])").containsMatchIn(id)
+        }) 1 else 0
     }
 
     private fun score(m: Model, task: Task, preferredId: String): Int {
