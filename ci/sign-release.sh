@@ -23,7 +23,7 @@ actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$T/cert.txt" | t
 [[ "$actual" == "${RELEASE_CERT_SHA256,,}" ]]
 [[ $(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' "$T/cert.txt") == 1 ]]
 "$BT/aapt" dump badging "$T/signed.apk" | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
-"$BT/aapt" dump badging "$T/signed.apk" | grep -F "versionName='V110 MASTER INTELLIGENCE'"
+"$BT/aapt" dump badging "$T/signed.apk" | grep -F "versionName='V111 ULTRA VOICE LIQUID SAPPHIRE'"
 mkdir -p "${1:?Specify output directory}"
-cp "$T/signed.apk" "$1/JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk"
-(cd "$1"; sha256sum JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk > SHA256SUMS.txt)
+cp "$T/signed.apk" "$1/JARVIS-INFINITY-V111-ULTRA-VOICE-LIQUID-SAPPHIRE.apk"
+(cd "$1"; sha256sum JARVIS-INFINITY-V111-ULTRA-VOICE-LIQUID-SAPPHIRE.apk > SHA256SUMS.txt)
