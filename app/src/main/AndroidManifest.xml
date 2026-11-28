@@ -15,7 +15,6 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -23,16 +22,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <queries>
-        <package android:name="com.termux" />
-        <package android:name="com.termux.api" />
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -96,13 +90,7 @@
             </intent-filter>
         </service>
 
-        <!-- Foreground Wake-Word & Smart Triggers Service -->
-        <service
-            android:name=".omega.OmegaWakeService"
-            android:enabled="false"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
-
+        <!-- Unified Background & Screen-Lock Microphone Voice Service -->
         <service android:name=".omega.OnlineBackgroundVoiceService" android:exported="false" android:foregroundServiceType="microphone" />
 
         <!-- Notification Reader & Confirmed Direct Reply Service -->

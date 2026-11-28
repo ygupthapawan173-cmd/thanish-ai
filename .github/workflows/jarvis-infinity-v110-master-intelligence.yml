@@ -1,0 +1,169 @@
+name: JARVIS INFINITY V110 MASTER INTELLIGENCE
+
+on:
+  push:
+    branches: [ v110-master-intelligence-test ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Install Android SDK 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+
+      - name: Provision offline wake fallback models
+        run: |
+          bash ci/provision-vosk.sh
+          bash ci/provision-neural-vad.sh
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify V110 Source Audit and SQL Schema Guards
+        run: |
+          python3 ci/check-v110-master-source.py
+          python3 ci/check-level6-sql.py
+
+      - name: Run Mandatory V110 Unit Tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Detect Owner Release Signing Configuration
+        id: signing_check
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PW: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          CERT_SHA: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: |
+          if [[ -n "$KEYSTORE_B64" && -n "$KEYSTORE_PW" && -n "$KEY_ALIAS" && -n "$KEY_PASS" && -n "$CERT_SHA" ]]; then
+            echo "has_signing_secrets=true" >> "$GITHUB_OUTPUT"
+            echo "Owner signing secrets detected — will produce verified signed release APK."
+          else
+            echo "has_signing_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "Owner signing secrets not configured — will produce verified debug candidate APK."
+          fi
+
+      - name: Build Signed V110 Release APK
+        if: steps.signing_check.outputs.has_signing_secrets == 'true'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: |
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          mkdir -p out
+          bash ci/sign-release.sh out
+
+      - name: Build Verified V110 Debug Candidate APK
+        if: steps.signing_check.outputs.has_signing_secrets != 'true'
+        run: |
+          gradle :app:assembleDebug --no-daemon --stacktrace
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs out/JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk | grep -F "name='com.aistudio.pandubabu.omega.v19ultra'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging out/JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk | grep -F "versionName='V110 MASTER INTELLIGENCE'"
+          (cd out && sha256sum JARVIS-INFINITY-V110-MASTER-INTELLIGENCE.apk > SHA256SUMS.txt)
+          cat out/SHA256SUMS.txt
+
+      - name: Upload JARVIS INFINITY V110 APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V110-MASTER-INTELLIGENCE
+          path: out/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Package Matching V110 Source Backup
+        run: |
+          mkdir -p source-out
+          python3 - <<'PY'
+          import hashlib, io, json, os, pathlib, subprocess, tarfile, zipfile
+          from datetime import datetime, timezone
+
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert sha == os.environ["GITHUB_SHA"], "Checkout does not match build commit"
+          version = "V110-MASTER-INTELLIGENCE"
+          archive = subprocess.check_output(["git", "archive", "--format=tar", sha])
+          out = pathlib.Path("source-out")
+          full = out / f"JARVIS-INFINITY-{version}-SOURCE.zip"
+          omitted = []
+          count = 0
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar, \
+               zipfile.ZipFile(full, "w", compression=zipfile.ZIP_DEFLATED) as complete:
+              for entry in tar:
+                  if not entry.isfile():
+                      continue
+                  name = entry.name
+                  low = name.lower()
+                  basename = pathlib.PurePosixPath(low).name
+                  if low.endswith((".zip", ".apk", ".aab", ".jks", ".keystore", ".p12", ".pem", ".key")) or basename in {".env", "local.properties", "google-services.json", "credentials.json", "secrets.json"}:
+                      omitted.append(name)
+                      continue
+                  complete.writestr(name, tar.extractfile(entry).read())
+                  count += 1
+              metadata = {
+                  "source_commit": sha,
+                  "version": version,
+                  "version_code": 118,
+                  "build_run": os.environ["GITHUB_RUN_ID"],
+                  "created_utc": datetime.now(timezone.utc).isoformat(),
+                  "excluded_tracked_files": omitted,
+                  "tracked_files": count,
+                  "note": "Clean V110 source snapshot excluding keystore/binary/secret files."
+              }
+              complete.writestr("BUILD-SOURCE-METADATA.json", json.dumps(metadata, indent=2) + "\n")
+          with zipfile.ZipFile(full) as z:
+              assert z.testzip() is None
+              for required in (
+                  "app/build.gradle.kts",
+                  "app/src/main/java/com/example/ai/MasterAiBrain.kt",
+                  "app/src/main/java/com/example/omega/OnlineBackgroundVoiceService.kt",
+                  "app/src/main/java/com/example/voice/SarvamVoiceClient.kt",
+                  "app/src/main/java/com/example/ui/components/AiFaceVisualizer.kt",
+              ):
+                  assert required in z.namelist(), required
+          digest = hashlib.sha256(full.read_bytes()).hexdigest()
+          (out / (full.name + ".sha256")).write_text(f"{digest}  {full.name}\n")
+          (out / "BUILD-SOURCE-METADATA.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          print(full.name, full.stat().st_size, digest)
+          PY
+
+      - name: Upload V110 Matching Source Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-INFINITY-V110-SOURCE-BACKUP
+          path: source-out/
+          if-no-files-found: error
+          retention-days: 90

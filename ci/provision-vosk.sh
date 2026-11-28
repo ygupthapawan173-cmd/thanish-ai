@@ -20,7 +20,7 @@ EOF
 python3 - <<'PYHASH'
 import pathlib,hashlib
 base=pathlib.Path('app/src/main/assets')
-for name in ('model-en-us','model-spk'):
+for name in ('model-en-us',):
     root=base/name
     files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='pack.sha256')
     assert files

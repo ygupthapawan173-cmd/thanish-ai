@@ -3,83 +3,70 @@ package com.example.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.BuildConfig
-import com.example.ai.SmartModelPolicy
 import com.example.security.KeystoreCryptoManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
-/**
- * Native Gemini and a universal HTTPS OpenAI-compatible gateway.
- */
 enum class AiProvider(val displayName: String, val defaultChatModel: String) {
-    GEMINI("Google Gemini", "gemini-3.8-flash"),
-    OPENROUTER("Universal Smart Gateway", "google/gemini-2.5-flash")
+    GEMINI("Google Gemini Direct", "gemini-4-hydrogen"),
+    OPENAI("OpenAI GPT", "gpt-6.2-sol")
 }
 
-enum class OmegaVisualTheme(val label: String) {
-    AURORA_OBSIDIAN("Pure AMOLED"),
-    MIDNIGHT_ROYAL("Velvet Violet"),
-    CYBER_HORIZON_WEBGL("Cyber WebGL")
+enum class IntelligenceMode(val label: String, val description: String) {
+    FAST("Fast Intelligence", "Ultra-low-latency direct responses and quick classification"),
+    SMART("Smart Intelligence", "Balanced bilingual synthesis, search verification, and tool execution"),
+    DEEP("Deep Intelligence", "Extended multi-step reasoning, research synthesis, and STEM analysis");
+
+    companion object {
+        fun fromStored(raw: String?): IntelligenceMode =
+            entries.firstOrNull { it.name.equals(raw?.trim(), ignoreCase = true) } ?: SMART
+    }
 }
 
 data class OmegaSettings(
-    val userName: String = "Pandu",
+    val userName: String = "Boss",
     val assistantName: String = "JARVIS INFINITY",
-    val replyStyle: String = "Natural",
-    val preferOfflineSpeech: Boolean = false,
     val activeProvider: AiProvider = AiProvider.GEMINI,
     val geminiApiKey: String = "",
-    val openRouterApiKey: String = "",
-    val geminiChatModel: String = "gemini-3.8-flash",
+    val openAiApiKey: String = "",
+    val sarvamApiKey: String = "",
+    val sarvamSpeaker: String = "shubh",
+    val sarvamModel: String = "bulbul:v3",
+    val geminiChatModel: String = "gemini-4-hydrogen",
     val geminiLiveVoiceModel: String = "gemini-3.8-live",
-    val geminiLiveSpeaker: String = "",
-    val openRouterModel: String = "google/gemini-2.5-flash",
-    val gatewayBaseUrl: String = "https://openrouter.ai/api/v1",
-    val manualVisionConfirmed: Boolean = false,
-    val smartMode: SmartModelPolicy.Mode = SmartModelPolicy.Mode.SMART,
-    val providerBudgetUsd: Double = 0.0,
-    val zeroPaidCreditsMode: Boolean = true,
-    // Least-privilege GitHub Engineering config (NEVER embedded; stored encrypted in Keystore)
-    val githubRepoSlug: String = "",
-    val githubToken: String = "",
-    val githubBaseBranch: String = "main",
-    // Voice & Wake
-    val wakeWord: String = "hey jarvis",
-    val wakeSensitivity: Float = 0.72f,
-    val languageTag: String = "auto",
-    val autoSpeak: Boolean = true,
-    val continuousConversation: Boolean = false,
-    val ttsSpeed: Float = 1.0f,
-    val ttsPitch: Float = 1.0f,
-    val ttsStyle: TtsEmotionStyle = TtsEmotionStyle.NATURAL,
-    val wakeWordEnabled: Boolean = false,
-    val bluetoothVoiceRouting: Boolean = true,
-    val micPrivacyMuted: Boolean = false,
-    val useGeminiLiveAudio: Boolean = false,
+    val openAiModel: String = "gpt-6.2-sol",
+    val openAiBaseUrl: String = "https://api.openai.com/v1",
+    val intelligenceMode: IntelligenceMode = IntelligenceMode.SMART,
+    val freeModelPriority: Boolean = true,
+    val allowPaidModels: Boolean = false,
     val webSearchGrounding: Boolean = true,
+    val deepResearchEnabled: Boolean = true,
+    val autoSpeak: Boolean = true,
+    val languageTag: String = "auto",
+    val wakeWordEnabled: Boolean = false,
+    val screenLockWakeEnabled: Boolean = true,
+    val onlineWakePriority: Boolean = true,
+    val cloudAudioConsentGranted: Boolean = false,
+    val useLiveSessionAudio: Boolean = false,
+    val micPrivacyMuted: Boolean = false,
+    val confirmSensitiveActions: Boolean = true,
     val biometricSafetyLock: Boolean = false,
-    val confirmNotifReply: Boolean = true,
-    val gyroscopeParallax: Boolean = true,
-    val offlineFastCommands: Boolean = false,
-    val triggerBluetoothBriefing: Boolean = true,
-    val triggerChargingAlert: Boolean = true,
-    val triggerLowBatterySaver: Boolean = true,
-    val visualTheme: OmegaVisualTheme = OmegaVisualTheme.AURORA_OBSIDIAN,
-    val orbColorPreset: OrbColorPreset = OrbColorPreset.AURORA_CYAN,
+    val releaseRepoSlug: String = "ygupthapawan173-cmd/thanish-ai",
+    val releaseAuthToken: String = "",
     val renderQuality: RenderQuality = RenderQuality.ADAPTIVE
 ) {
-    fun effectiveGeminiKey(): String = if (providerBudgetUsd != 0.0 || !SmartModelPolicy.allowsDirectGemini(smartMode)) "" else geminiApiKey.trim().ifEmpty { BuildConfig.GEMINI_API_KEY.trim() }
-    fun effectiveOpenRouterKey(): String = openRouterApiKey.trim().ifEmpty { if (gatewayBaseUrl.trim().trimEnd('/') == "https://openrouter.ai/api/v1") BuildConfig.OPENROUTER_API_KEY.trim() else "" }
-
-    fun activeChatModel(): String = when {
-        activeProvider == AiProvider.GEMINI -> geminiChatModel.trim().ifEmpty { AiProvider.GEMINI.defaultChatModel }
-        smartMode != SmartModelPolicy.Mode.MANUAL -> "Smart Auto (${smartMode.name})"
-        else -> openRouterModel.trim().ifEmpty { AiProvider.OPENROUTER.defaultChatModel }
+    fun effectiveGeminiKey(): String = geminiApiKey.trim().ifEmpty { BuildConfig.GEMINI_API_KEY.trim() }
+    fun effectiveOpenAiKey(): String = openAiApiKey.trim().ifEmpty {
+        if (openAiBaseUrl.trim().trimEnd('/') == "https://api.openai.com/v1") "" else BuildConfig.OPENROUTER_API_KEY.trim()
     }
+    fun effectiveSarvamKey(): String = sarvamApiKey.trim()
 
-    fun rmsGateThreshold(): Double = 1150.0 - (wakeSensitivity.coerceIn(0.1f, 1.0f) * 830.0)
+    fun activeChatModel(): String = when (activeProvider) {
+        AiProvider.GEMINI -> geminiChatModel.trim().ifEmpty { AiProvider.GEMINI.defaultChatModel }
+        AiProvider.OPENAI -> openAiModel.trim().ifEmpty { AiProvider.OPENAI.defaultChatModel }
+    }
 }
 
 class OmegaPreferences(context: Context) {
@@ -96,198 +83,145 @@ class OmegaPreferences(context: Context) {
         prefs.registerOnSharedPreferenceChangeListener(changeListener)
     }
 
-    fun close() { prefs.unregisterOnSharedPreferenceChangeListener(changeListener) }
+    fun close() {
+        prefs.unregisterOnSharedPreferenceChangeListener(changeListener)
+    }
 
     private fun load(): OmegaSettings {
-        val provider = runCatching { AiProvider.valueOf(prefs.getString(KEY_PROVIDER, AiProvider.GEMINI.name) ?: "") }.getOrDefault(AiProvider.GEMINI)
-        val theme = runCatching { OmegaVisualTheme.valueOf(prefs.getString(KEY_THEME, OmegaVisualTheme.AURORA_OBSIDIAN.name) ?: "") }.getOrDefault(OmegaVisualTheme.AURORA_OBSIDIAN)
-        val orbColor = OrbColorPreset.fromStored(prefs.getString(KEY_ORB_COLOR, null))
-        val ttsStyle = runCatching { TtsEmotionStyle.valueOf(prefs.getString(KEY_TTS_STYLE, TtsEmotionStyle.NATURAL.name) ?: "") }.getOrDefault(TtsEmotionStyle.NATURAL)
+        val rawProvider = prefs.getString(KEY_PROVIDER, AiProvider.GEMINI.name).orEmpty()
+        val provider = when {
+            rawProvider.equals("OPENAI", true) || rawProvider.equals("OPENROUTER", true) -> AiProvider.OPENAI
+            else -> AiProvider.GEMINI
+        }
+        val legacyGatewayUrl = prefs.getString("gateway_base_url", "")?.trim()?.trimEnd('/').orEmpty()
+        val storedOpenAiUrl = prefs.getString(KEY_OPENAI_BASE_URL, "").orEmpty().ifBlank {
+            if (legacyGatewayUrl.contains("openai.com")) legacyGatewayUrl else "https://api.openai.com/v1"
+        }
+        val storedOpenAiKey = prefs.getString(KEY_OPENAI_KEY, "").orEmpty().ifBlank {
+            if (legacyGatewayUrl.contains("openai.com")) prefs.getString(KEY_LEGACY_OPENROUTER_KEY, "").orEmpty() else ""
+        }
 
         return OmegaSettings(
-            userName = prefs.getString(KEY_USER_NAME, "Pandu") ?: "Pandu",
-            assistantName = prefs.getString("assistant_name", null).let { if (it.isNullOrBlank() || it.equals("OMEGA", true) || it.equals("OMEGA PANDU", true)) "JARVIS INFINITY" else it },
-            replyStyle = prefs.getString("reply_style", "Natural") ?: "Natural",
-            preferOfflineSpeech = false,
+            userName = prefs.getString(KEY_USER_NAME, "Boss") ?: "Boss",
+            assistantName = "JARVIS INFINITY",
             activeProvider = provider,
-            geminiApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_GEMINI_KEY, "") ?: ""),
-            openRouterApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_OPENROUTER_KEY, "") ?: ""),
-            geminiChatModel = prefs.getString(KEY_GEMINI_CHAT_MODEL, "gemini-3.8-flash") ?: "gemini-3.8-flash",
-            geminiLiveVoiceModel = (prefs.getString(KEY_GEMINI_LIVE_MODEL, "gemini-3.8-live") ?: "gemini-3.8-live").let { if (it == "gemini-2.5-flash-native-audio-preview") "gemini-3.8-live" else it },
-            geminiLiveSpeaker = com.example.voice.LiveVoiceChoices.normalize(prefs.getString("gemini_live_speaker", "")),
-            openRouterModel = prefs.getString(KEY_OPENROUTER_MODEL, "google/gemini-2.5-flash") ?: "google/gemini-2.5-flash",
-            gatewayBaseUrl = prefs.getString("gateway_base_url", "https://openrouter.ai/api/v1") ?: "https://openrouter.ai/api/v1",
-            manualVisionConfirmed = prefs.getBoolean("manual_vision_confirmed", false),
-            smartMode = runCatching { SmartModelPolicy.Mode.valueOf(prefs.getString("smart_mode", "SMART") ?: "SMART") }.getOrDefault(SmartModelPolicy.Mode.SMART),
-            providerBudgetUsd = Double.fromBits(prefs.getLong("provider_budget_usd", 0L)),
-            zeroPaidCreditsMode = prefs.getBoolean("zero_paid_credits_mode", true),
-            githubRepoSlug = prefs.getString(KEY_GH_REPO, "") ?: "",
-            githubToken = KeystoreCryptoManager.decrypt(prefs.getString(KEY_GH_TOKEN, "") ?: ""),
-            githubBaseBranch = prefs.getString(KEY_GH_BRANCH, "main") ?: "main",
-            wakeWord = prefs.getString(KEY_WAKE_WORD, "hey jarvis") ?: "hey jarvis",
-            wakeSensitivity = prefs.getFloat(KEY_WAKE_SENS, 0.72f),
-            languageTag = prefs.getString(KEY_LANGUAGE, "auto") ?: "auto",
-            autoSpeak = prefs.getBoolean(KEY_AUTO_SPEAK, true),
-            continuousConversation = prefs.getBoolean(KEY_CONTINUOUS, false),
-            ttsSpeed = prefs.getFloat(KEY_TTS_SPEED, 1.0f),
-            ttsPitch = prefs.getFloat(KEY_TTS_PITCH, 1.0f),
-            ttsStyle = ttsStyle,
-            wakeWordEnabled = false,
-            bluetoothVoiceRouting = prefs.getBoolean(KEY_BT_ROUTING, true),
-            micPrivacyMuted = prefs.getBoolean(KEY_MIC_MUTED, false),
-            useGeminiLiveAudio = prefs.getString("smart_mode", "SMART") != "FREE" && prefs.getBoolean(KEY_LIVE_AUDIO, false),
+            geminiApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_GEMINI_KEY, "").orEmpty()),
+            openAiApiKey = KeystoreCryptoManager.decrypt(storedOpenAiKey),
+            sarvamApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_SARVAM_KEY, "").orEmpty()),
+            sarvamSpeaker = prefs.getString(KEY_SARVAM_SPEAKER, "shubh")?.ifBlank { "shubh" } ?: "shubh",
+            sarvamModel = prefs.getString(KEY_SARVAM_MODEL, "bulbul:v3")?.ifBlank { "bulbul:v3" } ?: "bulbul:v3",
+            geminiChatModel = prefs.getString(KEY_GEMINI_CHAT_MODEL, "gemini-4-hydrogen")?.ifBlank { "gemini-4-hydrogen" } ?: "gemini-4-hydrogen",
+            geminiLiveVoiceModel = prefs.getString(KEY_GEMINI_LIVE_MODEL, "gemini-3.8-live")?.ifBlank { "gemini-3.8-live" } ?: "gemini-3.8-live",
+            openAiModel = prefs.getString(KEY_OPENAI_MODEL, "gpt-6.2-sol")?.ifBlank { "gpt-6.2-sol" } ?: "gpt-6.2-sol",
+            openAiBaseUrl = storedOpenAiUrl,
+            intelligenceMode = IntelligenceMode.fromStored(prefs.getString(KEY_INTEL_MODE, null)),
+            freeModelPriority = prefs.getBoolean(KEY_FREE_PRIORITY, true),
+            allowPaidModels = prefs.getBoolean(KEY_ALLOW_PAID, false),
             webSearchGrounding = prefs.getBoolean(KEY_WEB_GROUNDING, true),
+            deepResearchEnabled = prefs.getBoolean(KEY_DEEP_RESEARCH, true),
+            autoSpeak = prefs.getBoolean(KEY_AUTO_SPEAK, true),
+            languageTag = prefs.getString(KEY_LANGUAGE, "auto") ?: "auto",
+            wakeWordEnabled = prefs.getBoolean(KEY_WAKE_ENABLED, false),
+            screenLockWakeEnabled = prefs.getBoolean(KEY_LOCK_WAKE_ENABLED, true),
+            onlineWakePriority = prefs.getBoolean(KEY_ONLINE_WAKE_PRIORITY, true),
+            cloudAudioConsentGranted = prefs.getBoolean(KEY_CLOUD_CONSENT, false),
+            useLiveSessionAudio = prefs.getBoolean(KEY_LIVE_AUDIO, false),
+            micPrivacyMuted = prefs.getBoolean(KEY_MIC_MUTED, false),
+            confirmSensitiveActions = prefs.getBoolean(KEY_CONFIRM_SENSITIVE, true),
             biometricSafetyLock = prefs.getBoolean(KEY_BIOMETRIC_LOCK, false),
-            confirmNotifReply = prefs.getBoolean(KEY_CONFIRM_REPLY, true),
-            gyroscopeParallax = prefs.getBoolean(KEY_PARALLAX, true),
-            offlineFastCommands = false,
-            triggerBluetoothBriefing = prefs.getBoolean(KEY_TRIG_BT, true),
-            triggerChargingAlert = prefs.getBoolean(KEY_TRIG_CHARGE, true),
-            triggerLowBatterySaver = prefs.getBoolean(KEY_TRIG_LOWBAT, true),
-            visualTheme = theme,
-            orbColorPreset = orbColor,
-            renderQuality = RenderQuality.fromStored(prefs.getString("render_quality", null))
+            releaseRepoSlug = prefs.getString(KEY_RELEASE_REPO, "ygupthapawan173-cmd/thanish-ai") ?: "ygupthapawan173-cmd/thanish-ai",
+            releaseAuthToken = KeystoreCryptoManager.decrypt(prefs.getString(KEY_RELEASE_TOKEN, "").orEmpty()),
+            renderQuality = RenderQuality.fromStored(prefs.getString(KEY_RENDER_QUALITY, null))
         )
     }
 
-    private fun protectedApiKey(key: String): String {
-        if (key.isBlank()) return ""
-        val encrypted = KeystoreCryptoManager.encrypt(key.trim())
-        check(encrypted.startsWith("ENC1:")) { "Android Keystore unavailable; API key was not saved" }
+    private fun protectedSecret(secret: String): String {
+        if (secret.isBlank()) return ""
+        val encrypted = KeystoreCryptoManager.encrypt(secret.trim())
+        check(encrypted.startsWith("ENC1:")) { "Android Keystore unavailable; credential was not saved" }
         return encrypted
+    }
+
+    private fun keepOrProtect(newVal: String, prevVal: String, prefKey: String): String {
+        val stored = prefs.getString(prefKey, "").orEmpty()
+        if (newVal == prevVal && (stored.startsWith("ENC1:") || newVal.isBlank())) return stored
+        return protectedSecret(newVal)
     }
 
     @Synchronized
     fun update(transform: (OmegaSettings) -> OmegaSettings) {
         val old = _settings.value
-        val proposed = transform(old).copy(preferOfflineSpeech = false, wakeWordEnabled = false, offlineFastCommands = false)
-        check(com.example.ai.ProviderBudgetPolicy.validCap(proposed.providerBudgetUsd)) { "Invalid API budget" }
-        val candidate = when {
-            proposed.providerBudgetUsd > 0 -> proposed.copy(activeProvider = AiProvider.OPENROUTER, useGeminiLiveAudio = false)
-            proposed.smartMode == SmartModelPolicy.Mode.FREE -> proposed.copy(useGeminiLiveAudio = false)
-            else -> proposed
-        }
-        val changedEndpoint = candidate.gatewayBaseUrl.trim().trimEnd('/') != old.gatewayBaseUrl.trim().trimEnd('/')
-        val u = if (changedEndpoint || candidate.openRouterModel != old.openRouterModel || candidate.openRouterApiKey != old.openRouterApiKey) candidate.copy(manualVisionConfirmed = false) else candidate
-        fun keepOrProtect(new: String, previous: String, pref: String): String {
-            val stored = prefs.getString(pref, "") ?: ""
-            if (new == previous && (stored.startsWith("ENC1:") || new.isBlank())) return stored
-            return protectedApiKey(new)
-        }
-        val geminiEncrypted = keepOrProtect(u.geminiApiKey, old.geminiApiKey, KEY_GEMINI_KEY)
-        val gatewayEncrypted = keepOrProtect(u.openRouterApiKey, old.openRouterApiKey, KEY_OPENROUTER_KEY)
-        val githubEncrypted = keepOrProtect(u.githubToken, old.githubToken, KEY_GH_TOKEN)
+        val u = transform(old).copy(assistantName = "JARVIS INFINITY")
+        val geminiEnc = keepOrProtect(u.geminiApiKey, old.geminiApiKey, KEY_GEMINI_KEY)
+        val openAiEnc = keepOrProtect(u.openAiApiKey, old.openAiApiKey, KEY_OPENAI_KEY)
+        val sarvamEnc = keepOrProtect(u.sarvamApiKey, old.sarvamApiKey, KEY_SARVAM_KEY)
+        val releaseTokEnc = keepOrProtect(u.releaseAuthToken, old.releaseAuthToken, KEY_RELEASE_TOKEN)
+
         val editor = prefs.edit()
-            .putString(KEY_USER_NAME, u.userName.trim().ifEmpty { "Pandu" })
-            .putString("assistant_name",u.assistantName.trim().take(40).ifEmpty { "JARVIS INFINITY" })
-            .putString("reply_style",u.replyStyle)
-            .putBoolean("prefer_offline_speech",u.preferOfflineSpeech)
+            .putString(KEY_USER_NAME, u.userName.trim().ifEmpty { "Boss" })
             .putString(KEY_PROVIDER, u.activeProvider.name)
-            .putString(KEY_GEMINI_KEY, geminiEncrypted)
-            .putString(KEY_OPENROUTER_KEY, gatewayEncrypted)
-            .putString(KEY_GEMINI_CHAT_MODEL, u.geminiChatModel.trim().ifEmpty { "gemini-3.8-flash" })
+            .putString(KEY_GEMINI_KEY, geminiEnc)
+            .putString(KEY_OPENAI_KEY, openAiEnc)
+            .putString(KEY_SARVAM_KEY, sarvamEnc)
+            .putString(KEY_SARVAM_SPEAKER, u.sarvamSpeaker.trim().ifEmpty { "shubh" })
+            .putString(KEY_SARVAM_MODEL, u.sarvamModel.trim().ifEmpty { "bulbul:v3" })
+            .putString(KEY_GEMINI_CHAT_MODEL, u.geminiChatModel.trim().ifEmpty { "gemini-4-hydrogen" })
             .putString(KEY_GEMINI_LIVE_MODEL, u.geminiLiveVoiceModel.trim().ifEmpty { "gemini-3.8-live" })
-            .putString("gemini_live_speaker", com.example.voice.LiveVoiceChoices.normalize(u.geminiLiveSpeaker))
-            .putString(KEY_OPENROUTER_MODEL, u.openRouterModel.trim().ifEmpty { "google/gemini-2.5-flash" })
-            .putString("gateway_base_url", u.gatewayBaseUrl.trim().trimEnd('/'))
-            .putString("smart_mode", u.smartMode.name)
-            .putLong("provider_budget_usd", u.providerBudgetUsd.toBits())
-            .putBoolean("zero_paid_credits_mode", u.zeroPaidCreditsMode)
-            .putBoolean("manual_vision_confirmed", u.manualVisionConfirmed)
+            .putString(KEY_OPENAI_MODEL, u.openAiModel.trim().ifEmpty { "gpt-6.2-sol" })
+            .putString(KEY_OPENAI_BASE_URL, u.openAiBaseUrl.trim().trimEnd('/').ifEmpty { "https://api.openai.com/v1" })
+            .putString(KEY_INTEL_MODE, u.intelligenceMode.name)
+            .putBoolean(KEY_FREE_PRIORITY, u.freeModelPriority)
+            .putBoolean(KEY_ALLOW_PAID, u.allowPaidModels)
+            .putBoolean(KEY_WEB_GROUNDING, u.webSearchGrounding)
+            .putBoolean(KEY_DEEP_RESEARCH, u.deepResearchEnabled)
+            .putBoolean(KEY_AUTO_SPEAK, u.autoSpeak)
+            .putString(KEY_LANGUAGE, u.languageTag)
+            .putBoolean(KEY_WAKE_ENABLED, u.wakeWordEnabled)
+            .putBoolean(KEY_LOCK_WAKE_ENABLED, u.screenLockWakeEnabled)
+            .putBoolean(KEY_ONLINE_WAKE_PRIORITY, u.onlineWakePriority)
+            .putBoolean(KEY_CLOUD_CONSENT, u.cloudAudioConsentGranted)
+            .putBoolean(KEY_LIVE_AUDIO, u.useLiveSessionAudio)
+            .putBoolean(KEY_MIC_MUTED, u.micPrivacyMuted)
+            .putBoolean(KEY_CONFIRM_SENSITIVE, u.confirmSensitiveActions)
+            .putBoolean(KEY_BIOMETRIC_LOCK, u.biometricSafetyLock)
+            .putString(KEY_RELEASE_REPO, u.releaseRepoSlug.trim().ifEmpty { "ygupthapawan173-cmd/thanish-ai" })
+            .putString(KEY_RELEASE_TOKEN, releaseTokEnc)
+            .putString(KEY_RENDER_QUALITY, u.renderQuality.name)
+            // Clean deprecated preference keys from earlier versions
+            .remove("prefer_offline_speech")
+            .remove("continuous_conv")
+            .remove("tts_speed")
+            .remove("tts_pitch")
+            .remove("tts_style")
+            .remove("bt_routing")
+            .remove("trig_bt")
+            .remove("wake_word")
+            .remove("gemini_live_speaker")
+            .remove("offline_fast_cmd")
+            .remove("visual_theme")
+            .remove("orb_color")
             .remove("local_brain_mode")
             .remove("local_llm_url")
-            .putString(KEY_GH_REPO, u.githubRepoSlug.trim())
-            .putString(KEY_GH_TOKEN, githubEncrypted)
-            .putString(KEY_GH_BRANCH, u.githubBaseBranch.trim().ifEmpty { "main" })
-            .putString(KEY_WAKE_WORD, u.wakeWord.trim().lowercase().ifEmpty { "hey jarvis" })
-            .putFloat(KEY_WAKE_SENS, u.wakeSensitivity.coerceIn(0.1f, 1.0f))
-            .putString(KEY_LANGUAGE, u.languageTag)
-            .putBoolean(KEY_AUTO_SPEAK, u.autoSpeak)
-            .putBoolean(KEY_CONTINUOUS, u.continuousConversation)
-            .putFloat(KEY_TTS_SPEED, u.ttsSpeed.coerceIn(0.6f, 1.6f))
-            .putFloat(KEY_TTS_PITCH, u.ttsPitch.coerceIn(0.6f, 1.5f))
-            .putString(KEY_TTS_STYLE, u.ttsStyle.name)
-            .putBoolean(KEY_WAKE_ENABLED, u.wakeWordEnabled)
-            .putBoolean(KEY_BT_ROUTING, u.bluetoothVoiceRouting)
-            .putBoolean(KEY_MIC_MUTED, u.micPrivacyMuted)
-            .putBoolean(KEY_LIVE_AUDIO, u.useGeminiLiveAudio)
-            .putBoolean(KEY_WEB_GROUNDING, u.webSearchGrounding)
-            .putBoolean(KEY_BIOMETRIC_LOCK, u.biometricSafetyLock)
-            .putBoolean(KEY_CONFIRM_REPLY, u.confirmNotifReply)
-            .putBoolean(KEY_PARALLAX, u.gyroscopeParallax)
-            .putBoolean(KEY_OFFLINE_FAST, u.offlineFastCommands)
-            .putBoolean(KEY_TRIG_BT, u.triggerBluetoothBriefing)
-            .putBoolean(KEY_TRIG_CHARGE, u.triggerChargingAlert)
-            .putBoolean(KEY_TRIG_LOWBAT, u.triggerLowBatterySaver)
-            .putString(KEY_THEME, u.visualTheme.name)
-            .putString(KEY_ORB_COLOR, u.orbColorPreset.name)
-            .putString("render_quality", u.renderQuality.name)
-            .remove("floating_orb_enabled")
-        if (u.providerBudgetUsd != old.providerBudgetUsd) {
-            check(editor.commit()) { "Credit cap was not saved to disk; check storage and retry" }
-        } else editor.apply()
+        editor.commit()
         _settings.value = u
     }
 
+    /** Internal encrypted snapshot used strictly before self-update APK verification. */
     fun exportEncryptedBackupJson(): String {
         val s = _settings.value
         val obj = JSONObject().apply {
             put("userName", s.userName)
-            put("assistantName", s.assistantName)
-            put("replyStyle", s.replyStyle)
-            put("preferOfflineSpeech", s.preferOfflineSpeech)
             put("activeProvider", s.activeProvider.name)
             put("geminiChatModel", s.geminiChatModel)
             put("geminiLiveVoiceModel", s.geminiLiveVoiceModel)
-            put("geminiLiveSpeaker", s.geminiLiveSpeaker)
-            put("openRouterModel", s.openRouterModel)
-            put("gatewayBaseUrl", s.gatewayBaseUrl)
-            put("smartMode", s.smartMode.name)
-            put("githubRepoSlug", s.githubRepoSlug)
-            put("githubBaseBranch", s.githubBaseBranch)
-            put("wakeWord", s.wakeWord)
+            put("openAiModel", s.openAiModel)
+            put("sarvamSpeaker", s.sarvamSpeaker)
+            put("sarvamModel", s.sarvamModel)
+            put("intelligenceMode", s.intelligenceMode.name)
+            put("releaseRepoSlug", s.releaseRepoSlug)
             put("languageTag", s.languageTag)
-            put("visualTheme", s.visualTheme.name)
-            put("orbColorPreset", s.orbColorPreset.name)
-            put("renderQuality", s.renderQuality.name)
         }
         return KeystoreCryptoManager.encrypt(obj.toString())
-    }
-
-    fun importEncryptedBackupJson(encryptedBlob: String): Boolean {
-        if (!encryptedBlob.trim().startsWith("ENC1:")) return false
-        val plain = KeystoreCryptoManager.decrypt(encryptedBlob.trim())
-        if (plain.isBlank()) return false
-        return runCatching {
-            val obj = JSONObject(plain)
-            update { cur ->
-                val restoredUrl = obj.optString("gatewayBaseUrl", cur.gatewayBaseUrl).trim().trimEnd('/')
-                val safeUrl = restoredUrl.takeIf { url -> runCatching { java.net.URI(url).let { it.scheme == "https" && it.host != null && it.userInfo == null && it.query == null && it.fragment == null } }.getOrDefault(false) } ?: cur.gatewayBaseUrl
-                cur.copy(
-                    gatewayBaseUrl = safeUrl,
-                    openRouterApiKey = if (safeUrl == cur.gatewayBaseUrl.trim().trimEnd('/')) cur.openRouterApiKey else "",
-                    smartMode = runCatching { SmartModelPolicy.Mode.valueOf(obj.optString("smartMode", cur.smartMode.name)) }.getOrDefault(cur.smartMode),
-                    activeProvider = runCatching { AiProvider.valueOf(obj.optString("activeProvider", cur.activeProvider.name)) }.getOrDefault(cur.activeProvider),
-                    manualVisionConfirmed = false,
-                    userName = obj.optString("userName", cur.userName),
-                    geminiChatModel = obj.optString("geminiChatModel", cur.geminiChatModel),
-                    geminiLiveVoiceModel = obj.optString("geminiLiveVoiceModel", cur.geminiLiveVoiceModel),
-                    geminiLiveSpeaker = com.example.voice.LiveVoiceChoices.normalize(obj.optString("geminiLiveSpeaker", cur.geminiLiveSpeaker)),
-                    openRouterModel = obj.optString("openRouterModel", cur.openRouterModel),
-                    githubRepoSlug = obj.optString("githubRepoSlug", cur.githubRepoSlug),
-                    githubBaseBranch = obj.optString("githubBaseBranch", cur.githubBaseBranch),
-                    wakeWord = obj.optString("wakeWord", cur.wakeWord),
-                    assistantName = obj.optString("assistantName",cur.assistantName).take(40),
-                    replyStyle = obj.optString("replyStyle",cur.replyStyle),
-                    preferOfflineSpeech = obj.optBoolean("preferOfflineSpeech",cur.preferOfflineSpeech),
-                    languageTag = obj.optString("languageTag", cur.languageTag),
-                    visualTheme = runCatching { OmegaVisualTheme.valueOf(obj.optString("visualTheme", cur.visualTheme.name)) }.getOrDefault(cur.visualTheme),
-                    orbColorPreset = OrbColorPreset.fromStored(obj.optString("orbColorPreset", cur.orbColorPreset.name)),
-                    renderQuality = RenderQuality.fromStored(obj.optString("renderQuality", cur.renderQuality.name))
-                )
-            }
-            true
-        }.getOrDefault(false)
     }
 
     companion object {
@@ -295,34 +229,32 @@ class OmegaPreferences(context: Context) {
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_PROVIDER = "active_provider"
         private const val KEY_GEMINI_KEY = "enc_gemini_key"
-        private const val KEY_OPENROUTER_KEY = "enc_openrouter_key"
+        private const val KEY_LEGACY_OPENROUTER_KEY = "enc_openrouter_key"
+        private const val KEY_OPENAI_KEY = "enc_openai_key"
+        private const val KEY_SARVAM_KEY = "enc_sarvam_key"
+        private const val KEY_SARVAM_SPEAKER = "sarvam_speaker"
+        private const val KEY_SARVAM_MODEL = "sarvam_model"
         private const val KEY_GEMINI_CHAT_MODEL = "gemini_chat_model"
         private const val KEY_GEMINI_LIVE_MODEL = "gemini_live_model"
-        private const val KEY_OPENROUTER_MODEL = "openrouter_model"
-        private const val KEY_GH_REPO = "gh_repo_slug"
-        private const val KEY_GH_TOKEN = "enc_gh_token"
-        private const val KEY_GH_BRANCH = "gh_base_branch"
-        private const val KEY_WAKE_WORD = "wake_word"
-        private const val KEY_WAKE_SENS = "wake_sens"
-        private const val KEY_LANGUAGE = "language_tag"
-        private const val KEY_AUTO_SPEAK = "auto_speak"
-        private const val KEY_CONTINUOUS = "continuous_conv"
-        private const val KEY_TTS_SPEED = "tts_speed"
-        private const val KEY_TTS_PITCH = "tts_pitch"
-        private const val KEY_TTS_STYLE = "tts_style"
-        private const val KEY_WAKE_ENABLED = "wake_word_enabled"
-        private const val KEY_BT_ROUTING = "bt_routing"
-        private const val KEY_MIC_MUTED = "mic_muted"
-        private const val KEY_LIVE_AUDIO = "use_live_audio"
+        private const val KEY_OPENAI_MODEL = "openrouter_model"
+        private const val KEY_OPENAI_BASE_URL = "openai_base_url"
+        private const val KEY_INTEL_MODE = "intelligence_mode"
+        private const val KEY_FREE_PRIORITY = "free_model_priority"
+        private const val KEY_ALLOW_PAID = "allow_paid_models"
         private const val KEY_WEB_GROUNDING = "web_grounding"
+        private const val KEY_DEEP_RESEARCH = "deep_research"
+        private const val KEY_AUTO_SPEAK = "auto_speak"
+        private const val KEY_LANGUAGE = "language_tag"
+        private const val KEY_WAKE_ENABLED = "wake_word_enabled"
+        private const val KEY_LOCK_WAKE_ENABLED = "screen_lock_wake_enabled"
+        private const val KEY_ONLINE_WAKE_PRIORITY = "online_wake_priority"
+        private const val KEY_CLOUD_CONSENT = "cloud_audio_consent"
+        private const val KEY_LIVE_AUDIO = "use_live_audio"
+        private const val KEY_MIC_MUTED = "mic_muted"
+        private const val KEY_CONFIRM_SENSITIVE = "confirm_notif_reply"
         private const val KEY_BIOMETRIC_LOCK = "biometric_lock"
-        private const val KEY_CONFIRM_REPLY = "confirm_notif_reply"
-        private const val KEY_PARALLAX = "gyro_parallax"
-        private const val KEY_OFFLINE_FAST = "offline_fast_cmd"
-        private const val KEY_TRIG_BT = "trig_bt"
-        private const val KEY_TRIG_CHARGE = "trig_charge"
-        private const val KEY_TRIG_LOWBAT = "trig_lowbat"
-        private const val KEY_THEME = "visual_theme"
-        private const val KEY_ORB_COLOR = "orb_color"
+        private const val KEY_RELEASE_REPO = "gh_repo_slug"
+        private const val KEY_RELEASE_TOKEN = "enc_gh_token"
+        private const val KEY_RENDER_QUALITY = "render_quality"
     }
 }

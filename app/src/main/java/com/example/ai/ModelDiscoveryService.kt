@@ -1,8 +1,9 @@
 package com.example.ai
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -12,13 +13,16 @@ import java.util.concurrent.TimeUnit
 data class DiscoveredModelsResult(
     val chatModels: List<String>,
     val liveVoiceModels: List<String>,
-    val message: String,
-    val ttsModels: List<String> = emptyList()
+    val freeModelsCount: Int,
+    val message: String
 )
 
 /**
- * Dynamic Real API Model Discovery (v18 Supreme):
- * Queries live Google Gemini /v1beta/models and OpenRouter /api/v1/models endpoints.
+ * Dynamic Real API Model Discovery (Sections 3, 10, 14):
+ * - Queries authenticated Google Gemini `/v1beta/models`
+ * - Queries authenticated OpenAI `/v1/models`
+ * - Filters strictly to Gemini & OpenAI GPT families (removed third-party families excluded)
+ * - Never fabricates model availability.
  */
 class ModelDiscoveryService {
 
@@ -26,7 +30,8 @@ class ModelDiscoveryService {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(35, TimeUnit.SECONDS)
-        .followRedirects(false).followSslRedirects(false)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     suspend fun discoverGeminiModels(apiKey: String): Result<DiscoveredModelsResult> = withContext(Dispatchers.IO) {
@@ -39,18 +44,18 @@ class ModelDiscoveryService {
                 .build()
 
             client.newCall(req).awaitParsed { resp ->
-                val raw = resp.boundedJsonText(2L * 1024 * 1024)
+                val raw = resp.boundedJsonText(2L * 1024L * 1024L)
                 if (!resp.isSuccessful) {
-                    return@awaitParsed Result.failure(IOException("HTTP ${resp.code}: Model discovery failed"))
+                    val msg = runCatching { JSONObject(raw).optJSONObject("error")?.optString("message") }.getOrNull()
+                    return@awaitParsed Result.failure(IOException("HTTP ${resp.code}: ${msg ?: "Gemini discovery failed"}"))
                 }
                 val modelsArr = JSONObject(raw).optJSONArray("models")
-                    ?: return@awaitParsed Result.failure(IOException("No models returned."))
+                    ?: return@awaitParsed Result.failure(IOException("No models returned by Gemini."))
 
                 val chatList = mutableListOf<String>()
                 val liveList = mutableListOf<String>()
-                val ttsList = mutableListOf<String>()
 
-                for (i in 0 until minOf(modelsArr.length(), 10_000)) {
+                for (i in 0 until minOf(modelsArr.length(), 2_000)) {
                     val m = modelsArr.optJSONObject(i) ?: continue
                     val fullName = m.optString("name", "").removePrefix("models/")
                     if (!fullName.startsWith("gemini-") || !SmartModelPolicy.validId(fullName)) continue
@@ -67,20 +72,19 @@ class ModelDiscoveryService {
                     if (supportsGen && GeminiCompatibility.isChat(fullName)) {
                         chatList.add(fullName)
                     }
-                    if (supportsGen && GeminiCompatibility.isTts(fullName)) ttsList.add(fullName)
-                    if (supportsBidi && !GeminiCompatibility.isTts(fullName)) {
+                    if (supportsBidi || fullName.contains("transcribe-live", true) || fullName.contains("-live", true)) {
                         liveList.add(fullName)
                     }
                 }
 
-                val sortedChat = chatList.distinct().sortedByDescending { scoreModelRecency(it) }
-                val sortedLive = liveList.distinct().sortedByDescending { scoreModelRecency(it) }
+                val sortedChat = chatList.distinct().sortedByDescending { scoreGeminiRecency(it) }
+                val sortedLive = liveList.distinct().sortedByDescending { scoreGeminiRecency(it) }
                 Result.success(
                     DiscoveredModelsResult(
                         chatModels = sortedChat,
                         liveVoiceModels = sortedLive,
-                        message = "Discovered ${sortedChat.size} Chat, ${sortedLive.size} Live, ${ttsList.size} audio-only TTS models.",
-                        ttsModels = ttsList.distinct().sortedByDescending { scoreModelRecency(it) }
+                        freeModelsCount = sortedChat.size,
+                        message = "Verified ${sortedChat.size} Gemini Chat & ${sortedLive.size} Live Voice models."
                     )
                 )
             }
@@ -90,23 +94,51 @@ class ModelDiscoveryService {
         }
     }
 
-    suspend fun discoverOpenRouterModels(apiKey: String): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun discoverOpenAiModels(apiKey: String, baseUrl: String): Result<DiscoveredModelsResult> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) return@withContext Result.failure(IllegalArgumentException("Enter OpenAI API key first."))
         try {
-            val builder = Request.Builder().url("https://openrouter.ai/api/v1/models").get()
-            if (apiKey.isNotBlank()) builder.addHeader("Authorization", "Bearer ${apiKey.trim()}")
-            client.newCall(builder.build()).awaitParsed { resp ->
-                val raw = resp.boundedJsonText(2L * 1024 * 1024)
-                if (!resp.isSuccessful) return@awaitParsed Result.failure(IOException("HTTP ${resp.code}: OpenRouter models failed"))
-                val data = JSONObject(raw).optJSONArray("data") ?: return@awaitParsed Result.failure(IOException("Empty OpenRouter list"))
-                val out = mutableListOf<String>()
-                for (i in 0 until minOf(data.length(), 10_000)) {
-                    val id = data.optJSONObject(i)?.optString("id", "") ?: continue
-                    if (!SmartModelPolicy.validId(id)) continue
-                    if (id.contains("gemini") || id.contains("claude") || id.contains("gpt-4") || id.contains("llama-3.3") || id.contains("deepseek")) {
-                        out.add(id)
+            val cleanBase = baseUrl.trim().trimEnd('/').ifEmpty { "https://api.openai.com/v1" }
+            val parsed = "$cleanBase/models".toHttpUrlOrNull()
+                ?: return@withContext Result.failure(IllegalArgumentException("Invalid OpenAI HTTPS URL."))
+            require(parsed.isHttps) { "OpenAI URL must use HTTPS" }
+
+            val req = Request.Builder()
+                .url(parsed)
+                .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+                .get()
+                .build()
+
+            client.newCall(req).awaitParsed { resp ->
+                val raw = resp.boundedJsonText(2L * 1024L * 1024L)
+                if (!resp.isSuccessful) {
+                    val msg = runCatching { JSONObject(raw).optJSONObject("error")?.optString("message") }.getOrNull()
+                    return@awaitParsed Result.failure(IOException("HTTP ${resp.code}: ${msg ?: "OpenAI discovery failed"}"))
+                }
+                val data = JSONObject(raw).optJSONArray("data")
+                    ?: return@awaitParsed Result.failure(IOException("No OpenAI model list returned."))
+                val chatList = mutableListOf<String>()
+                val liveList = mutableListOf<String>()
+
+                for (i in 0 until minOf(data.length(), 2_000)) {
+                    val id = data.optJSONObject(i)?.optString("id", "").orEmpty()
+                    if (!ModelCatalogPolicy.isSupportedProviderModel(id)) continue
+                    val low = id.lowercase()
+                    if (low.contains("realtime") || low.contains("gpt-live")) {
+                        liveList.add(id)
+                    } else if (SmartModelPolicy.eligible(SmartModelPolicy.Model(id), SmartModelPolicy.Task.CHAT)) {
+                        chatList.add(id)
                     }
                 }
-                Result.success(out.distinct().take(25))
+                val sortedChat = chatList.distinct().sortedByDescending { scoreOpenAiRecency(it) }
+                val sortedLive = liveList.distinct()
+                Result.success(
+                    DiscoveredModelsResult(
+                        chatModels = sortedChat,
+                        liveVoiceModels = sortedLive,
+                        freeModelsCount = 0,
+                        message = "Verified ${sortedChat.size} OpenAI GPT & ${sortedLive.size} Realtime models."
+                    )
+                )
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -114,16 +146,41 @@ class ModelDiscoveryService {
         }
     }
 
-    private fun scoreModelRecency(id: String): Int {
+    private fun scoreGeminiRecency(id: String): Int {
         var score = 0
-        if (id.contains("3.8")) score += 500
-        else if (id.contains("3.5")) score += 450
-        else if (id.contains("3.0")) score += 400
-        else if (id.contains("2.5")) score += 300
-        else if (id.contains("2.0")) score += 200
-        if (id.contains("flash")) score += 60
-        if (id.contains("pro")) score += 40
-        if (id.contains("lite")) score -= 10
+        when {
+            "gemini-4" in id -> score += 600
+            "3.8" in id -> score += 500
+            "3.5" in id -> score += 450
+            "3.0" in id -> score += 400
+            "2.5" in id -> score += 300
+        }
+        when {
+            "carbon" in id -> score += 90
+            "neon" in id -> score += 80
+            "argon" in id -> score += 70
+            "hydrogen" in id -> score += 65
+            "pro" in id -> score += 60
+            "flash" in id -> score += 50
+        }
+        return score
+    }
+
+    private fun scoreOpenAiRecency(id: String): Int {
+        var score = 0
+        when {
+            "gpt-6.2" in id -> score += 650
+            "gpt-6.1" in id -> score += 600
+            "gpt-6" in id -> score += 550
+            "gpt-5" in id -> score += 450
+            "gpt-4o" in id -> score += 350
+        }
+        when {
+            "astra" in id -> score += 90
+            "sol" in id -> score += 80
+            "terra" in id -> score += 70
+            "luna" in id -> score += 60
+        }
         return score
     }
 }

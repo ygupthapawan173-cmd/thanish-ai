@@ -4,7 +4,8 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import com.example.voice.BluetoothAudioRouter
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import com.example.voice.AudioCapturePolicy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
@@ -36,7 +37,8 @@ class SilentAudioGate(
         }.getOrNull() ?: return@withContext false
 
         if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); return@withContext false }
-        val (aec, ns) = BluetoothAudioRouter.attachAudioEffects(rec.audioSessionId)
+        val aec = runCatching { if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true } else null }.getOrNull()
+        val ns = runCatching { if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true } else null }.getOrNull()
 
         val shorts = ShortArray(1600)
         var hits = 0

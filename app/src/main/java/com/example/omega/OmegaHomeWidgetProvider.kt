@@ -15,12 +15,12 @@ class OmegaHomeWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.omega_home_widget)
             val voicePi = buildPi(context, 5001, Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_START_LISTENING, true))
             val visionPi = buildPi(context, 5002, Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_CAMERA, true))
-            val briefPi = buildPi(context, 5003, Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_RUN_ROUTINE, "briefing"))
+            val dashPi = buildPi(context, 5003, Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_DASHBOARD, true))
 
             views.setOnClickPendingIntent(R.id.widget_orb_icon, voicePi)
             views.setOnClickPendingIntent(R.id.widget_voice_btn, voicePi)
             views.setOnClickPendingIntent(R.id.widget_vision_btn, visionPi)
-            views.setOnClickPendingIntent(R.id.widget_routine_btn, briefPi)
+            views.setOnClickPendingIntent(R.id.widget_routine_btn, dashPi)
             appWidgetManager.updateAppWidget(widgetId, views)
         }
     }

@@ -1,8 +1,13 @@
 package com.example.voice
 
-/** Keyword detector only; no conversation, command routing or cloud audio. */
+import java.util.Locale
+
+/**
+ * Fixed "Hey JARVIS" wake detector policy (Sections 6, 7, 16):
+ * - No Custom Wake Word, no Owner Voice filtering.
+ * - Supports bilingual English & Telugu phonetic wake matches and partial-transcript wake detection.
+ */
 internal object HandsFreeWakePolicy {
-    // Improved Telugu-accented "Hey JARVIS" coverage; strictly excludes standalone "jarvis" and "service".
     val phrases = listOf(
         "hey jarvis",
         "hey jervis",
@@ -18,35 +23,31 @@ internal object HandsFreeWakePolicy {
         "okay jarvis"
     )
 
+    private val WAKE_PREFIX_REGEX = Regex(
+        "^(?:hey|hi|ok|okay|hello)?\\s*(?:jarvis|jervis|jar\\s*vis|jar\\s*vice|jarvish|jarves|జార్విస్)[,:\\s]*",
+        RegexOption.IGNORE_CASE
+    )
+
     fun accept(text: String, confidence: List<Double>, threshold: Double): Boolean {
-        val heard = text.trim().lowercase().replace(Regex("\\s+"), " ")
+        val heard = text.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
         return heard in phrases &&
             confidence.size == heard.split(" ").size &&
             confidence.all { AudioCapturePolicy.confidenceAccepted(it, threshold) }
     }
 
-    /**
-     * Strict owner voice verification guard:
-     * NEVER bypasses owner verification for partial results or short speaker samples (< minFrames).
-     */
-    fun acceptWithOwnerGuard(
-        text: String,
-        confidence: List<Double>,
-        threshold: Double,
-        isPartial: Boolean,
-        ownerVerificationEnabled: Boolean,
-        spkFrames: Int,
-        minFrames: Int = SpeakerProfilePolicy.minFrames,
-        ownerVerified: Boolean
-    ): Boolean {
-        if (!accept(text, confidence, threshold)) return false
-        if (!ownerVerificationEnabled) return true
-        if (isPartial) return false
-        if (spkFrames < minFrames) return false
-        return ownerVerified
+    fun matchesPartialWake(transcript: String): Boolean {
+        val clean = transcript.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+        if (clean.isEmpty()) return false
+        return phrases.any { clean.startsWith(it) || " $it" in " $clean" } ||
+            "హే జార్విస్" in clean ||
+            clean.startsWith("jarvis ")
     }
 
-    // Stale UI thinking state must not strand the background detector; real mic and TTS owners still block it.
+    fun stripWakePrefix(transcript: String): String {
+        val stripped = WAKE_PREFIX_REGEX.replace(transcript.trim(), "").trim()
+        return if (stripped == transcript.trim()) "" else stripped
+    }
+
     fun foregroundBusy(inForeground: Boolean, micBusy: Boolean, ttsBusy: Boolean, thinking: Boolean): Boolean =
         micBusy || ttsBusy || (inForeground && thinking)
 

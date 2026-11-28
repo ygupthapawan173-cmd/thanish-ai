@@ -22,7 +22,20 @@ import androidx.work.WorkerParameters
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
 import androidx.work.workDataOf
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.util.concurrent.TimeUnit
+
+data class SmartTriggerEvent(val title: String, val message: String)
+
+object SmartTriggerBus {
+    private val _events = MutableSharedFlow<SmartTriggerEvent>(extraBufferCapacity = 8)
+    val events: SharedFlow<SmartTriggerEvent> = _events.asSharedFlow()
+    fun emit(event: SmartTriggerEvent) {
+        _events.tryEmit(event)
+    }
+}
 
 private data class DailySchedule(val name: String, val hour: Int, val minute: Int, val fingerprint: String, val token: String)
 

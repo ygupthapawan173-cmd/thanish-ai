@@ -2,6 +2,7 @@ package com.example.autonomous
 
 internal object UpdateTransferPolicy {
     const val MAX_APK_BYTES = 512L * 1024 * 1024
+    fun validRepo(repo: String): Boolean = Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(repo.trim())
     fun validHash(hash: String?) = hash != null && Regex("[0-9a-fA-F]{64}").matches(hash)
     fun allowedAsset(url: String): Boolean = runCatching {
         val u = java.net.URI(url)

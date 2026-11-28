@@ -2,6 +2,7 @@ package com.example.control
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.KeyguardManager
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
@@ -16,56 +17,77 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import android.app.KeyguardManager
 import kotlin.coroutines.resume
 
 /**
- * Permission-based Cross-App Automation & Visual HUD Service (NO screen-reader narration).
+ * Hardened Cross-App Accessibility Automation Service (Section 11):
+ * - Reactive connection state & defensive exception guards on window/node tree traversal
+ * - Strict bitmap & hardware buffer lifecycle cleanup
+ * - Screen-lock safety boundary; NO Screen Reader narration.
  */
 class PanduAccessibilityService : AccessibilityService() {
 
-    private lateinit var haptics: HapticFeedbackHelper
+    private var haptics: HapticFeedbackHelper? = null
     private var serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        serviceScope.cancel()
+        runCatching { serviceScope.cancel() }
         serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-        android.util.Log.i("OmegaAccessibility", "SERVICE_CONNECTED")
         instance = this
-        haptics = HapticFeedbackHelper(this)
+        _isConnected.value = true
+        haptics = runCatching { HapticFeedbackHelper(this) }.getOrNull()
 
         serviceScope.launch {
             AgentHudBus.abortSignal.collect {
-                haptics.abortPulse()
+                runCatching { haptics?.abortPulse() }
                 AgentHudBus.updateState(AgentHudState.Hidden)
             }
         }
     }
 
-    private fun available() = instance === this && !getSystemService(KeyguardManager::class.java).isDeviceLocked
+    private fun available(): Boolean = runCatching {
+        instance === this && !(getSystemService(KeyguardManager::class.java)?.isDeviceLocked ?: true)
+    }.getOrDefault(false)
 
     suspend fun performVisualTap(x: Float, y: Float, label: String, highlightBox: Rect? = null): Boolean =
         withContext(Dispatchers.Main) {
-            if (!available() || !x.isFinite() || !y.isFinite() || x < 0 || y < 0 || x >= resources.displayMetrics.widthPixels || y >= resources.displayMetrics.heightPixels) return@withContext false
-            haptics.softTap()
-            withTimeoutOrNull(2500L) { suspendCancellableCoroutine<Boolean> { cont ->
-                AgentHudBus.updateState(AgentHudState.Active(label, highlightBox = highlightBox, audioAmplitude = 0.6f))
-                AgentHudBus.emitEvent(HudVisualEvent.TapRipple(x, y))
-                val path = Path().apply { moveTo(x, y) }
-                val gesture = GestureDescription.Builder()
-                    .addStroke(GestureDescription.StrokeDescription(path, 0L, 60L))
-                    .build()
-                val ok = dispatchGesture(gesture, object : GestureResultCallback() {
-                    override fun onCompleted(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(true) }
-                    override fun onCancelled(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(false) }
-                }, null)
-                if (!ok && cont.isActive) cont.resume(false)
-            } } ?: false
+            val metrics = resources.displayMetrics
+            if (!available() || !x.isFinite() || !y.isFinite() ||
+                x < 0f || y < 0f || x >= metrics.widthPixels || y >= metrics.heightPixels
+            ) return@withContext false
+
+            runCatching { haptics?.softTap() }
+            withTimeoutOrNull(2_500L) {
+                suspendCancellableCoroutine<Boolean> { cont ->
+                    runCatching {
+                        AgentHudBus.updateState(AgentHudState.Active(label, highlightBox = highlightBox, audioAmplitude = 0.6f))
+                        AgentHudBus.emitEvent(HudVisualEvent.TapRipple(x, y))
+                        val path = Path().apply { moveTo(x, y) }
+                        val gesture = GestureDescription.Builder()
+                            .addStroke(GestureDescription.StrokeDescription(path, 0L, 60L))
+                            .build()
+                        val ok = dispatchGesture(gesture, object : GestureResultCallback() {
+                            override fun onCompleted(gestureDescription: GestureDescription?) {
+                                if (cont.isActive) cont.resume(true)
+                            }
+                            override fun onCancelled(gestureDescription: GestureDescription?) {
+                                if (cont.isActive) cont.resume(false)
+                            }
+                        }, null)
+                        if (!ok && cont.isActive) cont.resume(false)
+                    }.onFailure {
+                        if (cont.isActive) cont.resume(false)
+                    }
+                }
+            } ?: false
         }
 
     suspend fun tapNormalizedCoordinates(xNorm: Int, yNorm: Int, label: String): String {
@@ -75,56 +97,71 @@ class PanduAccessibilityService : AccessibilityService() {
         val box = Rect((px - 42).toInt(), (py - 42).toInt(), (px + 42).toInt(), (py + 42).toInt())
         val ok = performVisualTap(px, py, label.ifBlank { "Tap ($xNorm,$yNorm)" }, box)
         delay(220)
-        return if (ok) "Tapped ($xNorm, $yNorm)." else "Tap cancelled."
+        return if (ok) "Tapped ($xNorm, $yNorm)." else "Tap cancelled or blocked."
     }
 
     suspend fun typeTextIntoFocusedField(text: String): String = withContext(Dispatchers.Main) {
         if (!available()) return@withContext "Accessibility unavailable or device locked."
-        val root = rootInActiveWindow ?: return@withContext "No active window found."
-        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: findFirstEditable(root)
-            ?: return@withContext "No editable text field found."
-        if (focused.isPassword || !focused.isEditable) return@withContext "Protected or non-editable field."
-        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
-        if (focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) "Typed text." else "Unable to type."
+        runCatching {
+            val root = rootInActiveWindow ?: return@withContext "No active window found."
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: findBounded(root) { it.isEditable }
+                ?: return@withContext "No editable text field found."
+            if (focused.isPassword || !focused.isEditable) return@withContext "Protected or non-editable field."
+            val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+            if (focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) "Typed text." else "Unable to type."
+        }.getOrElse { "Accessibility window busy: ${it.message ?: "retry"}" }
     }
 
-    private fun findFirstEditable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? = findBounded(node) { it.isEditable }
-
-    // Bound traversal on large or malformed windows; avoid recursive stack overflow on the UI thread.
     private fun findBounded(root: AccessibilityNodeInfo?, matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         if (root == null) return null
         val pending = java.util.ArrayDeque<AccessibilityNodeInfo>()
         pending.add(root)
         var visited = 0
-        while (pending.isNotEmpty() && visited++ < 1500) {
+        while (pending.isNotEmpty() && visited++ < 1200) {
             val node = pending.removeLast()
-            if (matches(node)) return node
-            for (i in minOf(node.childCount, 1500) - 1 downTo 0) {
-                if (pending.size + visited >= 1500) break
-                node.getChild(i)?.let { pending.add(it) }
+            val matched = runCatching { matches(node) }.getOrDefault(false)
+            if (matched) return node
+            val childCount = runCatching { node.childCount }.getOrDefault(0)
+            for (i in minOf(childCount, 200) - 1 downTo 0) {
+                if (pending.size + visited >= 1200) break
+                runCatching { node.getChild(i) }.getOrNull()?.let { pending.add(it) }
             }
         }
         return null
     }
 
     suspend fun scrollScreen(direction: String): String = withContext(Dispatchers.Main) {
-        if (!available() || direction.lowercase() !in setOf("up", "down")) return@withContext "Scroll unavailable or invalid direction."
+        if (!available() || direction.lowercase() !in setOf("up", "down")) {
+            return@withContext "Scroll unavailable or invalid direction."
+        }
         val m = resources.displayMetrics
         val cx = m.widthPixels * 0.5f
         val isDown = direction.lowercase() != "up"
         val startY = if (isDown) m.heightPixels * 0.74f else m.heightPixels * 0.28f
         val endY = if (isDown) m.heightPixels * 0.28f else m.heightPixels * 0.74f
         AgentHudBus.emitEvent(HudVisualEvent.SwipeTrail(cx, startY, cx, endY))
-        val ok = withTimeoutOrNull(3000L) { suspendCancellableCoroutine<Boolean> { cont ->
-            val path = Path().apply { moveTo(cx, startY); lineTo(cx, endY) }
-            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 320L)).build()
-            val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(true) }
-                override fun onCancelled(gestureDescription: GestureDescription?) { if (cont.isActive) cont.resume(false) }
-            }, null)
-            if (!dispatched && cont.isActive) cont.resume(false)
-        } } ?: false
+        val ok = withTimeoutOrNull(3_000L) {
+            suspendCancellableCoroutine<Boolean> { cont ->
+                runCatching {
+                    val path = Path().apply { moveTo(cx, startY); lineTo(cx, endY) }
+                    val gesture = GestureDescription.Builder()
+                        .addStroke(GestureDescription.StrokeDescription(path, 0L, 320L))
+                        .build()
+                    val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                        override fun onCompleted(gestureDescription: GestureDescription?) {
+                            if (cont.isActive) cont.resume(true)
+                        }
+                        override fun onCancelled(gestureDescription: GestureDescription?) {
+                            if (cont.isActive) cont.resume(false)
+                        }
+                    }, null)
+                    if (!dispatched && cont.isActive) cont.resume(false)
+                }.onFailure {
+                    if (cont.isActive) cont.resume(false)
+                }
+            }
+        } ?: false
         if (ok) "Scrolled ${if (isDown) "down" else "up"}." else "Scroll cancelled."
     }
 
@@ -132,33 +169,48 @@ class PanduAccessibilityService : AccessibilityService() {
         if (!available()) return@withContext "Accessibility unavailable or device locked."
         val q = targetText.trim()
         if (q.isEmpty()) return@withContext "Target empty."
-        val root = rootInActiveWindow ?: return@withContext "No active window."
-        val exact = mutableListOf<AccessibilityNodeInfo>()
-        val pending = java.util.ArrayDeque<AccessibilityNodeInfo>(); pending.add(root)
-        var visited = 0
-        while (pending.isNotEmpty() && visited++ < 1500) {
-            val node = pending.removeLast()
-            if (node.isVisibleToUser && !node.isPassword && (node.text?.toString()?.equals(q, true) == true || node.contentDescription?.toString()?.equals(q, true) == true)) exact.add(node)
-            if (exact.size > 1) break
-            for (i in minOf(node.childCount, 1500) - 1 downTo 0) {
-                if (pending.size + visited >= 1500) break
-                node.getChild(i)?.let { pending.add(it) }
+        runCatching {
+            val root = rootInActiveWindow ?: return@withContext "No active window."
+            val exact = mutableListOf<AccessibilityNodeInfo>()
+            val pending = java.util.ArrayDeque<AccessibilityNodeInfo>()
+            pending.add(root)
+            var visited = 0
+            while (pending.isNotEmpty() && visited++ < 1200) {
+                val node = pending.removeLast()
+                val isMatch = runCatching {
+                    node.isVisibleToUser && !node.isPassword &&
+                        (node.text?.toString()?.equals(q, true) == true ||
+                            node.contentDescription?.toString()?.equals(q, true) == true)
+                }.getOrDefault(false)
+                if (isMatch) exact.add(node)
+                if (exact.size > 1) break
+                val childCount = runCatching { node.childCount }.getOrDefault(0)
+                for (i in minOf(childCount, 200) - 1 downTo 0) {
+                    if (pending.size + visited >= 1200) break
+                    runCatching { node.getChild(i) }.getOrNull()?.let { pending.add(it) }
+                }
             }
-        }
-        if (pending.isNotEmpty() && exact.size < 2) return@withContext "Window too complex; use a more specific action."
-        if (exact.size > 1) return@withContext "Multiple matching controls; specify a unique target."
-        val matched = exact.singleOrNull() ?: return@withContext "Could not find a unique exact control '$q'."
-        val rect = Rect()
-        matched.getBoundsInScreen(rect)
-        if (!rect.isEmpty) {
-            val tapped = performVisualTap(rect.exactCenterX(), rect.exactCenterY(), "Tapping '$q'", rect)
-            delay(220)
-            if (tapped) return@withContext "Tapped '$q'."
-        }
-        var node: AccessibilityNodeInfo? = matched
-        var depth = 0
-        while (node != null && !node.isClickable && depth++ < 64) node = node.parent
-        if (node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) "Clicked '$q'." else "Could not click '$q'."
+            if (pending.isNotEmpty() && exact.size < 2) return@withContext "Window too complex; be more specific."
+            if (exact.size > 1) return@withContext "Multiple matching controls; specify a unique target."
+            val matched = exact.singleOrNull() ?: return@withContext "Could not find control '$q'."
+            val rect = Rect()
+            runCatching { matched.getBoundsInScreen(rect) }
+            if (!rect.isEmpty) {
+                val tapped = performVisualTap(rect.exactCenterX(), rect.exactCenterY(), "Tapping '$q'", rect)
+                delay(220)
+                if (tapped) return@withContext "Tapped '$q'."
+            }
+            var node: AccessibilityNodeInfo? = matched
+            var depth = 0
+            while (node != null && !node.isClickable && depth++ < 64) {
+                node = runCatching { node.parent }.getOrNull()
+            }
+            if (node?.let { runCatching { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }.getOrDefault(false) } == true) {
+                "Clicked '$q'."
+            } else {
+                "Could not click '$q'."
+            }
+        }.getOrElse { "Control tap interrupted: ${it.message ?: "retry"}" }
     }
 
     fun performDeviceNavigation(action: String): String {
@@ -170,33 +222,50 @@ class PanduAccessibilityService : AccessibilityService() {
             "notifications" -> GLOBAL_ACTION_NOTIFICATIONS
             else -> return "Unknown action: $action"
         }
-        return if (performGlobalAction(code)) "Performed $action." else "Failed $action."
+        return if (runCatching { performGlobalAction(code) }.getOrDefault(false)) "Performed $action." else "Failed $action."
     }
 
     suspend fun captureScreenBase64Jpeg(): String? = withContext(Dispatchers.Main) {
         if (!available() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext null
-        withTimeoutOrNull(5000L) { suspendCancellableCoroutine<String?> { cont ->
-            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
-                override fun onSuccess(screenshot: ScreenshotResult) {
-                    try {
-                        val buffer = screenshot.hardwareBuffer
-                        val hw = try { if (cont.isActive) Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace) else null } finally { buffer.close() }
-                        if (hw != null) {
-                            val sw = hw.copy(Bitmap.Config.ARGB_8888, false)
-                            hw.recycle()
-                            val b64 = VisionHelper.bitmapToBase64Jpeg(sw)
-                            sw.recycle()
-                            if (cont.isActive) cont.resume(b64)
-                        } else if (cont.isActive) cont.resume(null)
-                    } catch (_: Exception) { if (cont.isActive) cont.resume(null) }
-                }
-                override fun onFailure(errorCode: Int) { if (cont.isActive) cont.resume(null) }
-            })
-        } }
-    }
+        withTimeoutOrNull(5_000L) {
+            suspendCancellableCoroutine<String?> { cont ->
+                runCatching {
+                    takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                        override fun onSuccess(screenshot: ScreenshotResult) {
+                            var hw: Bitmap? = null
+                            var sw: Bitmap? = null
+                            try {
+                                val buffer = screenshot.hardwareBuffer
+                                hw = try {
+                                    if (cont.isActive) Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace) else null
+                                } finally {
+                                    runCatching { buffer.close() }
+                                }
+                                if (hw != null) {
+                                    sw = hw.copy(Bitmap.Config.ARGB_8888, false)
+                                    val b64 = if (sw != null) VisionHelper.bitmapToBase64Jpeg(sw) else null
+                                    if (cont.isActive) cont.resume(b64)
+                                } else if (cont.isActive) {
+                                    cont.resume(null)
+                                }
+                            } catch (_: Exception) {
+                                if (cont.isActive) cont.resume(null)
+                            } finally {
+                                runCatching { hw?.recycle() }
+                                runCatching { sw?.recycle() }
+                            }
+                        }
 
-    private fun findByDesc(node: AccessibilityNodeInfo?, query: String): AccessibilityNodeInfo? =
-        findBounded(node) { it.contentDescription?.toString()?.contains(query, ignoreCase = true) == true }
+                        override fun onFailure(errorCode: Int) {
+                            if (cont.isActive) cont.resume(null)
+                        }
+                    })
+                }.onFailure {
+                    if (cont.isActive) cont.resume(null)
+                }
+            }
+        }
+    }
 
     override fun onKeyEvent(event: KeyEvent?): Boolean {
         if (event?.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.action == KeyEvent.ACTION_DOWN) {
@@ -207,25 +276,30 @@ class PanduAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         if (instance === this) instance = null
-        serviceScope.cancel()
+        _isConnected.value = false
+        runCatching { serviceScope.cancel() }
         AgentHudBus.updateState(AgentHudState.Hidden)
-        android.util.Log.w("OmegaAccessibility", "SERVICE_UNBOUND")
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        android.util.Log.i("OmegaAccessibility", "SERVICE_DESTROYED")
-        if (instance == this) instance = null
-        serviceScope.cancel()
+        if (instance === this) instance = null
+        _isConnected.value = false
+        runCatching { serviceScope.cancel() }
         super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
-    override fun onInterrupt() { AgentHudBus.updateState(AgentHudState.Hidden) }
+    override fun onInterrupt() {
+        AgentHudBus.updateState(AgentHudState.Hidden)
+    }
 
     companion object {
         @Volatile
         var instance: PanduAccessibilityService? = null
             private set
+
+        private val _isConnected = MutableStateFlow(false)
+        val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
     }
 }

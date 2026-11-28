@@ -1,11 +1,15 @@
 package com.example.ai
 
+import com.example.data.AiProvider
+import com.example.data.IntelligenceMode
+
 enum class RouteTarget {
     ANDROID_DIRECT_EXECUTION,
+    LOCAL_RELEASE_UPDATE,
     OFFICIAL_GEMINI_FREE_TIER,
-    FAST_CODING_MODEL,
-    ADVANCED_CODING_MODEL,
-    ANTIGRAVITY_WORKFLOW_HANDOFF,
+    DEEP_THINKING_ENGINE,
+    LIVE_WEB_SEARCH,
+    DEEP_RESEARCH_ENGINE,
     AUTHORIZED_PAID_FALLBACK,
     BLOCKED_ZERO_CREDITS
 }
@@ -13,107 +17,140 @@ enum class RouteTarget {
 data class SmartRouteResult(
     val target: RouteTarget,
     val preferredModel: String,
+    val fallbackModels: List<String>,
     val reason: String
 )
 
 /**
- * V108 Smart AI Task Router.
- * Enforces priority routing:
- * - Simple mobile commands -> Android Direct Execution
- * - Daily questions -> Official Gemini free-tier models
- * - Fast coding -> Fast coding models
- * - Advanced coding -> Advanced Gemini/Claude coding models
- * - Major development -> Antigravity permitted workflow handoff
- * - Paid requests -> Only when ZeroPaidCreditsPolicy explicitly permits
+ * V110 Master AI Task Router (Sections 3, 4, 5, 10, 16):
+ * Coordinates Fast / Smart / Deep Intelligence modes, Live Internet Search,
+ * Gemini Direct free-tier priority, OpenAI GPT capability fallback, and paid authorization checks.
  */
 object SmartAiTaskRouter {
 
     fun route(
         plan: BrainTaskPlan,
+        activeProvider: AiProvider,
         hasGeminiKey: Boolean,
-        hasGatewayKey: Boolean,
-        zeroPaidCreditsMode: Boolean,
-        isFreeGatewayMode: Boolean,
-        preferredGeminiModel: String
+        hasOpenAiKey: Boolean,
+        freePriority: Boolean,
+        allowPaidModels: Boolean,
+        preferredGeminiModel: String,
+        preferredOpenAiModel: String,
+        isDirectCommand: Boolean = false
     ): SmartRouteResult {
-        return when (plan.category) {
-            BrainIntentCategory.DIRECT_MOBILE_COMMAND -> SmartRouteResult(
-                target = RouteTarget.ANDROID_DIRECT_EXECUTION,
-                preferredModel = "local-device-action",
-                reason = "Simple mobile command routed to Android Direct Execution"
-            )
-            BrainIntentCategory.MAJOR_DEVELOPMENT,
-            BrainIntentCategory.SELF_UPGRADE,
-            BrainIntentCategory.CRASH_FIX -> {
-                if (hasGeminiKey) {
-                    SmartRouteResult(
-                        target = RouteTarget.ADVANCED_CODING_MODEL,
-                        preferredModel = preferredGeminiModel.ifBlank { "gemini-2.5-pro" },
-                        reason = "Autonomous coding/upgrade via Official Gemini API + Antigravity review"
-                    )
-                } else {
-                    SmartRouteResult(
-                        target = RouteTarget.ANTIGRAVITY_WORKFLOW_HANDOFF,
-                        preferredModel = "gemini-4-hydrogen-medium",
-                        reason = "Major development routed to permitted Antigravity CLI workflow handoff"
-                    )
-                }
-            }
-            BrainIntentCategory.ADVANCED_CODING -> {
-                if (hasGeminiKey) {
-                    SmartRouteResult(
-                        target = RouteTarget.ADVANCED_CODING_MODEL,
-                        preferredModel = preferredGeminiModel.ifBlank { "gemini-2.5-pro" },
-                        reason = "Advanced coding routed to Official Gemini API"
-                    )
-                } else paidOrBlocked(hasGatewayKey, zeroPaidCreditsMode, isFreeGatewayMode)
-            }
-            BrainIntentCategory.FAST_CODING -> {
-                if (hasGeminiKey) {
-                    SmartRouteResult(
-                        target = RouteTarget.FAST_CODING_MODEL,
-                        preferredModel = preferredGeminiModel.ifBlank { "gemini-2.5-flash" },
-                        reason = "Fast coding routed to Official Gemini Flash"
-                    )
-                } else paidOrBlocked(hasGatewayKey, zeroPaidCreditsMode, isFreeGatewayMode)
-            }
-            BrainIntentCategory.DAILY_QUESTION,
-            BrainIntentCategory.MEMORY_QUERY -> {
-                if (hasGeminiKey) {
-                    SmartRouteResult(
-                        target = RouteTarget.OFFICIAL_GEMINI_FREE_TIER,
-                        preferredModel = preferredGeminiModel.ifBlank { "gemini-2.5-flash" },
-                        reason = "Daily question routed to free-quota-first Official Gemini API"
-                    )
-                } else paidOrBlocked(hasGatewayKey, zeroPaidCreditsMode, isFreeGatewayMode)
-            }
-        }
-    }
-
-    private fun paidOrBlocked(
-        hasGatewayKey: Boolean,
-        zeroPaidCreditsMode: Boolean,
-        isFreeGatewayMode: Boolean
-    ): SmartRouteResult {
-        if (!hasGatewayKey) {
+        if (plan.releaseAction != null) {
             return SmartRouteResult(
-                target = RouteTarget.BLOCKED_ZERO_CREDITS,
-                preferredModel = "",
-                reason = "No authorized API key configured"
+                target = RouteTarget.LOCAL_RELEASE_UPDATE,
+                preferredModel = "local-self-upgrade",
+                fallbackModels = emptyList(),
+                reason = "Voice release check / upgrade handled securely via Self-Upgrade Center"
             )
         }
-        return if (ZeroPaidCreditsPolicy.allowsPaidGateway(zeroPaidCreditsMode, isFreeGatewayMode)) {
-            SmartRouteResult(
+
+        if (isDirectCommand) {
+            return SmartRouteResult(
+                target = RouteTarget.ANDROID_DIRECT_EXECUTION,
+                preferredModel = "android-direct",
+                fallbackModels = emptyList(),
+                reason = "Explicit Android device control executed directly"
+            )
+        }
+
+        if (plan.prefersDeepResearch && hasGeminiKey && (freePriority || activeProvider == AiProvider.GEMINI || !allowPaidModels)) {
+            return SmartRouteResult(
+                target = RouteTarget.DEEP_RESEARCH_ENGINE,
+                preferredModel = "deep-research-preview-04-2026",
+                fallbackModels = listOf(preferredGeminiModel.ifBlank { "gemini-4-carbon" }, "gemini-2.5-pro", "gemini-2.5-flash"),
+                reason = "Deep multi-source investigation routed to Gemini Deep Research with grounded fallback"
+            )
+        }
+
+        if (plan.requiresWebSearch) {
+            if ((activeProvider == AiProvider.GEMINI || freePriority || !allowPaidModels) && hasGeminiKey) {
+                val primary = preferredGeminiModel.ifBlank { "gemini-4-hydrogen" }
+                return SmartRouteResult(
+                    target = RouteTarget.LIVE_WEB_SEARCH,
+                    preferredModel = primary,
+                    fallbackModels = listOf("gemini-3.8-flash", "gemini-2.5-flash"),
+                    reason = "Real-time query routed to Gemini Google Search Grounding"
+                )
+            }
+            if (hasOpenAiKey && allowPaidModels) {
+                val oaiPrimary = preferredOpenAiModel.ifBlank { "gpt-6.2-sol" }
+                return SmartRouteResult(
+                    target = RouteTarget.LIVE_WEB_SEARCH,
+                    preferredModel = oaiPrimary,
+                    fallbackModels = listOf("gpt-6.2-sol", "gpt-5", "gpt-4o"),
+                    reason = "Real-time query routed to OpenAI Responses Web Search"
+                )
+            }
+        }
+
+        val wantsGeminiFirst = when {
+            activeProvider == AiProvider.GEMINI && hasGeminiKey -> true
+            freePriority && hasGeminiKey -> true
+            !allowPaidModels && hasGeminiKey -> true
+            else -> false
+        }
+
+        if (wantsGeminiFirst) {
+            val defaultGem = when (plan.intelligenceMode) {
+                IntelligenceMode.FAST -> "gemini-4-hydrogen"
+                IntelligenceMode.SMART -> "gemini-4-argon"
+                IntelligenceMode.DEEP -> "gemini-4-carbon"
+            }
+            val primary = preferredGeminiModel.ifBlank { defaultGem }
+            val target = if (plan.intelligenceMode == IntelligenceMode.DEEP) {
+                RouteTarget.DEEP_THINKING_ENGINE
+            } else {
+                RouteTarget.OFFICIAL_GEMINI_FREE_TIER
+            }
+            return SmartRouteResult(
+                target = target,
+                preferredModel = primary,
+                fallbackModels = listOf("gemini-4-neon", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite").distinct(),
+                reason = "Routed via Official Gemini Direct (${plan.intelligenceMode.label}; Free Priority=$freePriority)"
+            )
+        }
+
+        if (hasOpenAiKey) {
+            if (!allowPaidModels) {
+                return SmartRouteResult(
+                    target = RouteTarget.BLOCKED_ZERO_CREDITS,
+                    preferredModel = "",
+                    fallbackModels = emptyList(),
+                    reason = "Paid OpenAI GPT models require explicit user authorization in Settings"
+                )
+            }
+            val defaultOai = when (plan.intelligenceMode) {
+                IntelligenceMode.FAST -> "gpt-6-luna"
+                IntelligenceMode.SMART -> "gpt-6.2-sol"
+                IntelligenceMode.DEEP -> "gpt-6.2-astra"
+            }
+            val primary = preferredOpenAiModel.ifBlank { defaultOai }
+            return SmartRouteResult(
                 target = RouteTarget.AUTHORIZED_PAID_FALLBACK,
-                preferredModel = "openrouter-gateway",
-                reason = "Authorized Smart Gateway / AICredits fallback"
-            )
-        } else {
-            SmartRouteResult(
-                target = RouteTarget.BLOCKED_ZERO_CREDITS,
-                preferredModel = "",
-                reason = "Zero Paid Credits Mode is ON; paid fallback blocked"
+                preferredModel = primary,
+                fallbackModels = listOf("gpt-6.2-sol", "gpt-6.1-terra", "gpt-5-mini", "gpt-4o-mini").distinct(),
+                reason = "Routed via Authorized OpenAI GPT (${plan.intelligenceMode.label})"
             )
         }
+
+        if (hasGeminiKey) {
+            return SmartRouteResult(
+                target = RouteTarget.OFFICIAL_GEMINI_FREE_TIER,
+                preferredModel = preferredGeminiModel.ifBlank { "gemini-4-hydrogen" },
+                fallbackModels = listOf("gemini-3.8-flash", "gemini-2.5-flash"),
+                reason = "Automatic provider fallback to Google Gemini Direct"
+            )
+        }
+
+        return SmartRouteResult(
+            target = RouteTarget.BLOCKED_ZERO_CREDITS,
+            preferredModel = "",
+            fallbackModels = emptyList(),
+            reason = "No authorized Gemini or OpenAI API slot configured"
+        )
     }
 }

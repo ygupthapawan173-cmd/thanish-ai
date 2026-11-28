@@ -12,8 +12,8 @@ class OmegaQuickTileService : TileService() {
         super.onStartListening()
         qsTile?.apply {
             state = Tile.STATE_ACTIVE
-            label = "OMEGA Voice"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) subtitle = "18 Supreme"
+            label = "JARVIS Voice"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) subtitle = "V110 Master"
             updateTile()
         }
     }

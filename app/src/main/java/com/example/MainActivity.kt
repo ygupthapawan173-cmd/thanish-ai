@@ -3,19 +3,20 @@ package com.example
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.SystemBarStyle
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
 import com.example.control.AgentHudBus
-import com.example.ui.components.InfinityRenderQuality
+import com.example.ui.JarvisTab
 import com.example.ui.OmegaDashboardApp
 import com.example.ui.PanduViewModel
+import com.example.ui.components.InfinityRenderQuality
+import com.example.ui.theme.OmegaColors
 
 class MainActivity : ComponentActivity() {
 
@@ -23,23 +24,38 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         handleLaunchIntent(intent)
 
         setContent {
             val state by viewModel.uiState.collectAsState()
-            val palette = state.settings.orbColorPreset
-            MaterialTheme(colorScheme = darkColorScheme(primary = Color(palette.primaryHex), onPrimary = Color.Black, secondary = Color(palette.secondaryHex), background = Color(palette.backgroundHex), surface = Color(palette.surfaceHex), onSurface = Color(0xFFF8FAFC), onBackground = Color(0xFFF8FAFC))) {
-                InfinityRenderQuality(state.settings.renderQuality) { OmegaDashboardApp(viewModel = viewModel) }
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = OmegaColors.NeonBlue,
+                    onPrimary = OmegaColors.IceWhite,
+                    secondary = OmegaColors.NeonCyan,
+                    onSecondary = OmegaColors.DeepNavy,
+                    background = OmegaColors.DeepNavy,
+                    surface = OmegaColors.SurfaceNavy,
+                    onBackground = OmegaColors.IceWhite,
+                    onSurface = OmegaColors.IceWhite
+                )
+            ) {
+                InfinityRenderQuality(state.settings.renderQuality) {
+                    OmegaDashboardApp(viewModel = viewModel)
+                }
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Track foreground ownership for voice routing; no external overlays.
         AgentHudBus.setAppInForeground(true)
         viewModel.restoreWakeIfEnabled()
+        viewModel.refreshSystemMetrics()
     }
 
     override fun onPause() {
@@ -74,18 +90,14 @@ class MainActivity : ComponentActivity() {
         }
 
         if (intent.getBooleanExtra(EXTRA_OPEN_CAMERA, false)) {
+            viewModel.navigateTo(JarvisTab.CONTROL)
             viewModel.requestCameraLaunchFromWidget()
             intent.removeExtra(EXTRA_OPEN_CAMERA)
         }
 
-        val routineName = intent.getStringExtra(EXTRA_RUN_ROUTINE).orEmpty()
-        if (routineName.isNotBlank()) {
-            if (routineName.equals("briefing", ignoreCase = true)) {
-                viewModel.runDailyBriefing()
-            } else {
-                viewModel.runRoutineByName(routineName)
-            }
-            intent.removeExtra(EXTRA_RUN_ROUTINE)
+        if (intent.getBooleanExtra(EXTRA_OPEN_DASHBOARD, false)) {
+            viewModel.navigateTo(JarvisTab.DASHBOARD)
+            intent.removeExtra(EXTRA_OPEN_DASHBOARD)
         }
     }
 
@@ -93,6 +105,6 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_START_LISTENING = "extra_start_listening"
         const val EXTRA_WAKE_COMMAND = "extra_wake_command"
         const val EXTRA_OPEN_CAMERA = "extra_open_camera"
-        const val EXTRA_RUN_ROUTINE = "extra_run_routine"
+        const val EXTRA_OPEN_DASHBOARD = "extra_open_dashboard"
     }
 }

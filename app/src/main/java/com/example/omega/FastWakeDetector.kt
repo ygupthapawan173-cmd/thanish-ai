@@ -3,23 +3,19 @@ package com.example.omega
 import com.example.voice.AudioCapturePolicy
 import com.example.voice.HandsFreeWakePolicy
 import com.example.voice.MicLease
-import com.example.voice.SpeakerProfilePolicy
 import org.json.JSONObject
 
 /**
- * V109 wake coordinator integrated into the active OnlineBackgroundVoiceService.
- * - Uses existing MicLease (VoiceMic.lease) to prevent microphone conflicts.
+ * Wake coordinator integrated into OnlineBackgroundVoiceService:
+ * - Uses MicLease (VoiceMic.lease) for exclusive single-owner microphone access.
  * - Guarantees idempotent cleanup: cancel(), shutdown(), closeRecognizer(), and MicLease.release()
- *   each execute at most ONCE per session (no duplicate calls).
- * - Strictly enforces OwnerSpeaker verification without bypassing short samples or partial results.
+ *   each execute at most ONCE per session.
+ * - Fixed "Hey JARVIS" detection (no owner voice profile or custom wake word).
  */
 internal class FastWakeDetector(
     private val lease: MicLease,
     private val leaseOwner: Any,
-    private val sensitivityProvider: () -> Float,
-    private val ownerFilterEnabled: () -> Boolean = { false },
-    private val ownerVerify: (JSONObject) -> Boolean = { true },
-    private val minOwnerFrames: () -> Int = { SpeakerProfilePolicy.minFrames }
+    private val sensitivityProvider: () -> Float
 ) {
     interface Session {
         fun cancel()
@@ -74,30 +70,22 @@ internal class FastWakeDetector(
 
     fun evaluateResult(hypothesisJson: String, isPartial: Boolean): Boolean {
         val json = runCatching { JSONObject(hypothesisJson) }.getOrNull() ?: return false
-        val ownerEnabled = ownerFilterEnabled()
-        if (isPartial && ownerEnabled) return false
-
         val text = if (isPartial) json.optString("partial") else json.optString("text")
         if (text.isBlank()) return false
+
+        if (isPartial) {
+            return HandsFreeWakePolicy.matchesPartialWake(text)
+        }
 
         val words = json.optJSONArray("result") ?: return false
         val confidence = (0 until words.length()).map {
             words.optJSONObject(it)?.optDouble("conf", Double.NaN) ?: Double.NaN
         }
-
         val threshold = AudioCapturePolicy.wakeThreshold(sensitivityProvider())
-        val spkFrames = json.optInt("spk_frames", 0)
-        val verified = if (ownerEnabled) spkFrames >= minOwnerFrames() && ownerVerify(json) else true
-
-        return HandsFreeWakePolicy.acceptWithOwnerGuard(
+        return HandsFreeWakePolicy.accept(
             text = text,
             confidence = confidence,
-            threshold = threshold,
-            isPartial = isPartial,
-            ownerVerificationEnabled = ownerEnabled,
-            spkFrames = spkFrames,
-            minFrames = minOwnerFrames(),
-            ownerVerified = verified
+            threshold = threshold
         )
     }
 }

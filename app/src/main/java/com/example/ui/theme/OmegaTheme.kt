@@ -13,97 +13,80 @@ import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.example.data.OmegaVisualTheme
-import com.example.data.OrbColorPreset
 
+/**
+ * JARVIS INFINITY V110 Unified Futuristic Color System (Section 12):
+ * Dark Navy background (#060D1F / #0D1B38) paired with Neon Blue (#2563FF) & Cyan (#00E5FF) accents.
+ */
 object OmegaColors {
-    val PureBlack = Color(0xFF000000)
-    val CarbonSurface = Color(0xFF101014)
-    val CarbonElevated = Color(0xFF17171D)
-    val SubtleBorder = Color(0xFF22222B)
-    val HairlineDivider = Color(0xFF1C1C24)
+    val DeepNavy = Color(0xFF060D1F)
+    val SurfaceNavy = Color(0xFF0D1B38)
+    val ElevatedNavy = Color(0xFF12244A)
+    val BorderBlue = Color(0xFF1E3A70)
 
-    val VelvetTop = Color(0xFF0D0D12)
-    val VelvetMid = Color(0xFF08080B)
-    val VelvetBottom = Color(0xFF000000)
+    val NeonBlue = Color(0xFF2563FF)
+    val NeonCyan = Color(0xFF00E5FF)
+    val IceWhite = Color(0xFFE8F4FF)
+    val MutedSlate = Color(0xFF8DA2CE)
 
-    val ElectricCyan = Color(0xFF38BDF8)
-    val RoyalIndigo = Color(0xFF7C3AED)
-    val CoralRose = Color(0xFFFF3D77)
     val EmeraldLive = Color(0xFF10B981)
     val AmberWarn = Color(0xFFF59E0B)
     val CrimsonErr = Color(0xFFF43F5E)
 }
 
-fun OmegaVisualTheme.isDark(): Boolean = true
-fun OmegaVisualTheme.primaryText(): Color = Color(0xFFF8FAFC)
-fun OmegaVisualTheme.mutedText(): Color = Color(0xFF8B90A0)
-fun OmegaVisualTheme.accentColor(preset: OrbColorPreset): Color = Color(preset.primaryHex)
+@Composable
+fun omegaSwitchColors(): SwitchColors = SwitchDefaults.colors(
+    checkedThumbColor = OmegaColors.IceWhite,
+    checkedTrackColor = OmegaColors.NeonBlue,
+    checkedBorderColor = OmegaColors.NeonCyan,
+    uncheckedThumbColor = OmegaColors.MutedSlate,
+    uncheckedTrackColor = OmegaColors.ElevatedNavy,
+    uncheckedBorderColor = OmegaColors.BorderBlue
+)
 
 @Composable
-fun omegaSwitchColors(theme: OmegaVisualTheme, preset: OrbColorPreset): SwitchColors {
-    val accent = Color(preset.primaryHex)
-    return SwitchDefaults.colors(
-        checkedThumbColor = Color.White,
-        checkedTrackColor = accent,
-        checkedBorderColor = accent,
-        uncheckedThumbColor = Color(0xFF8E92A4),
-        uncheckedTrackColor = Color(0xFF1C1C24),
-        uncheckedBorderColor = Color(0xFF2E2E3A)
-    )
-}
+fun omegaTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = OmegaColors.NeonCyan,
+    unfocusedBorderColor = OmegaColors.BorderBlue,
+    focusedContainerColor = OmegaColors.SurfaceNavy,
+    unfocusedContainerColor = OmegaColors.DeepNavy,
+    focusedTextColor = OmegaColors.IceWhite,
+    unfocusedTextColor = OmegaColors.IceWhite.copy(alpha = 0.9f),
+    focusedLabelColor = OmegaColors.NeonCyan,
+    unfocusedLabelColor = OmegaColors.MutedSlate,
+    cursorColor = OmegaColors.NeonCyan
+)
 
 @Composable
-fun omegaTextFieldColors(theme: OmegaVisualTheme, preset: OrbColorPreset): TextFieldColors {
-    val accent = Color(preset.primaryHex)
-    return OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = accent,
-        unfocusedBorderColor = Color(0xFF262632),
-        focusedContainerColor = Color(preset.surfaceHex),
-        unfocusedContainerColor = Color(preset.backgroundHex),
-        focusedTextColor = Color(0xFFF8FAFC),
-        unfocusedTextColor = Color(0xFFE2E8F0),
-        focusedLabelColor = accent,
-        unfocusedLabelColor = Color(0xFF8B90A0),
-        cursorColor = accent
-    )
-}
-
-/**
- * Pure AMOLED Pitch Black (#000000) backdrop — ZERO aura light, ZERO radial glow blobs!
- */
-@Composable
-fun OmegaLiquidBackdrop(
-    theme: OmegaVisualTheme,
-    preset: OrbColorPreset,
+fun OmegaNavyBackdrop(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val bgColor = Color(preset.backgroundHex)
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(bgColor)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(OmegaColors.DeepNavy, Color(0xFF08142E), OmegaColors.DeepNavy)
+                )
+            )
     ) {
         content()
     }
 }
 
-/**
- * Clean Matte Dark Container with ultra-thin hairline border (Zero glow/aura).
- */
 fun Modifier.omegaGlassCard(
     cornerRadius: Dp = 18.dp,
-    theme: OmegaVisualTheme,
-    preset: OrbColorPreset = OrbColorPreset.SOLAR_NOVA
+    highlighted: Boolean = false
 ): Modifier = this
     .clip(RoundedCornerShape(cornerRadius))
-    .background(Color(preset.surfaceHex))
+    .background(if (highlighted) OmegaColors.ElevatedNavy else OmegaColors.SurfaceNavy)
     .border(
         width = 1.dp,
-        color = Color(preset.primaryHex).copy(alpha = 0.24f),
+        color = if (highlighted) OmegaColors.NeonCyan.copy(alpha = 0.55f) else OmegaColors.BorderBlue.copy(alpha = 0.65f),
         shape = RoundedCornerShape(cornerRadius)
     )

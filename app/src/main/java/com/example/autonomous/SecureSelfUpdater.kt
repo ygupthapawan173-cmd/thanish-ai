@@ -41,7 +41,7 @@ class SecureSelfUpdater(
         .build()
 
     suspend fun checkLatestRelease(repoSlug: String, token: String): Result<ReleaseUpdateInfo> = withContext(Dispatchers.IO) {
-        if (!EngineeringPolicy.validRepo(repoSlug.trim())) return@withContext Result.failure(IllegalArgumentException("Set GitHub Repo (owner/repo) first."))
+        if (!UpdateTransferPolicy.validRepo(repoSlug.trim())) return@withContext Result.failure(IllegalArgumentException("Set GitHub Repo (owner/repo) first."))
         runCatching {
             val req = Request.Builder()
                 .url("https://api.github.com/repos/${repoSlug.trim()}/releases/latest")
