@@ -118,7 +118,7 @@ class VoiceInputController(
             return
         }
         val engine = VoiceEngineSelector.selectBest(true, false, true,
-            sarvamKeyProvider().isNotBlank() && StreamingVoiceEngineKind.SARVAM_SAARAS_V4 !in tried,
+            sarvamKeyProvider().isNotBlank() && (geminiKeyProvider().isBlank() || StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE in tried) && StreamingVoiceEngineKind.SARVAM_SAARAS_V4 !in tried,
             geminiKeyProvider().isNotBlank() && StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE !in tried,
             openAiKeyProvider().isNotBlank() && StreamingVoiceEngineKind.OPENAI_LIVE_TRANSCRIBE !in tried).selectedEngine
         if (engine == StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE) {

@@ -10,7 +10,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class SlotProvider(val label: String, val defaultBaseUrl: String, val defaultModel: String, val defaultPaid: Boolean) {
-    GEMINI("Google Gemini Direct", "https://generativelanguage.googleapis.com/v1beta", "gemini-4-hydrogen", false),
+    GEMINI("Google Gemini Direct", "https://generativelanguage.googleapis.com/v1beta", "gemini-3.5-flash-lite", false),
     OPENAI("OpenAI GPT", "https://api.openai.com/v1", "gpt-6.2-sol", true),
     SARVAM("Sarvam AI Voice", "https://api.sarvam.ai", "bulbul:v3", true);
 

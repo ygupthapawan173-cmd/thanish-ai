@@ -71,7 +71,7 @@ class TeluguTtsController(
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
-    private val _ttsStatus = MutableStateFlow("Sarvam Telugu Voice Ready")
+    private val _ttsStatus = MutableStateFlow("Gemini / optional Sarvam voice")
     val ttsStatus: StateFlow<String> = _ttsStatus.asStateFlow()
 
     fun setOnSpeechFinished(callback: (() -> Unit)?) {
@@ -92,6 +92,10 @@ class TeluguTtsController(
         val direct = s?.sarvamApiKey?.trim().orEmpty()
         if (direct.isNotBlank()) return direct
         return slotManager?.getActiveSarvamKeyAndUrl()?.first.orEmpty()
+    }
+
+    private fun effectiveGeminiKey(s: OmegaSettings): String = s.effectiveGeminiKey().ifBlank {
+        slotManager?.slots?.value?.firstOrNull { it.provider == com.example.data.SlotProvider.GEMINI && it.enabled && it.apiKey.isNotBlank() }?.apiKey.orEmpty()
     }
 
     private fun privacyBlocked(s: OmegaSettings): Boolean {
@@ -116,10 +120,13 @@ class TeluguTtsController(
             onSpeechFinishedCallback?.invoke()
             return
         }
-        val key = effectiveSarvamKey(s)
+        val geminiKey = effectiveGeminiKey(s)
+        val sarvamKey = effectiveSarvamKey(s)
+        val useGemini = geminiKey.isNotBlank()
+        val key = if (useGemini) geminiKey else sarvamKey
         if (key.isBlank()) {
             lastSpeechSucceeded = false
-            _ttsStatus.value = "Add Sarvam API key in Voice or Settings for speech"
+            _ttsStatus.value = "Add Gemini API key for speech (Sarvam optional)"
             onSpeechFinishedCallback?.invoke()
             return
         }
@@ -131,7 +138,7 @@ class TeluguTtsController(
         }
         val now = SystemClock.elapsedRealtime()
         if (now < cooldownUntil) {
-            _ttsStatus.value = "Sarvam reconnecting in ${(cooldownUntil - now) / 1000L + 1L}s"
+            _ttsStatus.value = "Voice reconnecting in ${(cooldownUntil - now) / 1000L + 1L}s"
             onSpeechFinishedCallback?.invoke()
             return
         }
@@ -144,9 +151,10 @@ class TeluguTtsController(
             com.example.omega.OnlineBackgroundVoiceService.yieldToForeground(appContext)
         }
         val langCode = SarvamVoiceClient.detectLanguageCode(clean, s.languageTag)
-        val speaker = s.sarvamSpeaker.ifBlank { "shubh" }
+        val speaker = if (useGemini) "Charon" else s.sarvamSpeaker.ifBlank { "shubh" }
+        val voiceProvider = if (useGemini) "Gemini" else "Sarvam"
         val model = s.sarvamModel.ifBlank { "bulbul:v3" }
-        _ttsStatus.value = "Sarvam ($speaker) synthesizing $langCode..."
+        _ttsStatus.value = "$voiceProvider ($speaker) synthesizing $langCode..."
 
         val monitor = object : Runnable {
             override fun run() {
@@ -166,14 +174,14 @@ class TeluguTtsController(
             try {
                 val timeoutMs = 24_000L
                 val result = withTimeoutOrNull(timeoutMs) {
-                    SarvamVoiceClient.synthesize(
+                    if (useGemini) GeminiSpeechOutput.synthesize(key, clean) else SarvamVoiceClient.synthesize(
                         apiKey = key,
                         rawText = clean,
                         languageTag = langCode,
                         speakerId = speaker,
                         modelOverride = model
                     )
-                } ?: Result.failure(java.io.IOException("Sarvam synthesis timed out"))
+                } ?: Result.failure(java.io.IOException("Voice synthesis timed out"))
 
                 if (token != generation) return@launch
                 val curSettings = cloudSettings?.invoke() ?: s
@@ -187,7 +195,7 @@ class TeluguTtsController(
                     if ("HTTP 429" in msg || "timed out" in msg.lowercase()) {
                         cooldownUntil = SystemClock.elapsedRealtime() + 8_000L
                     }
-                    complete(token, success = false, status = msg.ifBlank { "Sarvam synthesis failed" })
+                    complete(token, success = false, status = msg.ifBlank { "Voice synthesis failed" })
                     return@launch
                 }
 
@@ -234,22 +242,22 @@ class TeluguTtsController(
                                 effect
                             } catch (e: Exception) { effect.release(); throw e }
                         }.getOrNull()
-                        _ttsStatus.value = "Sarvam ($speaker • $langCode) playing"
+                        _ttsStatus.value = "$voiceProvider ($speaker • $langCode) playing"
                     }.onFailure {
-                        complete(token, success = false, status = "Sarvam playback start failed")
+                        complete(token, success = false, status = "Voice playback start failed")
                     }
                 }
                 mp.setOnCompletionListener {
-                    complete(token, success = true, status = "Sarvam ($speaker • $langCode) complete")
+                    complete(token, success = true, status = "$voiceProvider ($speaker • $langCode) complete")
                 }
                 mp.setOnErrorListener { _, _, _ ->
-                    complete(token, success = false, status = "Sarvam audio playback error")
+                    complete(token, success = false, status = "Voice audio playback error")
                     true
                 }
 
                 val watchdog = Runnable {
                     if (token == generation) {
-                        complete(token, success = false, status = "Sarvam playback timed out")
+                        complete(token, success = false, status = "Voice playback timed out")
                     }
                 }
                 playbackWatchdog = watchdog
@@ -259,7 +267,7 @@ class TeluguTtsController(
                 throw e
             } catch (e: Exception) {
                 Log.w("SarvamTtsController", "Speech failure: ${e.message}")
-                complete(token, success = false, status = e.message ?: "Sarvam voice error")
+                complete(token, success = false, status = e.message ?: "Voice error")
             }
         }
     }

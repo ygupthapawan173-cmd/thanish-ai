@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
 enum class AiProvider(val displayName: String, val defaultChatModel: String) {
-    GEMINI("Google Gemini Direct", "gemini-4-hydrogen"),
+    GEMINI("Google Gemini Direct", "gemini-3.5-flash-lite"),
     OPENAI("OpenAI GPT", "gpt-6.2-sol")
 }
 
@@ -34,7 +34,7 @@ data class OmegaSettings(
     val sarvamApiKey: String = "",
     val sarvamSpeaker: String = "shubh_enhi_ads",
     val sarvamModel: String = "bulbul:v4-flash",
-    val geminiChatModel: String = "gemini-4-hydrogen",
+    val geminiChatModel: String = "gemini-3.5-flash-lite",
     val geminiLiveVoiceModel: String = "gemini-3.8-live",
     val openAiLiveVoiceModel: String = "gpt-live-1.1",
     val openAiModel: String = "gpt-6.2-sol",
@@ -48,7 +48,7 @@ data class OmegaSettings(
     val languageTag: String = "auto",
     val wakeWordEnabled: Boolean = false,
     val screenLockWakeEnabled: Boolean = true,
-    val onlineWakePriority: Boolean = true,
+    val onlineWakePriority: Boolean = false,
     val cloudAudioConsentGranted: Boolean = false,
     val useLiveSessionAudio: Boolean = false,
     val micPrivacyMuted: Boolean = false,
@@ -111,7 +111,7 @@ class OmegaPreferences(context: Context) {
             sarvamApiKey = KeystoreCryptoManager.decrypt(prefs.getString(KEY_SARVAM_KEY, "").orEmpty()),
             sarvamSpeaker = prefs.getString(KEY_SARVAM_SPEAKER, "shubh_enhi_ads")?.ifBlank { "shubh_enhi_ads" } ?: "shubh_enhi_ads",
             sarvamModel = prefs.getString(KEY_SARVAM_MODEL, "bulbul:v4-flash")?.ifBlank { "bulbul:v4-flash" } ?: "bulbul:v4-flash",
-            geminiChatModel = prefs.getString(KEY_GEMINI_CHAT_MODEL, "gemini-4-hydrogen")?.ifBlank { "gemini-4-hydrogen" } ?: "gemini-4-hydrogen",
+            geminiChatModel = prefs.getString(KEY_GEMINI_CHAT_MODEL, "gemini-3.5-flash-lite")?.ifBlank { "gemini-3.5-flash-lite" } ?: "gemini-3.5-flash-lite",
             geminiLiveVoiceModel = prefs.getString(KEY_GEMINI_LIVE_MODEL, "gemini-3.8-live")?.ifBlank { "gemini-3.8-live" } ?: "gemini-3.8-live",
             openAiLiveVoiceModel = prefs.getString("openai_live_model", "gpt-live-1.1").orEmpty().takeIf { it in setOf("gpt-live-1.1", "gpt-realtime-2.1", "gpt-realtime-2.1-mini") } ?: "gpt-live-1.1",
             openAiModel = prefs.getString(KEY_OPENAI_MODEL, "gpt-6.2-sol")?.ifBlank { "gpt-6.2-sol" } ?: "gpt-6.2-sol",
@@ -125,7 +125,7 @@ class OmegaPreferences(context: Context) {
             languageTag = prefs.getString(KEY_LANGUAGE, "auto") ?: "auto",
             wakeWordEnabled = prefs.getBoolean(KEY_WAKE_ENABLED, false),
             screenLockWakeEnabled = prefs.getBoolean(KEY_LOCK_WAKE_ENABLED, true),
-            onlineWakePriority = prefs.getBoolean(KEY_ONLINE_WAKE_PRIORITY, true),
+            onlineWakePriority = prefs.getBoolean(KEY_ONLINE_WAKE_PRIORITY, false),
             cloudAudioConsentGranted = prefs.getBoolean(KEY_CLOUD_CONSENT, false),
             useLiveSessionAudio = prefs.getBoolean(KEY_LIVE_AUDIO, false),
             micPrivacyMuted = prefs.getBoolean(KEY_MIC_MUTED, false),
@@ -167,7 +167,7 @@ class OmegaPreferences(context: Context) {
             .putString(KEY_SARVAM_KEY, sarvamEnc)
             .putString(KEY_SARVAM_SPEAKER, u.sarvamSpeaker.trim().ifEmpty { "shubh_enhi_ads" })
             .putString(KEY_SARVAM_MODEL, u.sarvamModel.trim().ifEmpty { "bulbul:v4-flash" })
-            .putString(KEY_GEMINI_CHAT_MODEL, u.geminiChatModel.trim().ifEmpty { "gemini-4-hydrogen" })
+            .putString(KEY_GEMINI_CHAT_MODEL, u.geminiChatModel.trim().ifEmpty { "gemini-3.5-flash-lite" })
             .putString(KEY_GEMINI_LIVE_MODEL, u.geminiLiveVoiceModel.trim().ifEmpty { "gemini-3.8-live" })
             .putString("openai_live_model", u.openAiLiveVoiceModel)
             .putString(KEY_OPENAI_MODEL, u.openAiModel.trim().ifEmpty { "gpt-6.2-sol" })

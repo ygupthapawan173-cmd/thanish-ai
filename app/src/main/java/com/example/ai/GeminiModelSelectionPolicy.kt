@@ -1,23 +1,18 @@
 package com.example.ai
 
-/**
- * Provider-discovered Gemini chat model selection policy.
- * - Eliminates unverified hardcoded model IDs (e.g. "gemini-3.8-flash", "gemini-3.5-flash-lite").
- * - Prioritizes live provider-discovered compatible chat models from ModelDiscoveryService.
- * - Preserves automatic fallback to verified official Gemini models when discovery cache is empty
- *   or when a model returns a retryable error.
- */
+/** Provider discovery first, with documented current Gemini chat fallback IDs. */
 internal object GeminiModelSelectionPolicy {
 
     val VERIFIED_FALLBACK_MODELS: List<String> = listOf(
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite"
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash"
     )
 
     // Legacy placeholder IDs that must only be used if explicitly returned by provider model discovery.
     private val unverifiedLegacyPlaceholders: Set<String> = setOf(
-        "gemini-3.8-flash",
-        "gemini-3.5-flash-lite"
+        "gemini-4-hydrogen",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
     )
 
     fun buildCandidates(

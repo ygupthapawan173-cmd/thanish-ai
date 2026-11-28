@@ -160,7 +160,7 @@ object ModelCatalogPolicy {
     )
 
     fun isSupportedProviderModel(id: String): Boolean {
-        val low = id.trim().lowercase(Locale.ROOT)
+        val low = id.trim().lowercase(Locale.ROOT).removePrefix("google/").removePrefix("openai/")
         if (low.isBlank()) return false
         if (EXCLUDED_THIRD_PARTY.any { it in low }) return false
         return low.startsWith("gemini-") ||

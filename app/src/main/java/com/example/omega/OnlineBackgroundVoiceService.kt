@@ -367,7 +367,7 @@ class OnlineBackgroundVoiceService : Service() {
             owner = "background-capture",
             sarvamKeyProvider = { effectiveSarvamKey() },
             geminiKeyProvider = { prefs.settings.value.effectiveGeminiKey() },
-            openAiKeyProvider = { prefs.settings.value.effectiveOpenAiKey() },
+            openAiKeyProvider = { prefs.settings.value.takeIf { it.openAiBaseUrl.trim().trimEnd('/') == "https://api.openai.com/v1" }?.effectiveOpenAiKey().orEmpty() },
             cloudConsentProvider = { prefs.settings.value.cloudAudioConsentGranted }
         ) { text -> accept(text) }
 
@@ -517,7 +517,7 @@ class OnlineBackgroundVoiceService : Service() {
             }
             val s = prefs.settings.value
             phase = "Speaking"
-            publish("Speaking Sarvam Telugu/English reply")
+            publish("Speaking Telugu/English reply")
             tts.configure(TeluguVoiceReplies.effectiveLocale(s.languageTag, utterance = reply))
             tts.speak(reply.take(1_500))
         }

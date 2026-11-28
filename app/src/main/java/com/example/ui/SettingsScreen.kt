@@ -224,13 +224,15 @@ private fun ApiSlotManagerSection(uiState: PanduUiState, viewModel: PanduViewMod
     var newLabel by remember { mutableStateOf("") }
     var newSlotKey by remember { mutableStateOf("") }
     var newSlotPaid by remember { mutableStateOf(false) }
+    var gatewayBase by remember { mutableStateOf("https://api.aicredits.in/v1") }
+    var gatewayModel by remember { mutableStateOf("google/gemini-3.5-flash-lite") }
 
     val visual = if (showKeys) VisualTransformation.None else PasswordVisualTransformation()
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(modifier = Modifier.fillMaxWidth().omegaGlassCard(16.dp).padding(14.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Primary Provider Keys (Auto-Saved)", color = OmegaColors.IceWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Gemini primary • optional backups", color = OmegaColors.IceWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Text(if (showKeys) "Hide" else "Show", color = OmegaColors.NeonCyan, fontSize = 12.sp, modifier = Modifier.clickable { showKeys = !showKeys })
             }
             Spacer(Modifier.height(8.dp))
@@ -248,7 +250,7 @@ private fun ApiSlotManagerSection(uiState: PanduUiState, viewModel: PanduViewMod
             OutlinedTextField(
                 value = oaiKey,
                 onValueChange = { oaiKey = it; viewModel.updateSettings { cur -> cur.copy(openAiApiKey = it) } },
-                label = { Text("OpenAI GPT API Key") },
+                label = { Text("Optional OpenAI / gateway API key") },
                 visualTransformation = visual,
                 colors = omegaTextFieldColors(),
                 modifier = Modifier.fillMaxWidth(),
@@ -258,7 +260,7 @@ private fun ApiSlotManagerSection(uiState: PanduUiState, viewModel: PanduViewMod
             OutlinedTextField(
                 value = sarvamKey,
                 onValueChange = { sarvamKey = it; viewModel.updateSettings { cur -> cur.copy(sarvamApiKey = it) } },
-                label = { Text("Sarvam AI Voice API Key") },
+                label = { Text("Optional Sarvam voice API key") },
                 visualTransformation = visual,
                 colors = omegaTextFieldColors(),
                 modifier = Modifier.fillMaxWidth(),
@@ -332,15 +334,21 @@ private fun ApiSlotManagerSection(uiState: PanduUiState, viewModel: PanduViewMod
             OutlinedTextField(value = newLabel, onValueChange = { newLabel = it }, label = { Text("Slot Label") }, colors = omegaTextFieldColors(), modifier = Modifier.fillMaxWidth(), singleLine = true)
             Spacer(Modifier.height(6.dp))
             OutlinedTextField(value = newSlotKey, onValueChange = { newSlotKey = it }, label = { Text("API Key") }, visualTransformation = PasswordVisualTransformation(), colors = omegaTextFieldColors(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+            if (newProvider == SlotProvider.OPENAI) {
+                OutlinedTextField(value = gatewayBase, onValueChange = { gatewayBase = it }, label = { Text("HTTPS gateway base URL") }, colors = omegaTextFieldColors(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = gatewayModel, onValueChange = { gatewayModel = it }, label = { Text("Gateway model ID") }, colors = omegaTextFieldColors(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
             BrainToggleRow("Paid Account / Tier Key", newSlotPaid) { newSlotPaid = it }
             Spacer(Modifier.height(6.dp))
             Button(
                 onClick = {
-                    if (newSlotKey.isNotBlank()) {
+                    if (newSlotKey.isNotBlank() && (newProvider != SlotProvider.OPENAI || gatewayBase.trim().startsWith("https://"))) {
                         viewModel.upsertSlot(
                             ApiSlot(
                                 label = newLabel.ifBlank { "${newProvider.name} Extra" },
                                 provider = newProvider,
+                                baseUrl = if (newProvider == SlotProvider.OPENAI) gatewayBase.trim().trimEnd('/') else newProvider.defaultBaseUrl,
+                                preferredModel = if (newProvider == SlotProvider.OPENAI) gatewayModel.trim() else newProvider.defaultModel,
                                 apiKey = newSlotKey.trim(),
                                 isPaidTier = newSlotPaid
                             )

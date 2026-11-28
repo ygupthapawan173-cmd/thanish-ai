@@ -119,7 +119,7 @@ internal class WebResearchClient {
     ): Result<WebResearchResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(apiKey.isNotBlank()) { "Gemini API key missing" }
-            val cleanModel = model.removePrefix("models/").trim().ifBlank { "gemini-4-hydrogen" }
+            val cleanModel = model.removePrefix("models/").trim().ifBlank { "gemini-3.5-flash-lite" }
             val payload = JSONObject().apply {
                 put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemInstruction))))
                 put(

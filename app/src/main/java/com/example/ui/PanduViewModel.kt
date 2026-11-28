@@ -116,7 +116,7 @@ data class PanduUiState(
     val liveTranscript: String = "",
     val audioAmplitude: Float = 0f,
     val voiceDiagNote: String = "Voice Engine Ready",
-    val ttsStatusNote: String = "Sarvam Telugu Voice Ready",
+    val ttsStatusNote: String = "Gemini voice ready when key configured",
     val bgServiceStatus: String = "Idle",
     val voiceBenchmark: VoiceEngineBenchmark = VoiceEngineBenchmark(),
     val measuredAckLatencyMs: Long = 0L,
@@ -184,7 +184,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         owner = "foreground-main",
         sarvamKeyProvider = { effectiveSarvamKey() },
         geminiKeyProvider = { effectiveGeminiKey() },
-        openAiKeyProvider = { effectiveOpenAiKey() },
+        openAiKeyProvider = { directOpenAiVoiceKey() },
         cloudConsentProvider = { preferences.settings.value.cloudAudioConsentGranted }
     ) { spokenText ->
         askAssistant(spokenText)
@@ -199,7 +199,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     private val openAiRealtime = OpenAiRealtimeClient(
-        apiKeyProvider = { effectiveOpenAiKey() },
+        apiKeyProvider = { directOpenAiVoiceKey() },
         modelProvider = { preferences.settings.value.openAiLiveVoiceModel },
         allowedProvider = { preferences.settings.value.cloudAudioConsentGranted && !preferences.settings.value.micPrivacyMuted && AgentHudBus.isAppInForeground.value }
     )
@@ -346,6 +346,13 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         val direct = preferences.settings.value.effectiveOpenAiKey()
         if (direct.isNotBlank()) return direct
         return slotManager.slots.value.firstOrNull { it.provider == SlotProvider.OPENAI && it.enabled && it.apiKey.isNotBlank() }?.apiKey.orEmpty()
+    }
+
+    private fun directOpenAiVoiceKey(): String {
+        val s = preferences.settings.value
+        if (s.openAiBaseUrl.trim().trimEnd('/') == "https://api.openai.com/v1" && s.effectiveOpenAiKey().isNotBlank()) return s.effectiveOpenAiKey()
+        return slotManager.slots.value.firstOrNull { it.provider == SlotProvider.OPENAI && it.enabled &&
+            it.baseUrl.trim().trimEnd('/') == "https://api.openai.com/v1" && it.apiKey.isNotBlank() }?.apiKey.orEmpty()
     }
 
     private fun effectiveSarvamKey(): String {
@@ -959,7 +966,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
             DashboardIndicator("8", "Streaming Voice STT", voiceBench.selectedEngine.label, if (voiceBench.sarvamLatencyMs > 0L) "Saaras V4 ${voiceBench.sarvamLatencyMs}ms" else voiceBench.reason, voiceBench.selectedEngine != StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE || !cur.internetValidated, JarvisTab.VOICE),
             DashboardIndicator("9", "Wake Engine (FGS)", if (s.wakeWordEnabled) "Enabled" else "Off", cur.bgServiceStatus, s.wakeWordEnabled, JarvisTab.VOICE),
             DashboardIndicator("10", "Yes Boss Ack Latency", if (PreloadedAckPlayer.lastMeasuredAckMs > 0L) "${PreloadedAckPlayer.lastMeasuredAckMs}ms" else "Tap Test Ack", if (PreloadedAckPlayer.usingCachedSarvamAudio) "Preloaded Sarvam cache" else "Instant local tone", PreloadedAckPlayer.lastMeasuredAckMs in 1L..500L, JarvisTab.VOICE),
-            DashboardIndicator("11", "Sarvam Telugu Voice", if (hasSarvam) s.sarvamSpeaker else "Key Required", cur.ttsStatusNote, hasSarvam, JarvisTab.VOICE),
+            DashboardIndicator("11", "Telugu Voice", if (hasGem) "Gemini configured" else if (hasSarvam) s.sarvamSpeaker else "Key Required", cur.ttsStatusNote, hasGem || hasSarvam, JarvisTab.VOICE),
             DashboardIndicator("12", "Live Duplex Audio", if (liveConnected) "Connected" else "Standby", if (cur.liveDuplexState.isConnected) cur.liveDuplexState.activeModel else s.geminiLiveVoiceModel, liveConnected || hasGem, JarvisTab.VOICE),
             DashboardIndicator("13", "Internet Health", cur.networkLabel, if (cur.internetValidated) "Ready for live research" else "Offline fallback mode", cur.internetValidated, JarvisTab.SETTINGS, 2),
             DashboardIndicator("14", "Battery Telemetry", "${cur.batteryPercent}%", if (cur.isCharging) "Charging now" else "Discharging", cur.batteryPercent > 20 || cur.isCharging, JarvisTab.CONTROL),
