@@ -3,89 +3,38 @@ package com.example.voice
 enum class StreamingVoiceEngineKind(val label: String) {
     SARVAM_SAARAS_V4("Sarvam Saaras V4"),
     GEMINI_TRANSCRIBE_LIVE("Gemini 3.5 Transcribe Live"),
+    OPENAI_LIVE_TRANSCRIBE("GPT-Live-Transcribe"),
     LOCAL_KEYWORD_WAKE("Local keyword wake")
 }
-
 data class VoiceEngineBenchmark(
     val sarvamLatencyMs: Long = 0L,
     val geminiLatencyMs: Long = 0L,
     val selectedEngine: StreamingVoiceEngineKind = StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
-    val reason: String = "Evaluating available voice engines"
+    val reason: String = "Evaluating available voice engines",
+    val openAiLatencyMs: Long = 0L
 )
-
-/**
- * Selects the fastest reliable streaming engine honestly based on measured connect/response times
- * and real credential + network availability (Sections 6 & 7).
- */
 object VoiceEngineSelector {
-
-    @Volatile
-    private var lastSarvamLatencyMs: Long = 0L
-
-    @Volatile
-    private var lastGeminiLatencyMs: Long = 0L
-
-    fun recordLatency(engine: StreamingVoiceEngineKind, ms: Long) {
-        val clamped = ms.coerceAtLeast(1L)
-        when (engine) {
-            StreamingVoiceEngineKind.SARVAM_SAARAS_V4 -> lastSarvamLatencyMs = clamped
-            StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE -> lastGeminiLatencyMs = clamped
-            StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE -> Unit
-        }
+    private val samples = mutableMapOf<StreamingVoiceEngineKind, Long>()
+    @Synchronized fun recordLatency(engine: StreamingVoiceEngineKind, ms: Long) {
+        if (engine == StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE || ms <= 0) return
+        val prior = samples[engine]
+        samples[engine] = if (prior == null) ms else (prior * 3 + ms) / 4
     }
-
-    fun selectBest(
-        hasInternet: Boolean,
-        isLocked: Boolean,
-        cloudConsentGranted: Boolean,
-        hasSarvamKey: Boolean,
-        hasGeminiKey: Boolean
+    @Synchronized fun selectBest(
+        hasInternet: Boolean, isLocked: Boolean, cloudConsentGranted: Boolean,
+        hasSarvamKey: Boolean, hasGeminiKey: Boolean, hasOpenAiKey: Boolean = false
     ): VoiceEngineBenchmark {
-        if (isLocked || !hasInternet || !cloudConsentGranted) {
-            val why = when {
-                isLocked -> "Screen locked — local offline wake only"
-                !hasInternet -> "Offline — local keyword wake"
-                else -> "Cloud wake consent OFF — offline wake active"
-            }
-            return VoiceEngineBenchmark(
-                sarvamLatencyMs = lastSarvamLatencyMs,
-                geminiLatencyMs = lastGeminiLatencyMs,
-                selectedEngine = StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
-                reason = why
-            )
-        }
-
-        if (hasSarvamKey && hasGeminiKey && lastSarvamLatencyMs > 0L && lastGeminiLatencyMs > 0L) {
-            val chosen = if (lastSarvamLatencyMs <= lastGeminiLatencyMs) {
-                StreamingVoiceEngineKind.SARVAM_SAARAS_V4
-            } else {
-                StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE
-            }
-            return VoiceEngineBenchmark(
-                sarvamLatencyMs = lastSarvamLatencyMs,
-                geminiLatencyMs = lastGeminiLatencyMs,
-                selectedEngine = chosen,
-                reason = "Fastest measured online engine (${lastSarvamLatencyMs}ms vs ${lastGeminiLatencyMs}ms)"
-            )
-        }
-
-        return when {
-            hasSarvamKey -> VoiceEngineBenchmark(
-                sarvamLatencyMs = lastSarvamLatencyMs,
-                geminiLatencyMs = lastGeminiLatencyMs,
-                selectedEngine = StreamingVoiceEngineKind.SARVAM_SAARAS_V4,
-                reason = "Sarvam Saaras V4 selected (TE/EN low-latency WS)"
-            )
-            hasGeminiKey -> VoiceEngineBenchmark(
-                sarvamLatencyMs = lastSarvamLatencyMs,
-                geminiLatencyMs = lastGeminiLatencyMs,
-                selectedEngine = StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE,
-                reason = "Gemini Live streaming selected"
-            )
-            else -> VoiceEngineBenchmark(
-                selectedEngine = StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
-                reason = "No cloud STT key; local keyword wake"
-            )
-        }
+        val sarvam = samples[StreamingVoiceEngineKind.SARVAM_SAARAS_V4] ?: 0L
+        val gemini = samples[StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE] ?: 0L
+        val openai = samples[StreamingVoiceEngineKind.OPENAI_LIVE_TRANSCRIBE] ?: 0L
+        val available = listOfNotNull(
+            StreamingVoiceEngineKind.SARVAM_SAARAS_V4.takeIf { hasSarvamKey },
+            StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE.takeIf { hasGeminiKey },
+            StreamingVoiceEngineKind.OPENAI_LIVE_TRANSCRIBE.takeIf { hasOpenAiKey })
+        if (isLocked || !hasInternet || !cloudConsentGranted || available.isEmpty()) return VoiceEngineBenchmark(
+            sarvam, gemini, StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE, "Local wake; cloud unavailable or not permitted", openai)
+        val selected = if (available.all { samples.containsKey(it) }) available.minByOrNull { samples[it] ?: Long.MAX_VALUE }!! else available.first()
+        return VoiceEngineBenchmark(sarvam, gemini, selected,
+            if (available.all { samples.containsKey(it) }) "Lowest measured connection latency" else "Configured engine priority; not all latencies measured", openai)
     }
 }

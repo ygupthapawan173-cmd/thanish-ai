@@ -274,6 +274,7 @@ class OnlineBackgroundVoiceService : Service() {
             context = this,
             apiKeyProvider = { effectiveSarvamKey() },
             wakeMode = true,
+            captureAllowed = { wakeAllowed() && screenReady() && prefs.settings.value.cloudAudioConsentGranted && prefs.settings.value.onlineWakePriority },
             onWakeDetected = { inlineCmd ->
                 if (token != wakeGeneration || !wakeAllowed() || !screenReady() || !prefs.settings.value.cloudAudioConsentGranted || foregroundBusy() || !wakeMode || phase != "Wake idle") return@SarvamRealtimeSttClient
                 val wakeTime = SystemClock.elapsedRealtime()
@@ -346,6 +347,7 @@ class OnlineBackgroundVoiceService : Service() {
             owner = "background-capture",
             sarvamKeyProvider = { effectiveSarvamKey() },
             geminiKeyProvider = { prefs.settings.value.effectiveGeminiKey() },
+            openAiKeyProvider = { prefs.settings.value.effectiveOpenAiKey() },
             cloudConsentProvider = { prefs.settings.value.cloudAudioConsentGranted }
         ) { text -> accept(text) }
 

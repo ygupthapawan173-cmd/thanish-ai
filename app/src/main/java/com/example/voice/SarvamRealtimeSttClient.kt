@@ -53,6 +53,7 @@ class SarvamRealtimeSttClient(
     private val context: Context,
     private val apiKeyProvider: () -> String,
     private val wakeMode: Boolean = false,
+    private val captureAllowed: () -> Boolean = { true },
     private val onWakeDetected: (inlineCommand: String) -> Unit = {},
     private val onFinalTranscript: (String) -> Unit = {}
 ) {
@@ -84,6 +85,7 @@ class SarvamRealtimeSttClient(
     @Synchronized
     fun start(languageTag: String = "auto") {
         stop()
+        if (!captureAllowed()) { _state.value = StreamSttState(error = "Cloud audio not permitted"); return }
         val key = apiKeyProvider().trim()
         if (key.isBlank()) {
             _state.value = StreamSttState(error = "Sarvam API key required for Saaras V4 streaming")
@@ -200,6 +202,7 @@ class SarvamRealtimeSttClient(
         watchdogJob = scope.launch {
             while (isActive && token == sessionToken && webSocket === ws) {
                 delay(400L)
+                if (!captureAllowed()) { fail(token, "Cloud audio stopped for privacy"); break }
                 val cur = SystemClock.elapsedRealtime()
                 if (cur - lastFrameAt > 3_500L) {
                     fail(token, "Microphone stall detected")
@@ -240,6 +243,8 @@ class SarvamRealtimeSttClient(
 
                     // Preserve the PCM timeline: server-side VAD needs silence as well as speech.
                     // Cloud capture is enabled only by the caller after explicit consent.
+                    if (!captureAllowed()) { fail(token, "Cloud audio stopped for privacy"); break }
+                    if (!wakeMode) AudioSpectrumBus.feed(buf, read, rate, false)
                     val chunkMsg = JSONObject()
                         .put("event", "audio_input")
                         .put("audio", Base64.encodeToString(buf.copyOf(read), Base64.NO_WRAP))

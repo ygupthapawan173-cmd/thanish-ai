@@ -55,7 +55,8 @@ class VoiceInputController(
     private val owner: String = "manual",
     private val sarvamKeyProvider: () -> String = { "" },
     private val geminiKeyProvider: () -> String = { "" },
-    private val cloudConsentProvider: () -> Boolean = { true },
+    private val cloudConsentProvider: () -> Boolean = { false },
+    private val openAiKeyProvider: () -> String = { "" },
     private val onFinalTranscript: (String) -> Unit
 ) {
     private val appContext = context.applicationContext
@@ -64,6 +65,8 @@ class VoiceInputController(
 
     private var recognizer: SpeechRecognizer? = null
     private var sarvamClient: SarvamRealtimeSttClient? = null
+    private var cloudClient: CloudTranscribeClient? = null
+    private val tried = mutableSetOf<StreamingVoiceEngineKind>()
     private var sarvamCollectorJob: Job? = null
 
     @Volatile
@@ -87,6 +90,7 @@ class VoiceInputController(
             language = languageTag
             offline = VoiceSessionPolicy.localOnly(preferOffline, privacyRestricted())
             attempts = 0
+            tried.clear()
             sessionTimeoutMs = timeoutMs.coerceIn(5_000L, 60_000L)
             startedAtMs = SystemClock.elapsedRealtime()
 
@@ -102,21 +106,59 @@ class VoiceInputController(
                 com.example.omega.OnlineBackgroundVoiceService.yieldToForeground(appContext)
             }
 
-            // Try Sarvam Saaras V4 streaming first when selected
-            val benchmark = VoiceEngineSelector.selectBest(
-                hasInternet = hasValidatedInternet(),
-                isLocked = privacyRestricted(),
-                cloudConsentGranted = cloudConsentProvider(),
-                hasSarvamKey = sarvamKeyProvider().isNotBlank(),
-                hasGeminiKey = geminiKeyProvider().isNotBlank()
-            )
-            if (!offline && benchmark.selectedEngine == StreamingVoiceEngineKind.SARVAM_SAARAS_V4 && sarvamKeyProvider().isNotBlank()) {
-                startSarvamStreaming(languageTag)
-                return@post
-            }
-
-            acquireSystemRecognizerLease()
+            tryNextCloudEngine()
         }
+    }
+
+    private fun cloudAllowed() = !released && !offline && !privacyRestricted() && hasValidatedInternet() && cloudConsentProvider()
+
+    private fun tryNextCloudEngine() {
+        if (!cloudAllowed()) {
+            finishError(8, "Unlock screen and grant cloud audio consent; internet required")
+            return
+        }
+        val engine = VoiceEngineSelector.selectBest(true, false, true,
+            sarvamKeyProvider().isNotBlank() && StreamingVoiceEngineKind.SARVAM_SAARAS_V4 !in tried,
+            geminiKeyProvider().isNotBlank() && StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE !in tried,
+            openAiKeyProvider().isNotBlank() && StreamingVoiceEngineKind.OPENAI_LIVE_TRANSCRIBE !in tried).selectedEngine
+        if (engine == StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE) {
+            acquireSystemRecognizerLease(); return
+        }
+        tried += engine
+        startedAtMs = SystemClock.elapsedRealtime()
+        if (engine == StreamingVoiceEngineKind.SARVAM_SAARAS_V4) startSarvamStreaming(language)
+        else startCloudStreaming(engine)
+    }
+
+    private fun startCloudStreaming(engine: StreamingVoiceEngineKind) {
+        val token = ++generation
+        val key = if (engine == StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE) geminiKeyProvider() else openAiKeyProvider()
+        val client = CloudTranscribeClient(engine, key, ::cloudAllowed) { transcript ->
+            main.post {
+                if (token != generation || !cloudAllowed()) return@post
+                val locale = AutoLanguageSession.recordRecognizedText(transcript)
+                lastLocale = locale
+                stopInternal()
+                _state.value = VoiceInputState(partialTranscript = transcript, activeLocale = locale, activeEngine = engine.label, diagnosticsNote = "Captured")
+                onFinalTranscript(transcript)
+            }
+        }
+        cloudClient = client
+        sarvamCollectorJob = scope.launch {
+            client.state.collect { st ->
+                if (token != generation || released) return@collect
+                if (st.error != null) {
+                    cloudClient?.release(); cloudClient = null
+                    sarvamCollectorJob?.cancel(); sarvamCollectorJob = null
+                    tryNextCloudEngine()
+                } else {
+                    if (st.measuredConnectLatencyMs > 0L) VoiceEngineSelector.recordLatency(engine, st.measuredConnectLatencyMs)
+                    _state.value = VoiceInputState(isListening = st.isListening, partialTranscript = st.partialTranscript,
+                        audioAmplitude = st.amplitude, activeLocale = lastLocale, activeEngine = engine.label, diagnosticsNote = st.diagnosticsNote)
+                }
+            }
+        }
+        client.start(language)
     }
 
     private fun startSarvamStreaming(languageTag: String) {
@@ -125,10 +167,10 @@ class VoiceInputController(
             context = appContext,
             apiKeyProvider = sarvamKeyProvider,
             wakeMode = false,
+            captureAllowed = ::cloudAllowed,
             onFinalTranscript = { transcript ->
                 if (token != generation || released) return@SarvamRealtimeSttClient
                 val elapsed = (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(1L)
-                VoiceEngineSelector.recordLatency(StreamingVoiceEngineKind.SARVAM_SAARAS_V4, elapsed)
                 val resolvedLocale = AutoLanguageSession.recordRecognizedText(transcript)
                 lastLocale = resolvedLocale
                 stopInternal()
@@ -151,9 +193,10 @@ class VoiceInputController(
                 }
                 if (s.error != null) {
                     Log.w("OmegaVoice", "Saaras V4 fallback -> system SpeechRecognizer (${s.error})")
-                    sarvamClient?.stop()
+                    sarvamClient?.release()
                     sarvamClient = null
-                    acquireSystemRecognizerLease()
+                    sarvamCollectorJob?.cancel(); sarvamCollectorJob = null
+                    tryNextCloudEngine()
                 } else {
                     _state.value = VoiceInputState(
                         isListening = s.isListening,
@@ -210,7 +253,7 @@ class VoiceInputController(
             finishError(8, "Microphone lease lost")
             return
         }
-        if (privacyRestricted()) {
+        if (!cloudAllowed()) {
             finishError(8, "Unlock the screen to use online recognition")
             return
         }
@@ -240,7 +283,7 @@ class VoiceInputController(
         recognizer = sr
 
         fun current() = token == generation && recognizer === sr
-        fun privacyBlocked() = !useLocal && privacyRestricted()
+        fun privacyBlocked() = !useLocal && !cloudAllowed()
         fun enforcePrivacy(): Boolean {
             if (!current() || !privacyBlocked()) return false
             finishError(8, "Online recognition paused for screen privacy")
@@ -439,8 +482,10 @@ class VoiceInputController(
         main.removeCallbacksAndMessages(null)
         sarvamCollectorJob?.cancel()
         sarvamCollectorJob = null
-        sarvamClient?.stop()
+        sarvamClient?.release()
         sarvamClient = null
+        cloudClient?.release()
+        cloudClient = null
         destroyRecognizer()
         VoiceMic.lease.release(this)
         AgentHudBus.setMainMicBusy(false, this)

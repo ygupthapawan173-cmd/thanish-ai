@@ -184,6 +184,7 @@ class PanduViewModel(application: Application) : AndroidViewModel(application) {
         owner = "foreground-main",
         sarvamKeyProvider = { effectiveSarvamKey() },
         geminiKeyProvider = { effectiveGeminiKey() },
+        openAiKeyProvider = { effectiveOpenAiKey() },
         cloudConsentProvider = { preferences.settings.value.cloudAudioConsentGranted }
     ) { spokenText ->
         askAssistant(spokenText)
