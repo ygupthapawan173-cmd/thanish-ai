@@ -2,6 +2,7 @@ package com.example.omega
 
 import ai.picovoice.porcupine.PorcupineManager
 import com.example.voice.PorcupineWakeConfig
+import com.example.voice.SherpaWakeSession
 import android.Manifest
 import android.app.KeyguardManager
 import android.app.Notification
@@ -84,6 +85,8 @@ class OnlineBackgroundVoiceService : Service() {
     private var onlineWakeClient: SarvamRealtimeSttClient? = null
     private var onlineWakeJob: Job? = null
     private var porcupine: PorcupineManager? = null
+    private var sherpaWake: SherpaWakeSession? = null
+    private var sherpaRetryAt = 0L
     private var wakeModel: Model? = null
     private var wakeRecognizer: Recognizer? = null
     private var wakeSpeech: SpeechService? = null
@@ -152,6 +155,8 @@ class OnlineBackgroundVoiceService : Service() {
         onlineWakeJob = null
         onlineWakeClient?.release()
         onlineWakeClient = null
+        sherpaWake?.stop()
+        sherpaWake = null
         val local = porcupine
         porcupine = null
         runCatching { local?.stop() }
@@ -238,7 +243,7 @@ class OnlineBackgroundVoiceService : Service() {
 
     private fun armLocalWake() {
         if (!PorcupineWakeConfig.configured(this)) {
-            armOfflineVoskWake()
+            armSherpaWake()
             return
         }
         if (!VoiceMic.lease.acquire(wakeLease)) {
@@ -273,11 +278,45 @@ class OnlineBackgroundVoiceService : Service() {
             publish("Listening • Porcupine local wake")
         } catch (_: Exception) {
             releaseWake()
-            armOfflineVoskWake()
+            armSherpaWake()
         } catch (_: LinkageError) {
             releaseWake()
-            armOfflineVoskWake()
+            armSherpaWake()
         }
+    }
+
+    private fun armSherpaWake() {
+        if (SystemClock.elapsedRealtime() < sherpaRetryAt) {
+            armOfflineVoskWake()
+            return
+        }
+        if (!VoiceMic.lease.acquire(wakeLease)) {
+            retryAt = SystemClock.elapsedRealtime() + 250L
+            return
+        }
+        val token = ++wakeGeneration
+        fun current() = started && !closed && wakeMode && token == wakeGeneration && phase == "Wake idle"
+        val session = SherpaWakeSession(this,
+            onReady = { main.post { if (current()) publish("Listening • Sherpa INT8 wake") } },
+            onWake = { main.post {
+                if (current() && wakeAllowed() && !foregroundBusy()) {
+                    val detected = SystemClock.elapsedRealtime()
+                    releaseWake()
+                    wakeFailures = 0
+                    handleWakeTriggered(detected, "")
+                } else if (current()) releaseWake()
+            } },
+            onFailure = { main.post {
+                if (current()) {
+                    releaseWake()
+                    sherpaRetryAt = SystemClock.elapsedRealtime() + 60_000L
+                    publish("Sherpa failed — trying previous local wake")
+                    if (wakeAllowed() && !foregroundBusy()) armOfflineVoskWake()
+                }
+            } })
+        sherpaWake = session
+        session.start()
+        publish("Preparing Sherpa INT8 wake")
     }
 
     private fun armOnlineSarvamWake() {
@@ -306,7 +345,7 @@ class OnlineBackgroundVoiceService : Service() {
                     Log.w("OmegaWake", "Online wake error (${st.error}), falling back to Vosk offline wake")
                     releaseWake()
                     wakeFailures++
-                    if (wakeModel != null || PorcupineWakeConfig.configured(this@OnlineBackgroundVoiceService)) armLocalWake()
+                    if (wakeAllowed() && !foregroundBusy()) armLocalWake()
                     else retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
                 }
             }
@@ -521,7 +560,7 @@ class OnlineBackgroundVoiceService : Service() {
                             releaseWake()
                             retryAt = now
                         }
-                        val hasActiveWake = wakeSpeech != null || onlineWakeClient != null || porcupine != null
+                        val hasActiveWake = wakeSpeech != null || onlineWakeClient != null || porcupine != null || sherpaWake != null
                         if (foregroundBusy() && hasActiveWake) {
                             releaseWake()
                             retryAt = now + 800L
