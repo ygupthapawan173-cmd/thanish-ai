@@ -52,21 +52,22 @@ object SmartModelPolicy {
     fun isVerifiedFree(m: Model): Boolean =
         m.promptPrice == 0.0 && m.completionPrice == 0.0
 
-    private fun score(m: Model, task: Task, mode: IntelligenceMode, preferredId: String): Int {
+    // Mode affinity is separate from the configured preference: a default fast
+    // model must not suppress deep reasoning, or vice versa.
+    private fun modeAffinity(m: Model, mode: IntelligenceMode): Int {
+        val id = m.id.lowercase(Locale.ROOT)
+        val markers = when (mode) {
+            IntelligenceMode.FAST -> listOf("hydrogen", "luna", "flash", "mini", "nano")
+            IntelligenceMode.SMART -> listOf("argon", "neon", "sol", "terra", "flash", "4o")
+            IntelligenceMode.DEEP -> listOf("carbon", "astra", "pro", "o3", "o4", "gpt-5", "gpt-6.2")
+        }
+        return if (markers.any { marker -> id.contains(marker) }) 1 else 0
+    }
+
+    private fun score(m: Model, task: Task, preferredId: String): Int {
         val id = m.id.lowercase(Locale.ROOT)
         var s = 0
-        if (id == preferredId.trim().lowercase(Locale.ROOT)) s += 500
-        when (mode) {
-            IntelligenceMode.FAST -> {
-                if (listOf("hydrogen", "luna", "flash", "mini", "nano").any { it in id }) s += 150
-            }
-            IntelligenceMode.SMART -> {
-                if (listOf("argon", "neon", "sol", "terra", "flash", "4o").any { it in id }) s += 150
-            }
-            IntelligenceMode.DEEP -> {
-                if (listOf("carbon", "astra", "pro", "o3", "o4", "gpt-5", "gpt-6.2").any { it in id }) s += 180
-            }
-        }
+        if (preferredId.isNotBlank() && id == preferredId.trim().lowercase(Locale.ROOT)) s += 500
         if (task == Task.REASONING || task == Task.CODE) {
             if (listOf("carbon", "astra", "pro", "o3", "o4").any { it in id }) s += 80
         }
@@ -87,20 +88,16 @@ object SmartModelPolicy {
                 m.promptPrice + m.completionPrice
             } else Double.POSITIVE_INFINITY
 
-        return valid.sortedWith(Comparator { a, b ->
-            if (freePriority) {
-                val fa = if (isVerifiedFree(a)) 1 else 0
-                val fb = if (isVerifiedFree(b)) 1 else 0
-                if (fa != fb) return@Comparator fb.compareTo(fa)
-            }
-            val sa = score(a, task, mode, preferredId)
-            val sb = score(b, task, mode, preferredId)
-            if (sa != sb) return@Comparator sb.compareTo(sa)
-            val ca = cost(a)
-            val cb = cost(b)
-            if (ca != cb) return@Comparator ca.compareTo(cb)
-            a.id.compareTo(b.id)
-        })
+        // Stable sorting from the least significant key to the most significant
+        // makes priority explicit and independent of the catalog's input order.
+        val ranked = valid
+            .sortedBy { it.id }
+            .sortedBy { cost(it) }
+            .sortedByDescending { score(it, task, preferredId) }
+            .sortedByDescending { modeAffinity(it, mode) }
+        if (!freePriority) return ranked
+        val (free, remaining) = ranked.partition { isVerifiedFree(it) }
+        return free + remaining
     }
 
     fun mayTryAnother(status: Int): Boolean = status in listOf(404, 429, 500, 502, 503, 504)
