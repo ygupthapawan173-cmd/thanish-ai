@@ -38,9 +38,8 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
             'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
 
-      - name: Provision offline wake fallback models
+      - name: Provision Silero neural VAD
         run: |
-          bash ci/provision-vosk.sh
           bash ci/provision-neural-vad.sh
 
       - uses: actions/setup-python@v6

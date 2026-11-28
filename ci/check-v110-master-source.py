@@ -88,4 +88,7 @@ assert 'JARVIS-INFINITY-V111-ULTRA-VOICE-LIQUID-SAPPHIRE.apk' in Path('ci/sign-r
 assert 'ai.picovoice:porcupine-android:4.0.2' in gradle
 assert 'PorcupineManager.Builder()' in (root / 'java/com/example/omega/OnlineBackgroundVoiceService.kt').read_text()
 assert 'PorcupineWakeConfig' in (root / 'java/com/example/ui/SettingsScreen.kt').read_text()
+assert 'vosk-android' not in gradle
+assert 'org.vosk' not in (root / 'java/com/example/omega/OnlineBackgroundVoiceService.kt').read_text()
+assert not Path('ci/provision-vosk.sh').exists()
 print('PASS: JARVIS INFINITY V111 ULTRA VOICE LIQUID SAPPHIRE source audit & dependency verification passed')

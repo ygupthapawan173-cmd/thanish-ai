@@ -54,18 +54,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONArray
-import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import org.vosk.android.StorageService
 
 /**
  * V110 Unified Native Microphone Foreground Service (Sections 6, 7, 8, 9, 11):
  * - Online Wake Priority (`Sarvam Saaras V4`) when unlocked, internet-connected & consented
- * - Offline Wake Fallback (`Vosk Hey JARVIS` + `Silero VAD`) when offline or lock-screen active
+ * - Offline Wake Fallback (`Porcupine or Sherpa INT8 Hey JARVIS` + `Silero VAD`) when offline or lock-screen active
  * - Preloaded instant "Yes Boss" response measuring actual device latency (`PreloadedAckPlayer`)
  * - Screen-lock wake recognition uses LOCAL detector ONLY (zero cloud audio while locked)
  * - Stops microphone capture immediately when listening is disabled or privacy muted
@@ -87,9 +80,7 @@ class OnlineBackgroundVoiceService : Service() {
     private var porcupine: PorcupineManager? = null
     private var sherpaWake: SherpaWakeSession? = null
     private var sherpaRetryAt = 0L
-    private var wakeModel: Model? = null
-    private var wakeRecognizer: Recognizer? = null
-    private var wakeSpeech: SpeechService? = null
+    private var porcupineRetryAt = 0L
 
     private var started = false
     private var wakeMode = false
@@ -102,13 +93,6 @@ class OnlineBackgroundVoiceService : Service() {
     private var responseJob: Job? = null
 
     private val wakeLease = Any()
-    private val fastWake by lazy {
-        FastWakeDetector(
-            lease = VoiceMic.lease,
-            leaseOwner = wakeLease,
-            sensitivityProvider = { 0.55f }
-        )
-    }
 
     private fun foregroundBusy(): Boolean = HandsFreeWakePolicy.foregroundBusy(
         AgentHudBus.isAppInForeground.value,
@@ -162,20 +146,7 @@ class OnlineBackgroundVoiceService : Service() {
         runCatching { local?.stop() }
         runCatching { local?.delete() }
 
-        val old = wakeSpeech
-        wakeSpeech = null
-        val oldRec = wakeRecognizer
-        wakeRecognizer = null
-
-        val cleanedBound = fastWake.stopAndReleaseMic {
-            VoiceMic.lease.release(wakeLease)
-        }
-        if (!cleanedBound) {
-            runCatching { old?.cancel() }
-            runCatching { old?.shutdown() }
-            runCatching { oldRec?.close() }
-            if (VoiceMic.lease.owns(wakeLease)) VoiceMic.lease.release(wakeLease)
-        }
+        VoiceMic.lease.release(wakeLease)
     }
 
     private fun returnToWake(message: String) {
@@ -196,34 +167,6 @@ class OnlineBackgroundVoiceService : Service() {
         retryAt = SystemClock.elapsedRealtime() + 1_000L
     }
 
-    private fun loadOfflineWakeFallback() {
-        publish("Preparing Hey JARVIS detector")
-        StorageService.unpack(
-            this,
-            "model-en-us",
-            "omega-vosk-en",
-            { model ->
-                main.post {
-                    if (closed || !started) model.close()
-                    else {
-                        wakeModel = model
-                        phase = "Wake idle"
-                        retryAt = 0L
-                    }
-                }
-            },
-            { _ ->
-                main.post {
-                    if (started && !closed) {
-                        // Online wake can still run even if offline Vosk pack failed to unpack
-                        phase = "Wake idle"
-                        retryAt = 0L
-                    }
-                }
-            }
-        )
-    }
-
     private fun armWake() {
         if (!wakeAllowed() || foregroundBusy()) return
         val s = prefs.settings.value
@@ -242,7 +185,7 @@ class OnlineBackgroundVoiceService : Service() {
     }
 
     private fun armLocalWake() {
-        if (!PorcupineWakeConfig.configured(this)) {
+        if (SystemClock.elapsedRealtime() < porcupineRetryAt || !PorcupineWakeConfig.configured(this)) {
             armSherpaWake()
             return
         }
@@ -262,7 +205,9 @@ class OnlineBackgroundVoiceService : Service() {
                         releaseWake()
                         wakeFailures++
                         retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
-                        publish("Porcupine failed — local wake retry")
+                        porcupineRetryAt = SystemClock.elapsedRealtime() + 60_000L
+                        publish("Porcupine failed — trying Sherpa")
+                        if (wakeAllowed() && !foregroundBusy()) armSherpaWake()
                     }
                 } }
                 .build(this) { index -> main.post {
@@ -278,16 +223,19 @@ class OnlineBackgroundVoiceService : Service() {
             publish("Listening • Porcupine local wake")
         } catch (_: Exception) {
             releaseWake()
+            porcupineRetryAt = SystemClock.elapsedRealtime() + 60_000L
             armSherpaWake()
         } catch (_: LinkageError) {
             releaseWake()
+            porcupineRetryAt = SystemClock.elapsedRealtime() + 60_000L
             armSherpaWake()
         }
     }
 
     private fun armSherpaWake() {
         if (SystemClock.elapsedRealtime() < sherpaRetryAt) {
-            armOfflineVoskWake()
+            retryAt = sherpaRetryAt
+            publish("Local wake retry scheduled")
             return
         }
         if (!VoiceMic.lease.acquire(wakeLease)) {
@@ -310,8 +258,8 @@ class OnlineBackgroundVoiceService : Service() {
                 if (current()) {
                     releaseWake()
                     sherpaRetryAt = SystemClock.elapsedRealtime() + 60_000L
-                    publish("Sherpa failed — trying previous local wake")
-                    if (wakeAllowed() && !foregroundBusy()) armOfflineVoskWake()
+                    retryAt = sherpaRetryAt
+                    publish("Sherpa failed — retry scheduled")
                 }
             } })
         sherpaWake = session
@@ -327,7 +275,7 @@ class OnlineBackgroundVoiceService : Service() {
             apiKeyProvider = { effectiveSarvamKey() },
             wakeMode = true,
             onWakeDetected = { inlineCmd ->
-                if (!started || closed || !wakeMode || phase != "Wake idle") return@SarvamRealtimeSttClient
+                if (token != wakeGeneration || !wakeAllowed() || !screenReady() || !prefs.settings.value.cloudAudioConsentGranted || foregroundBusy() || !wakeMode || phase != "Wake idle") return@SarvamRealtimeSttClient
                 val wakeTime = SystemClock.elapsedRealtime()
                 releaseWake()
                 wakeFailures = 0
@@ -341,8 +289,9 @@ class OnlineBackgroundVoiceService : Service() {
                 if (st.measuredConnectLatencyMs > 0L) {
                     VoiceEngineSelector.recordLatency(StreamingVoiceEngineKind.SARVAM_SAARAS_V4, st.measuredConnectLatencyMs)
                 }
+                if (st.measuredConnectLatencyMs > 0L && st.error == null && st.isListening) publish("Listening • Online Wake (Saaras V4)")
                 if (st.error != null) {
-                    Log.w("OmegaWake", "Online wake error (${st.error}), falling back to Vosk offline wake")
+                    Log.w("OmegaWake", "Online wake error (${st.error}), falling back to local keyword wake")
                     releaseWake()
                     wakeFailures++
                     if (wakeAllowed() && !foregroundBusy()) armLocalWake()
@@ -351,82 +300,7 @@ class OnlineBackgroundVoiceService : Service() {
             }
         }
         client.start(prefs.settings.value.languageTag)
-        publish("Listening • Online Wake (Saaras V4)")
-    }
-
-    private fun armOfflineVoskWake() {
-        val model = wakeModel ?: run {
-            retryAt = SystemClock.elapsedRealtime() + 1200L
-            publish("Offline wake initializing")
-            return
-        }
-        if (!VoiceMic.lease.acquire(wakeLease)) {
-            retryAt = SystemClock.elapsedRealtime() + 250L
-            return
-        }
-        try {
-            val grammar = JSONArray(HandsFreeWakePolicy.phrases + "[unk]").toString()
-            val recognizer = Recognizer(model, 16000f, grammar)
-            wakeRecognizer = recognizer
-            recognizer.setWords(true)
-            val speech = SpeechService(recognizer, 16000f)
-            wakeSpeech = speech
-            fastWake.bindSession(object : FastWakeDetector.Session {
-                override fun cancel() { speech.cancel() }
-                override fun shutdown() { speech.shutdown() }
-                override fun closeRecognizer() { recognizer.close() }
-            })
-
-            val token = ++wakeGeneration
-            fun current() = started && !closed && wakeMode && token == wakeGeneration && phase == "Wake idle"
-            fun failed() {
-                if (!current()) return
-                releaseWake()
-                wakeFailures++
-                retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
-                publish("Recovering wake microphone...")
-            }
-
-            val listener = object : RecognitionListener {
-                override fun onPartialResult(hypothesis: String?) {
-                    if (!current() || !wakeAllowed() || foregroundBusy()) return
-                    if (fastWake.evaluateResult(hypothesis.orEmpty(), isPartial = true)) {
-                        val wakeTime = SystemClock.elapsedRealtime()
-                        releaseWake()
-                        wakeFailures = 0
-                        handleWakeTriggered(wakeTime, "")
-                    }
-                }
-
-                override fun onResult(hypothesis: String?) {
-                    if (!current() || !wakeAllowed() || foregroundBusy()) return
-                    if (!fastWake.evaluateResult(hypothesis.orEmpty(), isPartial = false)) return
-                    val wakeTime = SystemClock.elapsedRealtime()
-                    releaseWake()
-                    wakeFailures = 0
-                    handleWakeTriggered(wakeTime, "")
-                }
-
-                override fun onFinalResult(hypothesis: String?) = onResult(hypothesis)
-                override fun onError(exception: Exception?) = failed()
-                override fun onTimeout() = failed()
-            }
-
-            if (!speech.startListening(listener)) {
-                failed()
-                return
-            }
-            val lockNote = if (screenReady()) "Listening • Offline Wake Fallback" else "Listening • Screen-Lock Local Wake Only"
-            publish(lockNote)
-        } catch (_: Exception) {
-            releaseWake()
-            wakeFailures++
-            retryAt = SystemClock.elapsedRealtime() + HandsFreeWakePolicy.retryDelay(wakeFailures)
-            publish("Wake microphone retry")
-        } catch (_: LinkageError) {
-            publish("Offline wake binary unavailable")
-            retryAt = Long.MAX_VALUE
-        }
+        publish("Connecting • Online Wake (Saaras V4)")
     }
 
     private fun handleWakeTriggered(wakeDetectedAtMs: Long, inlineCommand: String) {
@@ -560,7 +434,7 @@ class OnlineBackgroundVoiceService : Service() {
                             releaseWake()
                             retryAt = now
                         }
-                        val hasActiveWake = wakeSpeech != null || onlineWakeClient != null || porcupine != null || sherpaWake != null
+                        val hasActiveWake = onlineWakeClient != null || porcupine != null || sherpaWake != null
                         if (foregroundBusy() && hasActiveWake) {
                             releaseWake()
                             retryAt = now + 800L
@@ -574,8 +448,8 @@ class OnlineBackgroundVoiceService : Service() {
         }
 
         if (wakeMode) {
-            phase = "Wake loading"
-            loadOfflineWakeFallback()
+            phase = "Wake idle"
+            retryAt = 0L
         } else {
             listen()
         }
@@ -640,7 +514,7 @@ class OnlineBackgroundVoiceService : Service() {
         )
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("JARVIS INFINITY V110")
+            .setContentTitle("JARVIS INFINITY V111")
             .setContentText(message)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setOngoing(true)
@@ -670,8 +544,6 @@ class OnlineBackgroundVoiceService : Service() {
         started = false
         closed = true
         releaseWake()
-        wakeModel?.let { runCatching { it.close() } }
-        wakeModel = null
         if (instance === this) instance = null
         scope.cancel()
         input.release()

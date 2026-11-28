@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
+import android.media.audiofx.AutomaticGainControl
 import android.util.Base64
 import com.example.control.AgentHudBus
 import com.example.voice.VoiceMic
@@ -52,6 +53,7 @@ class OpenAiRealtimeClient(
     private var audioTrack: AudioTrack? = null
     private var aec: AcousticEchoCanceler? = null
     private var ns: NoiseSuppressor? = null
+    private var agc: AutomaticGainControl? = null
     private var fallbackTried = false
 
     private val _state = MutableStateFlow(LiveDuplexState())
@@ -82,22 +84,32 @@ class OpenAiRealtimeClient(
         val req = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $key")
-            .header("OpenAI-Beta", "realtime=v1")
             .build()
 
         webSocket = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (this@OpenAiRealtimeClient.webSocket !== webSocket) return
                 val cfg = JSONObject()
                     .put("type", "session.update")
                     .put(
                         "session",
                         JSONObject()
-                            .put("modalities", JSONArray().put("audio").put("text"))
+                            .put("type", "realtime")
+                            .put("output_modalities", JSONArray().put("audio"))
                             .put("instructions", CreatorIdentity.SYSTEM_CONTEXT)
-                            .put("input_audio_format", "pcm16")
-                            .put("output_audio_format", "pcm16")
+                            .put("audio", JSONObject().put("input", JSONObject()
+                                .put("format", JSONObject().put("type", "audio/pcm").put("rate", 24000))
+                                .put("noise_reduction", JSONObject().put("type", "near_field")))
+                                .put("output", JSONObject().put("format", JSONObject().put("type", "audio/pcm").put("rate", 24000))))
                     )
-                webSocket.send(cfg.toString())
+                if (!webSocket.send(cfg.toString())) { closeResources(); _state.value = LiveDuplexState(error = "Session setup send failed") }
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (this@OpenAiRealtimeClient.webSocket !== webSocket) return
+                val j = runCatching { JSONObject(text) }.getOrNull() ?: return
+                val type = j.optString("type")
+                if (type == "session.updated" && !_state.value.isConnected) {
                 runCatching {
                     initPlayback()
                     startCapture(webSocket)
@@ -106,19 +118,14 @@ class OpenAiRealtimeClient(
                     closeResources()
                     _state.value = LiveDuplexState(error = err.message ?: "Audio capture error")
                 }
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                val j = runCatching { JSONObject(text) }.getOrNull() ?: return
-                val type = j.optString("type")
-                if (type == "response.audio.delta") {
+                } else if (type == "response.output_audio.delta" || type == "response.audio.delta") {
                     val delta = j.optString("delta")
                     if (delta.isNotBlank()) {
                         val pcm = Base64.decode(delta, Base64.DEFAULT)
                         _state.value = _state.value.copy(isAiSpeaking = true, statusText = "Speaking...")
                         runCatching { audioTrack?.write(pcm, 0, pcm.size) }
                     }
-                } else if (type == "response.audio.done" || type == "response.done") {
+                } else if (type == "response.output_audio.done" || type == "response.audio.done" || type == "response.done") {
                     _state.value = _state.value.copy(isAiSpeaking = false, statusText = "Listening...")
                 } else if (type == "error") {
                     val msg = j.optJSONObject("error")?.optString("message").orEmpty()
@@ -134,6 +141,7 @@ class OpenAiRealtimeClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (this@OpenAiRealtimeClient.webSocket !== webSocket) return
                 val code = response?.code ?: 0
                 closeResources()
                 if (!fallbackTried && code == 404 && modelId != "gpt-realtime-2.1") {
@@ -145,6 +153,7 @@ class OpenAiRealtimeClient(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (this@OpenAiRealtimeClient.webSocket !== webSocket) return
                 closeResources()
                 _state.value = LiveDuplexState(statusText = "OpenAI Live Idle")
             }
@@ -165,14 +174,16 @@ class OpenAiRealtimeClient(
 
     @SuppressLint("MissingPermission")
     private fun startCapture(ws: WebSocket) {
-        val rate = 16000
+        val rate = 24000
         val min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(3200)
         val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, min)
         audioRecord = rec
         check(rec.state == AudioRecord.STATE_INITIALIZED)
         aec = runCatching { if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true } else null }.getOrNull()
         ns = runCatching { if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true } else null }.getOrNull()
+        agc = runCatching { if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(rec.audioSessionId)?.apply { enabled = true } else null }.getOrNull()
         rec.startRecording()
+        check(rec.recordingState == AudioRecord.RECORDSTATE_RECORDING)
 
         captureJob = scope.launch {
             val buf = ByteArray(1024)
@@ -204,9 +215,11 @@ class OpenAiRealtimeClient(
         captureJob?.cancel(); captureJob = null
         runCatching { aec?.release() }; aec = null
         runCatching { ns?.release() }; ns = null
+        runCatching { agc?.release() }; agc = null
         runCatching { audioRecord?.stop(); audioRecord?.release() }; audioRecord = null
         runCatching { audioTrack?.pause(); audioTrack?.flush(); audioTrack?.release() }; audioTrack = null
-        runCatching { webSocket?.close(1000, "Done") }; webSocket = null
+        val oldSocket = webSocket; webSocket = null
+        runCatching { oldSocket?.close(1000, "Done") }
         VoiceMic.lease.release(this)
         AgentHudBus.setMainMicBusy(false, this)
     }

@@ -3,13 +3,13 @@ package com.example.voice
 enum class StreamingVoiceEngineKind(val label: String) {
     SARVAM_SAARAS_V4("Sarvam Saaras V4"),
     GEMINI_TRANSCRIBE_LIVE("Gemini 3.5 Transcribe Live"),
-    VOSK_OFFLINE_FALLBACK("Vosk + Silero Offline")
+    LOCAL_KEYWORD_WAKE("Local keyword wake")
 }
 
 data class VoiceEngineBenchmark(
     val sarvamLatencyMs: Long = 0L,
     val geminiLatencyMs: Long = 0L,
-    val selectedEngine: StreamingVoiceEngineKind = StreamingVoiceEngineKind.VOSK_OFFLINE_FALLBACK,
+    val selectedEngine: StreamingVoiceEngineKind = StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
     val reason: String = "Evaluating available voice engines"
 )
 
@@ -30,7 +30,7 @@ object VoiceEngineSelector {
         when (engine) {
             StreamingVoiceEngineKind.SARVAM_SAARAS_V4 -> lastSarvamLatencyMs = clamped
             StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE -> lastGeminiLatencyMs = clamped
-            StreamingVoiceEngineKind.VOSK_OFFLINE_FALLBACK -> Unit
+            StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE -> Unit
         }
     }
 
@@ -44,13 +44,13 @@ object VoiceEngineSelector {
         if (isLocked || !hasInternet || !cloudConsentGranted) {
             val why = when {
                 isLocked -> "Screen locked — local offline wake only"
-                !hasInternet -> "Offline — Vosk + Silero VAD fallback"
+                !hasInternet -> "Offline — local keyword wake"
                 else -> "Cloud wake consent OFF — offline wake active"
             }
             return VoiceEngineBenchmark(
                 sarvamLatencyMs = lastSarvamLatencyMs,
                 geminiLatencyMs = lastGeminiLatencyMs,
-                selectedEngine = StreamingVoiceEngineKind.VOSK_OFFLINE_FALLBACK,
+                selectedEngine = StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
                 reason = why
             )
         }
@@ -83,8 +83,8 @@ object VoiceEngineSelector {
                 reason = "Gemini Live streaming selected"
             )
             else -> VoiceEngineBenchmark(
-                selectedEngine = StreamingVoiceEngineKind.VOSK_OFFLINE_FALLBACK,
-                reason = "No cloud STT key; Vosk offline fallback active"
+                selectedEngine = StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
+                reason = "No cloud STT key; local keyword wake"
             )
         }
     }

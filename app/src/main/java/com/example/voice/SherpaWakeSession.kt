@@ -105,6 +105,8 @@ class SherpaWakeSession(
         synchronized(lock) {
             running = false
             runCatching { record?.stop() }
+            runCatching { record?.release() }
+            record = null
         }
     }
 }

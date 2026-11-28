@@ -184,11 +184,11 @@ class V110MasterIntelligenceTest {
         VoiceEngineSelector.recordLatency(StreamingVoiceEngineKind.SARVAM_SAARAS_V4, 240L)
         VoiceEngineSelector.recordLatency(StreamingVoiceEngineKind.GEMINI_TRANSCRIBE_LIVE, 510L)
         assertEquals(
-            StreamingVoiceEngineKind.VOSK_OFFLINE_FALLBACK,
+            StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
             VoiceEngineSelector.selectBest(hasInternet = true, isLocked = true, cloudConsentGranted = true, hasSarvamKey = true, hasGeminiKey = true).selectedEngine
         )
         assertEquals(
-            StreamingVoiceEngineKind.VOSK_OFFLINE_FALLBACK,
+            StreamingVoiceEngineKind.LOCAL_KEYWORD_WAKE,
             VoiceEngineSelector.selectBest(hasInternet = true, isLocked = false, cloudConsentGranted = false, hasSarvamKey = true, hasGeminiKey = true).selectedEngine
         )
         assertEquals(

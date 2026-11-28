@@ -14,6 +14,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -35,6 +39,10 @@ object PreloadedAckPlayer {
     @Volatile var usingCachedSarvamAudio: Boolean = false
         private set
 
+    private val memory = ConcurrentHashMap<String, ByteArray>()
+    private val warmLock = Mutex()
+    @Volatile private var profile = "legacy"
+
     private val warmChimePcm: ShortArray by lazy {
         val sampleRate = 22050
         val count = (sampleRate * 0.22).toInt()
@@ -48,13 +56,16 @@ object PreloadedAckPlayer {
 
     private fun cacheFile(context: Context, langTag: String): File {
         val dir = File(context.applicationContext.filesDir, "ack_cache").apply { mkdirs() }
-        val name = if (langTag.startsWith("te", true)) "yes_boss_te.mp3" else "yes_boss_en.mp3"
+        val lang = if (langTag.startsWith("te", true)) "te" else "en"
+        val name = "yes_boss_" + profile + "_" + lang + ".mp3"
         return File(dir, name)
     }
 
     fun warmUpSarvamAckCache(context: Context, sarvamKey: String, speakerId: String, model: String) {
         if (sarvamKey.isBlank()) return
-        scope.launch {
+        val newProfile = MessageDigest.getInstance("SHA-256").digest("$speakerId:$model".toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+        scope.launch { warmLock.withLock {
+            if (profile != newProfile) { profile = newProfile; memory.clear() }
             val enFile = cacheFile(context, "en-IN")
             val teFile = cacheFile(context, "te-IN")
             if (!enFile.exists() || enFile.length() == 0L) {
@@ -65,8 +76,11 @@ object PreloadedAckPlayer {
                 SarvamVoiceClient.synthesize(sarvamKey, "యెస్ బాస్, చెప్పండి.", "te-IN", speakerId, model)
                     .onSuccess { bytes -> runCatching { teFile.writeBytes(bytes) } }
             }
-            usingCachedSarvamAudio = enFile.exists() || teFile.exists()
-        }
+            listOf(enFile, teFile).forEach { file ->
+                if (file.length() in 101..2_000_000) runCatching { memory[file.name] = file.readBytes() }
+            }
+            usingCachedSarvamAudio = memory.isNotEmpty()
+        } }
     }
 
     fun playImmediateAck(
@@ -79,7 +93,7 @@ object PreloadedAckPlayer {
             ?: cacheFile(context, "en-IN").takeIf { it.exists() && it.length() > 100L }
 
         if (cached != null) {
-            val bytes = runCatching { cached.readBytes() }.getOrNull()
+            val bytes = memory[cached.name] ?: runCatching { cached.takeIf { it.length() <= 2_000_000 }?.readBytes() }.getOrNull()
             if (bytes != null && bytes.isNotEmpty()) {
                 usingCachedSarvamAudio = true
                 playCachedMp3(bytes, wakeDetectedAtElapsedMs, onDone)
@@ -117,14 +131,14 @@ object PreloadedAckPlayer {
                     override fun close() {}
                 })
                 player.setOnPreparedListener { mp ->
-                    lastMeasuredAckMs = (SystemClock.elapsedRealtime() - wakeDetectedAtMs).coerceAtLeast(1L)
-                    runCatching { mp.start() }.onFailure { doneOnce() }
+                    runCatching { mp.start(); lastMeasuredAckMs = (SystemClock.elapsedRealtime() - wakeDetectedAtMs).coerceAtLeast(1L) }.onFailure { doneOnce() }
                 }
                 player.setOnCompletionListener { doneOnce() }
                 player.setOnErrorListener { _, _, _ -> doneOnce(); true }
                 main.postDelayed({ doneOnce() }, 2_000L)
                 player.prepareAsync()
             }.onFailure {
+                runCatching { player.release() }
                 playInstantChime(wakeDetectedAtMs, onDone)
             }
         }
