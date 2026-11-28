@@ -202,7 +202,7 @@ class SarvamRealtimeSttClient(
                 delay(400L)
                 val cur = SystemClock.elapsedRealtime()
                 if (cur - lastFrameAt > 3_500L) {
-                    fail(token, "Microphone stall recovered")
+                    fail(token, "Microphone stall detected")
                     break
                 }
                 if (!wakeMode && cur - lastSpeechAt > 3_200L && latestPartial.isNotBlank()) {
@@ -238,11 +238,15 @@ class SarvamRealtimeSttClient(
                     if (speechVad) lastSpeechAt = SystemClock.elapsedRealtime()
                     _state.value = _state.value.copy(amplitude = (rms / 2800f).coerceIn(0f, 1f))
 
-                    if (wakeMode && !speechVad) continue // Send speech segments during online wake to conserve bandwidth
+                    // Preserve the PCM timeline: server-side VAD needs silence as well as speech.
+                    // Cloud capture is enabled only by the caller after explicit consent.
                     val chunkMsg = JSONObject()
                         .put("event", "audio_input")
                         .put("audio", Base64.encodeToString(buf.copyOf(read), Base64.NO_WRAP))
-                    if (!ws.send(chunkMsg.toString())) break
+                    if (ws.queueSize() > 256 * 1024L || !ws.send(chunkMsg.toString())) {
+                        fail(token, "Audio streaming connection stalled")
+                        break
+                    }
                 } else if (read == 0) {
                     if (AudioCapturePolicy.emptyReadLimit(++empty)) {
                         fail(token, "Audio capture stall")
@@ -250,6 +254,7 @@ class SarvamRealtimeSttClient(
                     }
                     delay(AudioCapturePolicy.EMPTY_READ_DELAY_MS)
                 } else {
+                    fail(token, "Microphone read failed ($read)")
                     break
                 }
             }
